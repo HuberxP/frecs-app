@@ -77,7 +77,9 @@ const soloHora = s => { const m = /[ T](\d{2}):(\d{2})/.exec(s || ""); return m 
 const fechaDMY = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ""); return m ? `${m[3]}/${m[2]}/${m[1]}` : (s || ""); };
 const ahoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 const ahoraTxt = () => ahoraLocal().replace("T", " ") + ":00";
-const skuTxt = (s, p) => `<span class="sku">${h(s)}</span> · ${h(p)}`;
+const skuTxt = (s, p) => `<span class="sku">${h(s)}</span> · <span class="pnom">${h(p)}</span>`;
+// Módulo como etiqueta (borde azul neón, letras negras) en toda la página
+const modChip = m => `<span class="mod-chip">${h(m)}</span>`;
 // Cantidades con nombre completo: "Estibas: 3 | Cajas: 120 | Unidades: 0"
 const qty = (e, c, u, emp) => `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
@@ -251,7 +253,24 @@ function toast(msg, tipo, ms, extraHtml) {
 const loader = txt => `<div class="loader"><div class="spin"></div>${h(txt || "Cargando…")}</div>`;
 const vacio = (txt, ic) => `<div class="empty"><div class="big">${ic || "✅"}</div><div>${h(txt)}</div></div>`;
 const errBox = e => `<div class="err">⚠️ ${h(e && e.message ? e.message : e)}</div>`;
-function cab(titulo, sub, tools) { return `<div class="vh"><div><h1>${titulo}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>${tools ? `<div class="tools">${tools}</div>` : ""}</div>`; }
+// La explicación de cada sección queda detrás del botón «?» (se despliega al tocarlo)
+function cab(titulo, sub, tools) {
+  return `<div class="vh"><div><h1>${titulo}${sub ? ` <button class="ayuda-btn" data-ayuda title="¿Qué es esto?" aria-label="Ayuda">?</button>` : ""}</h1>${sub ? `<div class="sub ayuda">${sub}</div>` : ""}</div>${tools ? `<div class="tools">${tools}</div>` : ""}</div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-ayuda]"); if (!b) return; const v = b.closest("#view") || $("#view"); v.classList.toggle("ver-ayuda"); b.classList.toggle("on", v.classList.contains("ver-ayuda")); });
+// Tarjetas desplegables: se abren y cierran al tocar su cabecera; se recuerda cuáles están abiertas
+S.abiertos = {};
+const abierto = (grupo, clave) => !!(S.abiertos[grupo] && S.abiertos[grupo][clave]);
+document.addEventListener("click", e => {
+  const c = e.target.closest("[data-plegar]"); if (!c) return;
+  if (e.target.closest("button:not([data-plegar]), a, input, select, textarea, label")) return;
+  const card = c.closest(".plegable"); if (!card) return;
+  const [g, k] = c.dataset.plegar.split("|");
+  S.abiertos[g] = S.abiertos[g] || {};
+  S.abiertos[g][k] = !card.classList.contains("abierto");
+  card.classList.toggle("abierto", S.abiertos[g][k]);
+  c.setAttribute("aria-expanded", S.abiertos[g][k] ? "true" : "false");
+});
 const LEYENDA = `<div class="leyenda"><span class="v-venc">Vencido</span><span class="v-rojo">0–29 días</span><span class="v-amar">30–45 días</span><span class="v-vcla">46–90 días</span><span class="v-vosc">&gt; 90 días</span></div>`;
 
 let modalBusy = false, modalOnClose = null;
@@ -356,7 +375,8 @@ function autoSku(input, onPick, opts) {
     box.innerHTML = items.map((c, k) => `<div class="ac-item" data-k="${k}">${skuTxt(c.sku, c.prod)}<div class="sub">${h(c.pres || "")}${c.aprox ? " · parecido" : ""}</div></div>`).join("");
     box.classList.remove("hidden");
   };
-  const elegir = k => { const c = items[k]; if (!c) return; box.classList.add("hidden"); if (opts.limpiar) input.value = ""; else input.value = opts.soloSku ? c.sku : `${c.sku} · ${c.prod}`; onPick(c); };
+  // Al escoger de la lista se esconde el teclado del celular
+  const elegir = k => { const c = items[k]; if (!c) return; box.classList.add("hidden"); if (opts.limpiar) input.value = ""; else input.value = opts.soloSku ? c.sku : `${c.sku} · ${c.prod}`; input.blur(); onPick(c); };
   input.addEventListener("input", pintar);
   input.addEventListener("focus", () => { if (input.value.trim()) pintar(); });
   input.addEventListener("keydown", e => {
@@ -443,6 +463,7 @@ $("#scrim").onclick = () => abrirMenu(false);
 $("#nav").addEventListener("click", e => { const a = e.target.closest("a[data-v]"); if (!a) return; e.preventDefault(); if (window.innerWidth < 1024 && Date.now() - menuDesde < 400) return; ir(a.dataset.v); });
 $("#bottombar").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; ir(b.dataset.v); });
 $("#backBtn").onclick = () => atras();
+$("#refBtn").onclick = e => refrescarTodo(e.currentTarget);
 $("#nuevoChip").onclick = () => aplicarPendiente();
 
 // Atrás: cierra la ventana abierta → cierra el menú → vuelve a la sección anterior → Inicio.
@@ -481,11 +502,63 @@ function ir(vista, params, esAtras) {
   window.scrollTo(0, 0);
   const el = $("#view");
   el.onclick = el.oninput = el.onchange = null;
+  el.classList.remove("ver-ayuda");
   const id = ++renderId;
   el.innerHTML = loader();
   Promise.resolve(VISTAS[vista](el, S.params, () => id === renderId)).catch(e => { if (id === renderId) el.innerHTML = errBox(e.red ? "Sin conexión: esta sección necesita conexión." : e); });
 }
 function repintar() { const y = window.scrollY; ir(S.vista, S.params); setTimeout(() => window.scrollTo(0, y), 60); }
+
+// ---------- fechas: se escriben a mano (dd/mm/aaaa) y el calendario se abre solo con el ícono ----------
+// El campo original (type=date o datetime-local) queda escondido y sigue teniendo el valor en formato ISO,
+// así el resto del código no cambia.
+function mejorarFechas(raiz) {
+  $$('input[type="date"]:not([data-fm]), input[type="datetime-local"]:not([data-fm])', raiz).forEach(inp => {
+    inp.dataset.fm = "1";
+    const conHora = inp.type === "datetime-local";
+    const txt = document.createElement("input");
+    txt.type = "text"; txt.inputMode = "numeric"; txt.autocomplete = "off"; txt.className = "fecha-txt";
+    txt.placeholder = conHora ? "dd/mm/aaaa hh:mm" : "dd/mm/aaaa";
+    const aTxt = v => { const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v || ""); return m ? `${m[3]}/${m[2]}/${m[1]}${conHora && m[4] ? ` ${m[4]}:${m[5]}` : ""}` : ""; };
+    const aIso = t => {
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/.exec(t.trim()); if (!m) return null;
+      const y = m[3].length === 2 ? "20" + m[3] : m[3], mo = m[2].padStart(2, "0"), d = m[1].padStart(2, "0");
+      const f = new Date(+y, +mo - 1, +d); if (f.getMonth() !== +mo - 1 || f.getDate() !== +d) return null;
+      if (!conHora) return `${y}-${mo}-${d}`;
+      const hh = (m[4] || "00").padStart(2, "0"), mi = m[5] || "00"; if (+hh > 23 || +mi > 59) return null;
+      return `${y}-${mo}-${d}T${hh}:${mi}`;
+    };
+    txt.value = aTxt(inp.value);
+    const caja = document.createElement("span"); caja.className = "fecha-caja";
+    const btn = document.createElement("button"); btn.type = "button"; btn.className = "fecha-ico"; btn.textContent = "📅"; btn.title = "Abrir calendario"; btn.setAttribute("aria-label", "Abrir calendario");
+    inp.parentNode.insertBefore(caja, inp); caja.appendChild(txt); caja.appendChild(btn); caja.appendChild(inp);
+    inp.classList.add("fecha-oculta"); inp.tabIndex = -1;
+    const avisar = () => { inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); };
+    // Escribir: las barras se ponen solas
+    txt.addEventListener("input", e => {
+      if (e.inputType && e.inputType.indexOf("delete") === 0) return;
+      let d = txt.value.replace(/[^\d]/g, "").slice(0, conHora ? 12 : 8), o = "";
+      for (let k = 0; k < d.length; k++) { if (k === 2 || k === 4) o += "/"; if (conHora && k === 8) o += " "; if (conHora && k === 10) o += ":"; o += d[k]; }
+      txt.value = o;
+      const iso = aIso(o); if (iso) { inp.value = iso; avisar(); }
+      txt.classList.toggle("mal", o.length >= 10 && !iso);
+    });
+    txt.addEventListener("blur", () => { const v = txt.value.trim(); if (!v) { if (inp.value) { inp.value = ""; avisar(); } txt.classList.remove("mal"); return; } const iso = aIso(v); if (iso) { txt.value = aTxt(iso); txt.classList.remove("mal"); } else txt.classList.add("mal"); });
+    txt.addEventListener("keydown", e => { if (e.key === "Enter") { const iso = aIso(txt.value); if (iso) { inp.value = iso; avisar(); } } });
+    btn.addEventListener("click", () => { try { inp.showPicker(); } catch (e) { inp.focus(); inp.click(); } });
+    inp.addEventListener("change", () => { const t = aTxt(inp.value); if (t && document.activeElement !== txt) txt.value = t; });
+  });
+}
+new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) mejorarFechas(n.matches && n.matches("input") ? n.parentNode : n); }))).observe(document.body, { childList: true, subtree: true });
+
+// ---------- ↻ refrescar: vuelve a traer datos y reglas (no hay «deslizar para recargar») ----------
+async function refrescarTodo(btn) {
+  if (btn.disabled) return;
+  btn.disabled = true; btn.classList.add("girando");
+  try { S.val = null; S.ent = null; S.conc = null; await arrancar(true, true); }
+  catch (e) { toast(e.red ? "Sin conexión: no se pudo actualizar." : e.message, "bad", 5000); }
+  finally { btn.disabled = false; btn.classList.remove("girando"); }
+}
 
 // ---------- datos base (con copia en el equipo para trabajar sin conexión) ----------
 function pintarSync() {
@@ -591,7 +664,7 @@ function invCard(i, o) {
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
   else if (i.obs) obs = `<div class="obs">📝 ${h(i.obs)}</div>`;
   return `<article class="card inv v-${h(i.vida)}">
-    <div class="row sb"><span class="mod">${h(i.m)}</span>${est}</div>
+    <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}</span>${est}</div>
     ${o.producto === false ? "" : `<div class="prod">${skuTxt(i.s, i.p)}</div>${i.fam ? `<div class="sub">${h(i.fam)}</div>` : ""}`}
     ${qty(i.e, i.c, i.u, i.emp)}
     <div class="vence">${vencTxt(i)}</div>
@@ -706,7 +779,7 @@ VISTAS.stock = async (el, p, vigente) => {
         <div class="small muted" style="margin-top:4px">Mínimo para no ser «poco»: ${ficha.minimo === null ? "10 (por defecto)" : fm(ficha.minimo)} estibas</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("ALL", "Todos")}${segBtn("DISP", "Disponible")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
-      ${LEYENDA}${lis.length ? `<div class="grid">${lis.map(i => invCard(i, { producto: false })).join("")}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
+      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, fefo: i.disp ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
   };
@@ -844,17 +917,26 @@ VISTAS.barriles = async (el, p, vigente) => {
   if (!vigente()) return;
   el.innerHTML = cab("🛢️ Barriles", "Módulo BARRILES en orden FEFO (primero lo que vence antes)", botonesPDF("BARRILES", "PDF barriles")) +
     (b.lotes.length ? `<table class="tabla resp" style="margin-bottom:16px"><thead><tr><th>SKU</th><th>Producto</th><th class="num">Unidades</th><th>Lotes</th><th>Vence primero</th></tr></thead><tbody>${b.resumen.map(r => `<tr><td data-l="SKU" class="sku">${h(r.s)}</td><td data-l="Producto">${h(r.p)}</td><td data-l="Unidades" class="num"><b>${fm(r.u)}</b></td><td data-l="Lotes">${r.lotes}</td><td data-l="Vence">${h(r.vf)}${r.dMin !== 9999 ? ` (${r.dMin} d)` : ""}</td></tr>`).join("")}</tbody></table>
-      ${LEYENDA}<div class="grid">${b.lotes.map((i, k) => invCard(Object.assign({ emp: "Cajas", fis: true }, i), { canales: false, extra: `#${k + 1} en orden FEFO` })).join("")}</div>` : vacio("No hay producto en el módulo BARRILES.", "🛢️"));
+      ${LEYENDA}<div class="grid">${b.lotes.map((i, k) => invCard(Object.assign({ emp: "Cajas", fis: true }, i), { canales: false, fefo: k + 1 })).join("")}</div>` : vacio("No hay producto en el módulo BARRILES.", "🛢️"));
 };
 
 VISTAS.retornables = async (el, p, vigente) => {
   const inv = await cargarInv();
   if (!vigente()) return;
-  const gr = {};
-  inv.forEach(i => { if (i.fis && !i.esOp && i.ret) (gr[i.s] = gr[i.s] || { p: i.p, s: i.s, u: [] }).u.push(i); });
-  const lG = Object.values(gr).sort(cmpSku);
-  el.innerHTML = cab("🍾 Retornables", "Bodega general, top 2 FEFO por producto (sin KA / PREV)", botonesPDF("RETORNABLE", "PDF retornables")) + LEYENDA +
-    (lG.length ? lG.map(g => { g.u.sort(ordPrioVence); return `<h2>${skuTxt(g.s, g.p)}</h2><div class="grid">${g.u.slice(0, 2).map(i => invCard(i, { producto: false })).join("")}</div>`; }).join("") : vacio("No hay retornables en almacenamiento general."));
+  let filtro = ls.get("retFiltro", "DISP");
+  el.innerHTML = cab("🍾 Retornables", "Bodega general, top 2 FEFO por producto (sin KA / PREV). Lo que tiene prioridad siempre va primero.", botonesPDF("RETORNABLE", "PDF retornables")) +
+    `<div class="lista-tools"><div class="seg" id="rf"><button data-f="DISP">Disponible</button><button data-f="BLOQ">Bloqueado</button><button data-f="ALL">Todos</button></div><span class="count" id="rc"></span></div>${LEYENDA}<div id="rr"></div>`;
+  const pintar = () => {
+    $$("#rf button", el).forEach(b => b.classList.toggle("on", b.dataset.f === filtro));
+    const gr = {};
+    inv.forEach(i => { if (i.fis && !i.esOp && i.ret && (filtro === "ALL" || (filtro === "DISP" ? i.disp : !i.disp))) (gr[i.s] = gr[i.s] || { p: i.p, s: i.s, u: [] }).u.push(i); });
+    const lG = Object.values(gr).map(g => { g.u.sort(ordPrioVence); g.prio = g.u.some(x => x.prio); return g; }).sort((a, b) => prio(a, b) || cmpSku(a, b));
+    $("#rc", el).textContent = `${lG.length} productos`;
+    $("#rr", el).innerHTML = lG.length ? lG.map(g => `<h2>${skuTxt(g.s, g.p)}${g.prio ? ` <span class="tag t-prio">🚨 Prioridad</span>` : ""}</h2><div class="grid">${g.u.slice(0, 2).map((i, k) => invCard(i, { producto: false, fefo: i.disp ? k + 1 : 0 })).join("")}</div>`).join("")
+      : vacio(filtro === "BLOQ" ? "No hay retornables bloqueados." : "No hay retornables en almacenamiento general.");
+  };
+  $("#rf", el).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; filtro = b.dataset.f; ls.set("retFiltro", filtro); pintar(); };
+  pintar();
 };
 
 VISTAS.fecha = async (el, p, vigente) => {
@@ -887,10 +969,10 @@ VISTAS.fechas = async (el, p, vigente) => {
     alMontar: e2 => { const ap = () => { const v = parseInt($("#fd", e2).value, 10) || 60; ls.set("ultDias", v); ir("fechas", { dias: v }); }; $("#fdb", e2).onclick = ap; $("#fd", e2).onkeydown = ev => { if (ev.key === "Enter") ap(); }; }
   });
 };
-VISTAS.bloqueados = el => vistaFiltro(el, { titulo: "❌ Bloqueados", sub: "Ubicaciones con estado distinto a DISPONIBLE", filtro: i => !i.disp, orden: cmpMod, vacio: "No hay productos bloqueados." });
-VISTAS.candados = el => vistaFiltro(el, { titulo: "🔒 Candados / bloqueos", sub: "Código de candado u observación de cada bloqueo", filtro: i => !i.disp, orden: cmpMod, vacio: "No hay productos bloqueados.", card: i => ({ extra: `🔑 <b>${h(i.cand || i.obs || "Sin candado registrado")}</b>` }) });
+VISTAS.bloqueados = el => vistaFiltro(el, { titulo: "❌ Bloqueados", sub: "Ubicaciones con estado distinto a DISPONIBLE", filtro: i => !i.disp, orden: ordPrioModD, vacio: "No hay productos bloqueados." });
+VISTAS.candados = el => vistaFiltro(el, { titulo: "🔒 Candados / bloqueos", sub: "Código de candado u observación de cada bloqueo", filtro: i => !i.disp, orden: ordPrioModD, vacio: "No hay productos bloqueados.", card: i => ({ extra: `🔑 <b>${h(i.cand || i.obs || "Sin candado registrado")}</b>` }) });
 VISTAS.prioridades = el => vistaFiltro(el, { titulo: "🚨 Con prioridad", sub: "Observación con «prioridad» en el WMS", filtro: i => i.prio, orden: ordPrioD, vacio: "Sin prioridades activas." });
-VISTAS.tpc = el => vistaFiltro(el, { titulo: "🏷️ Tapacódigos en bodega", filtro: i => i.tpc, orden: ordPrioD, vacio: "Sin tapacódigos activos." });
+VISTAS.tpc = el => vistaFiltro(el, { titulo: "🏷️ Tapacódigos en bodega", tools: botonesPDF("TPC", "PDF tapacódigos"), filtro: i => i.tpc, orden: ordPrioD, vacio: "Sin tapacódigos activos." });
 VISTAS.reempaque = el => vistaFiltro(el, { titulo: "📦 Reempaques en bodega", filtro: i => i.reemp, orden: ordPrioD, vacio: "Sin reempaques activos." });
 
 async function vistaAvanzado(el, tipo, vigente) {
@@ -993,12 +1075,21 @@ VISTAS.limbo = async (el, p, vigente) => {
 VISTAS.organizar = async (el, p, vigente) => {
   const lis = await api("webOrganizar");
   if (!vigente()) return;
-  el.innerHTML = cab("🧩 Organizar bodega", "Movimientos sugeridos para liberar módulos (mismo SKU repartido)") + (lis.length ? `${LEYENDA}<div class="grid">${lis.map(s => `<article class="card inv v-${h(s.vida)}">
-    <div class="prod">${skuTxt(s.sku, s.p)}</div><div class="sub">${h(s.fefo)}</div>
-    <div style="font-size:16px;margin:4px 0">👉 Mover <b>${h(s.from)}</b> → <b>${h(s.to)}</b></div>
-    ${qty(s.e, s.c, s.u)}
-    <div class="vence">Vence <b>${h(s.vf)}</b> · ${s.d === 9999 ? "sin fecha" : s.d + " días"}</div>
-    <div class="extra">Beneficio: <b>${h(s.from)}</b> queda libre.</div><div class="act">Act: ${h(s.actTxt)}</div></article>`).join("")}</div>` : vacio("Bodega organizada. No hay nada por consolidar."));
+  if (!lis.length) { el.innerHTML = cab("🧩 Organizar bodega", "Movimientos sugeridos para liberar módulos (mismo SKU repartido)") + vacio("Bodega organizada. No hay nada por consolidar."); return; }
+  el.innerHTML = cab("🧩 Organizar bodega", "Movimientos sugeridos para liberar módulos (mismo SKU repartido)") + LEYENDA +
+    `<div class="lista-tools"><input type="search" id="oq" placeholder="Buscar por SKU, producto o módulo…"><span class="count" id="oc"></span></div><div id="or"></div>`;
+  const pintar = () => {
+    const q = norm($("#oq", el).value).split(/\s+/).filter(x => x);
+    const it = q.length ? lis.filter(s2 => coincide(norm(`${s2.sku} ${s2.p} ${s2.from} ${s2.to}`), q) > 0) : lis;
+    $("#oc", el).textContent = `${it.length} movimientos`;
+    $("#or", el).innerHTML = it.length ? `<div class="grid">${it.map(s2 => `<article class="card inv v-${h(s2.vida)}">
+    <div class="prod">${skuTxt(s2.sku, s2.p)}</div><div class="sub">${h(s2.fefo)}</div>
+    <div style="font-size:16px;margin:6px 0">👉 Mover ${modChip(s2.from)} → ${modChip(s2.to)}</div>
+    ${qty(s2.e, s2.c, s2.u)}
+    <div class="vence">Vence <b>${h(s2.vf)}</b> · ${s2.d === 9999 ? "sin fecha" : s2.d + " días"}</div>
+    <div class="extra">Beneficio: ${modChip(s2.from)} queda libre.</div><div class="act">Act: ${h(s2.actTxt)}</div></article>`).join("")}</div>` : vacio("Nada coincide con la búsqueda.", "🔎");
+  };
+  $("#oq", el).oninput = pintar; pintar();
 };
 VISTAS.huecos = async (el, p, vigente) => {
   const lis = await api("webHuecos");
@@ -1009,18 +1100,19 @@ VISTAS.huecos = async (el, p, vigente) => {
     const q = norm($("#hq", el).value);
     const it = lis.filter(x => !q || norm(x.modulo + " " + x.prod).includes(q));
     $("#hc", el).textContent = `${it.length} módulos`;
-    $("#hr", el).innerHTML = it.length ? `<table class="tabla resp"><thead><tr><th>Módulo</th><th class="num">Usado</th><th class="num">Capacidad</th><th class="num">Caben</th><th>Ocupa</th></tr></thead><tbody>${it.map(x => `<tr><td data-l="Módulo"><b>${h(x.modulo)}</b></td><td data-l="Usado" class="num">${fm(x.estAct)}</td><td data-l="Capacidad" class="num">${fm(x.cTot)} <span class="muted small">(${x.caras}×${x.porCara})</span></td><td data-l="Caben" class="num"><b style="color:var(--ok)">${fm(x.libres)}</b></td><td data-l="Ocupa" class="small">${h(x.prod)}</td></tr>`).join("")}</tbody></table>` : vacio(lis.length ? "Nada coincide." : "Bodega al 100%. No hay huecos.", lis.length ? "🔎" : "❌");
+    $("#hr", el).innerHTML = it.length ? `<table class="tabla resp"><thead><tr><th>Módulo</th><th class="num">Usado</th><th class="num">Capacidad</th><th class="num">Caben</th><th>Ocupa</th></tr></thead><tbody>${it.map(x => `<tr><td data-l="Módulo">${modChip(x.modulo)}</td><td data-l="Usado" class="num">${fm(x.estAct)}</td><td data-l="Capacidad" class="num">${fm(x.cTot)} <span class="muted small">(${x.caras}×${x.porCara})</span></td><td data-l="Caben" class="num"><b style="color:var(--ok)">${fm(x.libres)}</b></td><td data-l="Ocupa" class="small">${h(x.prod)}</td></tr>`).join("")}</tbody></table>` : vacio(lis.length ? "Nada coincide." : "Bodega al 100%. No hay huecos.", lis.length ? "🔎" : "❌");
   };
   $("#hq", el).oninput = pintar; pintar();
 };
 VISTAS.vacios = async (el, p, vigente) => {
   const lis = await api("webVacios");
   if (!vigente()) return;
-  const zonas = {};
-  lis.forEach(x => (zonas[x.zona] = zonas[x.zona] || []).push(x.m));
-  const nombres = { BODEGA: "Pasillos A–J", H: "Módulos H", CARPA: "Carpa", KA: "KA", PREV: "Picking preventa", ANTIGUO: "Antiguos", BARRILES: "Barriles", OTRO: "Otros" };
-  el.innerHTML = cab("⬜ Módulos 100% vacíos", `${lis.length} módulos sin inventario físico`) +
-    (lis.length ? Object.keys(zonas).map(z => `<h2>${h(nombres[z] || z)} <span class="muted small">(${zonas[z].length})</span></h2><div class="vac-grid">${zonas[z].map(m => `<span>${h(m)}</span>`).join("")}</div>`).join("") : vacio("No hay módulos 100% vacíos.", "❌"));
+  const secs = {};
+  lis.forEach(x => (secs[x.sec || x.zona] = secs[x.sec || x.zona] || []).push(x.m));
+  const orden = Object.keys(secs).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const nombre = k => ({ M: "Carpa (M)", KA: "KA", PREV: "Picking preventa", H: "Módulos H", BARRILES: "Barriles" }[k] || (/^[A-Z]$/.test(k) ? "Pasillo " + k : k));
+  el.innerHTML = cab("⬜ Módulos 100% vacíos", "Solo los módulos que existen en físico (pestaña Capacidad_Bodega), sin inventario. Agrupados por pasillo.") +
+    (lis.length ? `<div class="count" style="margin:4px 0 10px">${lis.length} módulos vacíos</div>` + orden.map(z => `<h2>${h(nombre(z))} <span class="muted small">(${secs[z].length})</span></h2><div class="vac-grid">${secs[z].map(m => modChip(m)).join("")}</div>`).join("") : vacio("No hay módulos 100% vacíos.", "❌"));
 };
 VISTAS.consolidar = async (el, p, vigente) => {
   const lis = await api("webConsolidar");
@@ -1074,6 +1166,7 @@ VISTAS.reportes = async el => {
     ["RETORNABLE", "🍾 Retornables (top FEFO)", "Letra grande para bodega"],
     ["CARPA", "⛺ Mapa de carpa", "M1 a M15 con lo que hay en cada módulo"],
     ["BARRILES", "🛢️ Barriles (FEFO)", "Módulo BARRILES en orden de vencimiento"],
+    ["TPC", "🏷️ Tapacódigos", "Por producto: módulos, cantidades y vencimiento"],
     ["VALIDACION", "📝 Validación del turno abierto", "Saldo por producto, horas de conteo y de validación"],
     ["ENTREGA", "📋 Entrega del turno abierto", "Bodega, TPC, PK y KA en dos columnas, y notas"],
     ["CONCILIACION", "⚖️ Conciliación (abierta o la última)", "Conteos por área contra facturación"]
@@ -1270,14 +1363,16 @@ function pintarVal(el) {
   const totIni = v.productos.reduce((a, p) => a + p.inicial, 0), totVal = v.productos.reduce((a, p) => a + p.validado, 0);
   const regs = v.registros;
   const nAct = regs.filter(r => r.estado === "ACTIVO").length, nAn = regs.filter(r => r.estado === "ANULADO").length, nConf = regs.filter(r => r.estado === "CONFLICTO").length;
-  html += `<div class="lista-tools">${esc ? `<button class="btn primary sm" data-a="agregar">＋ Agregar productos</button>` : ""}${hist ? "" : botonesPDF("VALIDACION", "PDF", t.id)}<span class="count">Validado ${fm(totVal)} de ${fm(totIni)} cajas</span></div>
+  const regsDe = sku => regs.filter(r => r.sku === sku);
+  html += `<div class="lista-tools">${esc ? `<button class="btn btn-neon" data-a="agregar"><span>＋ Agregar productos</span></button>` : ""}${hist ? "" : botonesPDF("VALIDACION", "PDF", t.id)}<span class="count">Validado ${fm(totVal)} de ${fm(totIni)} cajas</span></div>
     ${nConf ? `<div class="err">⚠️ Hay ${nConf} validación(es) en conflicto: se hicieron sin conexión y al subir ya no alcanzaba el saldo. Corrígelas o anúlalas.</div>` : ""}
-    ${v.productos.length ? `<div class="grid vgrid">${v.productos.map(p => cardVal(p, esc, hist)).join("")}</div>` : vacio("No hay productos en este turno. Usa «Agregar productos».", "📝")}
+    ${v.productos.length ? `<div class="lista-tools"><input type="search" id="vq" placeholder="Buscar el producto a actualizar (nombre o SKU)…" value="${h(S.valQ || "")}"><span class="count" id="vqc"></span></div>
+      <div class="vlista">${v.productos.map(p => cardVal(p, esc, hist, regsDe(p.sku))).join("")}</div>` : vacio("No hay productos en este turno. Usa «Agregar productos».", "📝")}
     <h2>Registro <span class="muted small">(${nAct} activas${nAn ? `, ${nAn} anuladas` : ""}${nConf ? `, ${nConf} en conflicto` : ""})</span></h2>
-    ${regs.length ? `<table class="tabla resp reg-tabla"><thead><tr><th>Validado</th><th>Contado</th><th>SKU</th><th>Producto</th><th>Destino</th><th>Cajas</th><th>Usuario</th><th>Nota</th><th></th></tr></thead><tbody>
+    ${regs.length ? `<table class="tabla resp reg-tabla"><thead><tr><th>Contado</th><th>Validado</th><th>Producto</th><th>Destino y cajas</th><th>Usuario</th><th>Nota</th><th></th></tr></thead><tbody>
       ${regs.map(r => `<tr class="${r.estado === "ANULADO" ? "anulado" : r.estado === "CONFLICTO" ? "conflicto" : (r.estado === "PENDIENTE" || r.estado === "ENVIANDO") ? "pendiente" : ""}" title="${h(r.modificadoPor || "")}">
-        <td data-l="Validado">${h(hist ? fechaCorta(r.fecha) : soloHora(r.fecha))}</td><td data-l="Contado">${r.contadoEn ? h(fechaCorta(r.contadoEn)) : "—"}</td><td data-l="SKU" class="sku">${h(r.sku)}</td><td data-l="Producto">${h(r.producto)}</td><td data-l="Destino"><span class="chip">${h(r.destino)}</span></td>
-        <td data-l="Cajas"><b>${fm(r.cantidad)}</b></td><td data-l="Usuario" class="small">${h(r.usuario)}</td><td data-l="Nota" class="small">${h(r.nota) || "—"}${r.estado === "ANULADO" ? " · ANULADO" : ""}${r.estado === "CONFLICTO" ? ` <span class="pill bad">CONFLICTO</span>` : ""}${r.estado === "PENDIENTE" ? ` <span class="pill warn">⏳ sin subir</span>` : ""}${r.estado === "ENVIANDO" ? ` <span class="pill info">guardando…</span>` : ""}</td>
+        <td data-l="Contado">${r.contadoEn ? h(fechaCorta(r.contadoEn)) : "—"}</td><td data-l="Validado">${h(hist ? fechaCorta(r.fecha) : soloHora(r.fecha))}</td><td data-l="Producto">${skuTxt(r.sku, r.producto)}</td>
+        <td data-l="Destino"><span class="chip">${h(r.destino)} <b>${fm(r.cantidad)}</b></span></td><td data-l="Usuario" class="small">${h(r.usuario)}</td><td data-l="Nota" class="small">${h(r.nota) || "—"}${r.estado === "ANULADO" ? " · ANULADO" : ""}${r.estado === "CONFLICTO" ? ` <span class="pill bad">CONFLICTO</span>` : ""}${r.estado === "PENDIENTE" ? ` <span class="pill warn">⏳ sin subir</span>` : ""}${r.estado === "ENVIANDO" ? ` <span class="pill info">guardando…</span>` : ""}</td>
         <td class="acc">${esc && r.id && r.estado !== "ANULADO" ? `<button class="btn sm" data-a="editar" data-id="${h(r.id)}">${r.estado === "CONFLICTO" ? "Corregir" : "Editar"}</button> <button class="btn sm" data-a="anular" data-id="${h(r.id)}">Anular</button>` : ""}</td></tr>`).join("")}
     </tbody></table>` : `<div class="card muted">Sin validaciones.</div>`}
     ${esc && !hist ? `<details class="card"><summary>Destinos (${v.destinos.length})</summary>
@@ -1287,17 +1382,36 @@ function pintarVal(el) {
   if (hist) $("#tb", el).innerHTML = bannerHist(Object.assign({}, t, { texto: t.texto }), "VALIDACION");
   else pintarBarra($("#tb", el), v.turnoInfo);
   el.onclick = e => { if (hist && onBanner(e, t, "VALIDACION")) return; onValClick(e); };
+  const vq = $("#vq", el);
+  if (vq) { vq.oninput = () => { S.valQ = vq.value; filtrarVal(el); }; filtrarVal(el); }
+}
+// El buscador solo esconde tarjetas (no repinta: el teclado no se cierra mientras se escribe)
+function filtrarVal(el) {
+  const q = norm(S.valQ || "").split(/\s+/).filter(x => x);
+  let n = 0;
+  $$(".vlista .vcard", el).forEach(c => { const ok = !q.length || coincide(norm(c.dataset.q), q) > 0; c.classList.toggle("hidden", !ok); if (ok) n++; });
+  const c = $("#vqc", el); if (c) c.textContent = q.length ? `${n} de ${$$(".vlista .vcard", el).length}` : "";
 }
 
-function cardVal(p, esc, hist) {
+// Cada producto: cerrado muestra solo SKU y nombre; al tocarlo se despliega todo
+function cardVal(p, esc, hist, regs) {
   const dest = Object.keys(p.porDestino);
-  return `<article class="card vcard ${estadoVal(p)}">
-    <div class="vc-top"><div class="prod">${skuTxt(p.sku, p.producto)}</div><div class="vc-disp"><span class="n">${fm(p.disponible)}</span><span class="l">disponibles</span></div></div>
-    <div class="bar"><i style="width:${pctVal(p)}%"></i></div>
-    <div class="vc-meta">Inicial <b>${fm(p.inicial)}</b>${esc ? ` <button class="link" data-a="inicial" data-sku="${h(p.sku)}">✎</button>` : ""} · Validado <b>${fm(p.validado)}</b> · ${p.contadoEn ? `Contado <b>${h(fechaCorta(p.contadoEn))}</b>` : "Heredado"}${!hist ? ` · WMS ${fm(p.wmsCajas)}` : ""}${p.conflictos ? ` · <span style="color:var(--bad)">${p.conflictos} en conflicto</span>` : ""}</div>
-    ${p.alertaWms ? `<div class="vc-alerta">⚠️ El WMS tiene menos cajas (${fm(p.wmsCajas)}) que las disponibles.</div>` : ""}
-    ${dest.length ? `<div class="dest">${dest.map(d => `<span class="chip">${h(d)} <b>${fm(p.porDestino[d])}</b></span>`).join("")}</div>` : ""}
-    ${esc ? `<div class="vc-acc"><button class="btn primary sm grow" data-a="validar" data-sku="${h(p.sku)}" ${p.disponible <= 0 ? "disabled" : ""}>${p.disponible <= 0 ? "Sin saldo" : "Validar"}</button><button class="btn sm icon" data-a="quitar" data-sku="${h(p.sku)}" title="Quitar del turno" aria-label="Quitar del turno">🗑</button></div>` : ""}
+  const activos = (regs || []).filter(r => r.estado === "ACTIVO" || r.estado === "PENDIENTE" || r.estado === "ENVIANDO");
+  const ultima = activos.map(r => r.fecha).filter(x => x).sort().pop();
+  const ab = abierto("val", p.sku);
+  return `<article class="card vcard plegable ${estadoVal(p)} ${ab ? "abierto" : ""}" data-q="${h(p.sku + " " + p.producto)}">
+    <div class="pl-cab" data-plegar="val|${h(p.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div class="prod">${skuTxt(p.sku, p.producto)}</div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo">
+      <div class="vc-top"><div class="vc-disp"><span class="n">${fm(p.disponible)}</span><span class="l">disponibles de ${fm(p.inicial)}</span></div></div>
+      <div class="bar"><i style="width:${pctVal(p)}%"></i></div>
+      <div class="vc-horas">
+        <div>🕐 Hora de conteo: <b>${p.contadoEn ? h(fechaCorta(p.contadoEn)) : "Heredado"}</b></div>
+        <div>✔ Última validación: <b>${ultima ? h(fechaCorta(ultima)) : "—"}</b></div></div>
+      ${dest.length ? `<div class="dest">${dest.map(d => `<span class="chip">${h(d)} <b>${fm(p.porDestino[d])}</b></span>`).join("")}</div>` : `<div class="muted small">Sin validaciones todavía.</div>`}
+      <div class="vc-meta">Inicial <b>${fm(p.inicial)}</b>${esc ? ` <button class="link" data-a="inicial" data-sku="${h(p.sku)}">✎</button>` : ""} · Validado <b>${fm(p.validado)}</b>${!hist ? ` · WMS ${fm(p.wmsCajas)}` : ""}${p.conflictos ? ` · <span style="color:var(--bad)">${p.conflictos} en conflicto</span>` : ""}</div>
+      ${p.alertaWms ? `<div class="vc-alerta">⚠️ El WMS tiene menos cajas (${fm(p.wmsCajas)}) que las disponibles.</div>` : ""}
+      ${esc ? `<div class="vc-acc"><button class="btn primary sm grow" data-a="validar" data-sku="${h(p.sku)}" ${p.disponible <= 0 ? "disabled" : ""}>${p.disponible <= 0 ? "Sin saldo" : "Validar"}</button><button class="btn sm icon" data-a="quitar" data-sku="${h(p.sku)}" title="Quitar del turno" aria-label="Quitar del turno">🗑</button></div>` : ""}
+    </div>
   </article>`;
 }
 
@@ -1475,7 +1589,7 @@ async function modalAgregar() {
 // ENTREGA DE TURNO
 // =====================================================================
 const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Cajas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK (picking / preventa)", un: "Cajas", mod: false } };
-const cantChips = arr => arr && arr.length ? arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` · ${h(x.m)}` : ""}</span>`).join("") : `<span class="muted small">Sin cantidades</span>`;
+const cantChips = arr => arr && arr.length ? arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("") : `<span class="muted small">Sin cantidades</span>`;
 S.entTurno = null;
 
 async function cargarEnt() {
@@ -1514,11 +1628,16 @@ function pintarEnt(el) {
   const en = entConPendientes(), esc = puede("validador"), hist = !!S.entTurno;
   let html = cab("📋 Entrega de turno", hist ? "" : "Lo que se cuenta en cada área") + `<div id="tb"></div>`;
   if (!en.turno) { el.innerHTML = html + vacio("Abre el turno para hacer la entrega.", "🔒"); pintarBarra($("#tb", el), en.turnoInfo); return; }
+  // Cada sección es una tarjeta de su color: cerrada muestra el nombre y cuántos productos tiene
   const sec = s => {
-    const it = en.secciones[s];
-    return `<section class="card sec-card"><h3><span>${SECC[s].t} <span class="muted small">(${it.length})</span></span>${esc ? `<button class="btn sm" data-a="add" data-s="${s}">＋ Agregar</button>` : ""}</h3>
+    const it = en.secciones[s], ab = abierto("ent", s);
+    return `<section class="card sec-card plegable sec-${s.toLowerCase()} ${ab ? "abierto" : ""}">
+      <div class="pl-cab" data-plegar="ent|${s}" role="button" tabindex="0" aria-expanded="${ab}"><h3><span>${SECC[s].t} <span class="sec-n">${it.length}</span></span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo">
+      ${esc ? `<div class="sec-acc"><button class="btn sm" data-a="add" data-s="${s}">＋ Agregar</button>${it.length ? `<button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button>` : ""}</div>` : ""}
       ${it.length ? `<div class="ent-list">${it.map(x => `<div class="ent-row"><div class="ent-main"><div>${skuTxt(x.sku, x.producto)}${x.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</div><div class="cants">${cantChips(x.cant)}</div><div class="sub">${h(x.origen || "")}${x.usuario ? " · " + h(x.usuario) : ""}${x.actualizado ? " · " + h(fechaCorta(x.actualizado)) : ""}</div></div>
-        ${esc ? `<div class="ent-acc"><button class="btn sm icon" data-a="edit" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Editar">✎</button><button class="btn sm icon" data-a="del" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Quitar">🗑</button></div>` : ""}</div>`).join("")}</div>` : `<p class="muted small">Sin productos.</p>`}</section>`;
+        ${esc ? `<div class="ent-acc"><button class="btn sm icon" data-a="edit" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Editar">✎</button><button class="btn sm icon" data-a="del" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Quitar">🗑</button></div>` : ""}</div>`).join("")}</div>` : `<p class="muted small">Sin productos.</p>`}
+      </div></section>`;
   };
   html += `<div class="lista-tools">${esc && !hist ? `<button class="btn sm" data-a="precargar">⤓ Precargar pocos y TPC</button>` : ""}${hist ? "" : botonesPDF("ENTREGA", "PDF", en.turno.id)}</div>
     <div class="grid2"><div class="col-sec">${sec("BODEGA")}${sec("TPC")}</div><div class="col-sec">${sec("PK")}${sec("KA")}</div></div>
@@ -1557,6 +1676,11 @@ async function onEntClick(e) {
     const it = en.secciones[b.dataset.s].find(x => x.sku === b.dataset.sku);
     if (!(await confirmar("Quitar de la entrega", `¿Quitar ${skuTxt(it.sku, it.producto)} de ${SECC[b.dataset.s].t}?`, "Quitar", true))) return;
     return guardarEnt("webEntQuitar", [b.dataset.s, it.sku, T], "Quitado");
+  }
+  if (a === "vaciar") {
+    const s2 = b.dataset.s, n = en.secciones[s2].length;
+    if (!(await confirmar("Quitar toda la sección", `¿Quitar los <b>${n}</b> productos de <b>${SECC[s2].t}</b>? Sirve si se precargó por error. No se puede deshacer.`, "Quitar todo", true))) return;
+    return guardarEnt("webEntQuitarSeccion", [s2, T], `${SECC[s2].t}: sección vacía`);
   }
   if (a === "nota") return agregarNota();
   if (a === "ndel") { if (!(await confirmar("Quitar punto", "¿Quitar este punto de la nota?", "Quitar", true))) return; return guardarEnt("webEntNotaQuitar", [b.dataset.id, T], "Punto quitado"); }
@@ -1806,7 +1930,7 @@ VISTAS.consumo = async (el, p, vigente) => {
   if (!vigente()) return;
   const esc = puede("validador");
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${!l.disp ? "bloq" : ""}"><div>
-      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b><br>` : ""}<b style="font-size:15px">${h(l.m)}</b>${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
+      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b><br>` : ""}${modChip(l.m)}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
@@ -1814,13 +1938,17 @@ VISTAS.consumo = async (el, p, vigente) => {
   el.innerHTML = cab("🥤 Consumo / Pony gasto", "Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo.",
       botonesPDF("CONSUMO", "PDF completo") + botonesPDF("CONSUMO_SOLO", "Solo módulos a consumir")) +
     (esc ? `<div class="card" style="margin-bottom:14px"><div style="max-width:520px">${campoAuto("ca", "Agregar a la lista: nombre o SKU")}</div></div>` : "") +
-    (lis.length ? `<div class="grid tarjetas">${lis.map(x => `<article class="card">
-      <div class="row sb" style="flex-wrap:nowrap"><b style="font-size:15.5px">${skuTxt(x.sku, x.nom)}</b>${esc ? `<button class="btn sm icon" data-del="${h(x.sku)}" title="Quitar de la lista">🗑</button>` : ""}</div>
+    (lis.length ? `<div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><span class="count">${lis.length} productos</span></div><div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${ab ? "abierto" : ""}">
+      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div><div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : (x.estado === "sin_fisico" ? "❌ Sin existencias" : "Sin módulo disponible")}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo">
+      ${esc ? `<div class="row" style="justify-content:flex-end"><button class="btn sm icon" data-del="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar de la lista">🗑</button></div>` : ""}
       <div class="sub" style="margin:4px 0 8px">${x.modo === "manual" ? `✋ Elegido a mano por <b>${h(x.elegidoPor)}</b> · ${h(fechaCorta(x.elegidoEn))} ${esc ? `<button class="link" data-auto="${h(x.sku)}">volver a automático</button>` : ""}` : "⚙️ Automático (criterios)"}${x.manualVencido ? ` · <span style="color:var(--warn)">el módulo elegido a mano se vació</span>` : ""}</div>
       ${x.estado === "sin_fisico" ? `<div class="mini">❌ Sin existencias físicas en bodega.</div>` : ""}
       ${x.estado === "solo_bloqueado" ? `<div class="note warn">Todos los módulos están bloqueados.</div>` : ""}
       ${x.estado === "solo_operativa" ? `<div class="note warn">Sin stock en bodega general: se sugiere la zona operativa.</div>` : ""}
-      <div class="mini-list">${x.locs.map(l => lote(x, l)).join("")}</div></article>`).join("")}</div>` : vacio("La lista de consumo está vacía.", "🛒"));
+      <div class="mini-list">${x.locs.map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>` : vacio("La lista de consumo está vacía.", "🛒"));
+  const todas = abrir => { S.abiertos.cons = {}; lis.forEach(x => { S.abiertos.cons[x.sku] = abrir; }); $$(".cons-card", el).forEach(c => c.classList.toggle("abierto", abrir)); };
+  if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); }
   const ca = $("#ca", el);
   if (ca) autoSku(ca, async c => {
     try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista`, "ok"); ir("consumo"); } catch (e) { toast(e.message, "bad", 6000); }
@@ -1958,7 +2086,7 @@ VISTAS.usuarios = async (el, p, vigente) => {
   if (!vigente()) return;
   const pintar = lis2 => {
     el.innerHTML = cab("👥 Usuarios y PIN", "Quién entra al dashboard y qué puede hacer", `<button class="btn primary" data-a="nuevo">＋ Nuevo usuario</button>`) +
-      `<div class="note">Roles: <b>lector</b> solo consulta · <b>validador</b> abre y cierra turnos, valida, hace la entrega, la conciliación, consumo y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku y los canales.</div>
+      `<div class="note ayuda">Roles: <b>lector</b> solo consulta · <b>validador</b> abre y cierra turnos, valida, hace la entrega, la conciliación, consumo y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku y los canales.</div>
       <table class="tabla resp"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Creado</th><th></th></tr></thead><tbody>
       ${lis2.map(u => `<tr><td data-l="Nombre"><b>${h(u.nombre)}</b></td><td data-l="Rol">${h(u.rol)}</td><td data-l="Estado">${u.activo ? `<span class="pill ok">Activo</span>` : `<span class="pill bad">Inactivo</span>`}</td>
         <td data-l="Último acceso">${h(fechaCorta(u.ultimo) || "—")}</td><td data-l="Creado" class="small">${h(fechaCorta(u.creado))} · ${h(u.creadoPor)}</td>
@@ -2045,7 +2173,7 @@ VISTAS.canales = async (el, p, vigente) => {
   const pintar = () => {
     el.innerHTML = cab("🚦 Canales (días mínimos)", "Reglas por defecto. Si un SKU tiene su propio valor en la hoja Sku (columnas T1, T2, KA), ese manda.",
         admin ? `<button class="btn" data-a="add">＋ Regla</button><button class="btn primary" data-a="guardar">Guardar</button>` : "") +
-      `<div class="note">Orden de prioridad: <b>columna del SKU</b> → la primera regla <b>Familia/Contiene</b> que coincida → la regla <b>General</b> del canal. «Familia» compara con la familia del WMS (RETORNABLE no incluye NO RETORNABLE); «Contiene» busca la palabra en el nombre del producto. Mínimo de estibas para «pocos» sin valor en Sku: <b>${d.defecto}</b>.</div>
+      `<div class="note ayuda">Orden de prioridad: <b>columna del SKU</b> → la primera regla <b>Familia/Contiene</b> que coincida → la regla <b>General</b> del canal. «Familia» compara con la familia del WMS (RETORNABLE no incluye NO RETORNABLE); «Contiene» busca la palabra en el nombre del producto. Mínimo de estibas para «pocos» sin valor en Sku: <b>${d.defecto}</b>.</div>
       <table class="tabla resp"><thead><tr><th>Canal</th><th>Tipo</th><th>Valor</th><th class="num">Días mínimos</th><th>Nota</th><th></th></tr></thead><tbody>
       ${filas.map((r, k) => admin ? `<tr data-k="${k}"><td data-l="Canal"><select data-f="canal">${["T1", "T2", "KA"].map(c => `<option ${c === r.canal ? "selected" : ""}>${c}</option>`).join("")}</select></td>
         <td data-l="Tipo"><select data-f="tipo">${["General", "Familia", "Contiene"].map(c => `<option ${norm(c) === norm(r.tipo) ? "selected" : ""}>${c}</option>`).join("")}</select></td>
@@ -2069,7 +2197,7 @@ VISTAS.canales = async (el, p, vigente) => {
 // =====================================================================
 // ARRANQUE
 // =====================================================================
-async function arrancar(yaPintado) {
+async function arrancar(yaPintado, forzarRepintar) {
   pintarCola();
   try {
     const i = await api("webInit");
@@ -2080,12 +2208,13 @@ async function arrancar(yaPintado) {
     if (yaPintado) {
       pintarUsuario(); pintarNav();
       // Repinta con los datos frescos solo si nadie está escribiendo o con una ventana abierta
-      if (cambioRol || (!modalAbierto() && !usandoPantalla())) repintar();
+      if (forzarRepintar || cambioRol || (!modalAbierto() && !usandoPantalla())) repintar();
+      if (forzarRepintar) toast("Datos actualizados", "ok", 2000);
       procesarCola();
       return;
     }
   } catch (e) {
-    if (yaPintado) { if (!e.sesion) toast(e.red ? "Sin conexión: trabajando con los datos guardados." : "No se pudo actualizar: " + e.message, "warn", 6000); return; }
+    if (yaPintado) { if (forzarRepintar && e.red) throw e; if (!e.sesion) toast(e.red ? "Sin conexión: trabajando con los datos guardados." : "No se pudo actualizar: " + e.message, "warn", 6000); return; }
     if (e.sesion) return;
     const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
     if (e.red && u) {

@@ -43,7 +43,7 @@ let llamadasSb = 0, sinRed = false;
   for (const v of vistas) {
     await page.evaluate(v2 => ir(v2), v); await page.waitForTimeout(250);
     const t = await page.$eval("#view", el => el.innerText.slice(0, 120).replace(/\n/g, " "));
-    if (/⚠️/.test(t) && !/⚠️ Mal/.test(t)) errores.push(`vista ${v}: ${t}`);
+    if (/⚠️/.test(t) && !/⚠️ (Mal|Ojo)/.test(t)) errores.push(`vista ${v}: ${t}`);
     if (["stock", "pocos", "carpa", "consumo", "resumen"].includes(v)) await page.screenshot({ path: `/tmp/w_${v}.png` });
   }
   // Stock de un SKU
@@ -322,6 +322,54 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(() => api("webCambiarPin", "1234", "9876"));
   if (!JSON.parse(psql("select ingresar('Huber','9876')::text;")).ok) errores.push("cambiar PIN falló");
   await P.evaluate(() => api("webCambiarPin", "9876", "1234"));
+  // --- Ajustes de pantalla (29/09) ---
+  await P.evaluate(() => ir("validacion")); await P.waitForTimeout(900);
+  const nCards = await P.$$eval(".vlista .vcard", c => c.length);
+  const abiertas0 = await P.$$eval(".vlista .vcard .pl-cuerpo", c => c.filter(x => x.offsetParent !== null).length);
+  if (!nCards || abiertas0) errores.push(`validación: ${nCards} tarjetas, ${abiertas0} abiertas al entrar (deben estar cerradas)`);
+  await P.click(".vlista .vcard .pl-cab"); await P.waitForTimeout(200);
+  if (!(await P.$eval(".vlista .vcard", c => c.classList.contains("abierto") && !!c.querySelector(".vc-horas") && c.querySelector(".pl-cuerpo").offsetParent !== null))) errores.push("tocar un producto no lo despliega");
+  const horas = await P.$eval(".vlista .vcard .vc-horas", e => e.innerText);
+  if (!/^🕐 Hora de conteo[\s\S]*Última validación/.test(horas)) errores.push("orden de horas en validación: " + horas);
+  await P.fill("#vq", "zzzz-no-existe"); await P.waitForTimeout(150);
+  if (await P.$$eval(".vlista .vcard:not(.hidden)", c => c.length)) errores.push("el buscador de validación no filtra");
+  await P.fill("#vq", ""); await P.waitForTimeout(100);
+  await P.screenshot({ path: "/tmp/w_val_plegable.png" });
+  // Entrega: quitar toda una sección
+  const T3 = turnoAb();
+  await P.evaluate(() => api("webEntPrecargar", ["TPC"]));
+  const nTpc = q(`select count(*) from ent_items where turno_id='${T3}' and seccion='TPC'`);
+  await P.evaluate(() => api("webEntQuitarSeccion", "TPC"));
+  if (nTpc === "0" || q(`select count(*) from ent_items where turno_id='${T3}' and seccion='TPC'`) !== "0") errores.push(`quitar sección TPC: había ${nTpc}`);
+  await P.evaluate(() => ir("entrega")); await P.waitForTimeout(900); await P.screenshot({ path: "/tmp/w_ent_plegable.png" });
+  // Fechas escritas a mano
+  await P.evaluate(() => ir("limbo")); await P.waitForTimeout(800);
+  await P.evaluate(() => { const d = document.querySelector("#view details"); if (d) d.open = true; });
+  const ft = await P.$("#view .fecha-caja:has(#lf) .fecha-txt");
+  if (!ft) errores.push("limbo: la fecha no se puede escribir a mano");
+  else { await ft.click(); await ft.type("10052027"); await P.waitForTimeout(100); const iso = await P.$eval("#lf", e => e.value); const vis = await ft.evaluate(e => e.value); if (iso !== "2027-05-10" || vis !== "10/05/2027") errores.push(`fecha a mano: ${vis} → ${iso}`); }
+  // Refrescar
+  const nR = llamadasSb;
+  await P.click("#refBtn"); await P.waitForTimeout(1500);
+  if (llamadasSb === nR) errores.push("↻ no volvió a pedir los datos");
+  if (await P.isVisible("#backBtn")) errores.push("en la versión web sigue el botón atrás");
+  // Vacíos agrupados por pasillo (con Capacidad_Bodega)
+  const vac = await P.evaluate(() => api("webVacios"));
+  if (!vac.length || !vac.every(x => x.sec)) errores.push("vacíos sin pasillo: " + JSON.stringify(vac.slice(0, 3)));
+  await P.evaluate(() => ir("vacios")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_vacios.png" });
+  // Canal no disponible en rojo claro
+  await P.evaluate(() => { ls.set("ultSku", "2222"); ir("stock"); }); await P.waitForTimeout(700);
+  const bgNo = await P.$eval(".canal.no", e => getComputedStyle(e).backgroundColor).catch(() => "sin canal no");
+  if (bgNo !== "rgb(255, 208, 208)") errores.push("canal no disponible sin fondo rojo claro: " + bgNo);
+  if (!(await P.$(".inv .fefo"))) errores.push("stock sin numeración FEFO");
+  await P.screenshot({ path: "/tmp/w_stock_nuevo.png" });
+  // Ayuda «?»
+  const subVis = await P.$eval("#view .vh .sub", e => e.offsetParent !== null);
+  await P.click("#view [data-ayuda]"); await P.waitForTimeout(100);
+  const subVis2 = await P.$eval("#view .vh .sub", e => e.offsetParent !== null);
+  if (subVis || !subVis2) errores.push("la ayuda «?» no funciona");
+  await P.evaluate(() => ir("consumo")); await P.waitForTimeout(900); await P.screenshot({ path: "/tmp/w_consumo.png" });
+  await P.evaluate(() => ir("retornables")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_retornables.png" });
   await P.evaluate(() => ir("conciliacion")); await P.waitForTimeout(1000); await P.screenshot({ path: "/tmp/w_conciliacion.png" });
   await P.evaluate(() => ir("usuarios")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_usuarios.png" });
   await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_validacion.png" });

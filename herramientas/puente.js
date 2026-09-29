@@ -114,7 +114,7 @@
   // Fase 4b: turnos, validación y entrega. Se comparan todas sus hojas como tablas lógicas.
   const ESCRITURA_TURNO = new Set(["webTurnoAbrir", "webTurnoCerrar", "webTurnoNota", "webTurnoEliminar", "webTurnoRestaurar",
     "webValAgregar", "webValInicial", "webValQuitar", "webValRegistrar", "webValEditar", "webValAnular", "webValDestino",
-    "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar",
+    "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntQuitarSeccion", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar",
     "webConcAbrir", "webConcAgregar", "webConcGuardar", "webConcQuitar", "webConcCerrar", "webConcNota", "webConcEliminar", "webConcRestaurar",
     "webPreAgregar", "webPreQuitar", "webPreLimpiar"]);
   const txt = v => (v === null || v === undefined) ? "" : String(v).trim();

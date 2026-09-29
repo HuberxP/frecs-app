@@ -4,3 +4,5 @@ body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }
 /* Sin Apps Script configurado no hay ⟳ ni envío a Telegram; archivar no hace falta en Supabase */
 body.con-aviso:not(.con-sync) #syncBtn, body.con-aviso:not(.con-sync) [data-tg], body.con-aviso #hArch { display: none !important; }
+/* En GitHub Pages el botón atrás del celular ya funciona: no hace falta el de la barra */
+#backBtn { display: none !important; }

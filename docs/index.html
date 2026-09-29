@@ -12,7 +12,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Frecs!">
-<link rel="stylesheet" href="app.css?v=306471e2">
+<link rel="stylesheet" href="app.css?v=4e155a31">
 </head>
 <body>
 <!-- Ingreso con nombre y PIN -->
@@ -31,6 +31,7 @@
   <div class="spacer"></div>
   <button class="cola-chip hidden" id="colaChip" title="Cambios guardados sin conexión"></button>
   <div class="sync-chip" id="syncChip">…</div>
+  <button class="btn btn-ref" id="refBtn" title="Recargar datos y reglas" aria-label="Recargar datos">↻</button>
   <button class="btn btn-sync" id="syncBtn" title="Traer inventario del WMS">⟳ <span class="txt">Sincronizar</span></button>
   <button class="user-chip" id="userChip" title="Tu usuario">👤 …</button>
 </header>
@@ -54,9 +55,9 @@
 <div id="toasts" aria-live="polite"></div>
 
 <script src="config.js?v=8d7f90e9"></script>
-<script src="motor.js?v=fe64b1ae"></script>
-<script src="puente.js?v=23824cec"></script>
-<script src="app.js?v=151760cc"></script>
+<script src="motor.js?v=c984a827"></script>
+<script src="puente.js?v=17aca620"></script>
+<script src="app.js?v=c6c309a6"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
 </body>
 </html>

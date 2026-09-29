@@ -1718,17 +1718,27 @@ function obtenerHuecos(pagina) {
 // ---------------------------------------------------------
 // 2. MÓDULOS VACÍOS (desde WMS_Modulos, que ya trae los vacíos)
 // ---------------------------------------------------------
+// Módulos vacíos: los que existen en físico (pestaña Capacidad_Bodega) y no tienen inventario.
+// Si Capacidad_Bodega está vacía, se usa la lista de módulos del WMS (incluye algunos que no existen en físico).
+// sec = pasillo (letras iniciales del módulo: A, B, …, KA, PREV, M) para agruparlos.
+function seccionModulo_(m) { const x = /^[A-Za-z]+/.exec(String(m || "").trim()); return x ? x[0].toUpperCase() : "OTROS"; }
 function calcularVacios() {
+  const fisicos = Object.keys(obtenerCapacidadesBodega());
+  if (fisicos.length) {
+    const conFisico = new Set(obtenerInventarioLocal().filter(i => i.tieneFisico).map(i => i.m));
+    return fisicos.filter(m => !conFisico.has(m)).map(m => ({ m: m, zona: zonaModulo_(m), sec: seccionModulo_(m) }))
+      .sort((a, b) => a.m.localeCompare(b.m, undefined, { numeric: true, sensitivity: "base" }));
+  }
   const mods = obtenerModulosLocal();
   let v;
   if (mods.length) {
     const conFisico = new Set(obtenerInventarioLocal().filter(i => i.tieneFisico).map(i => i.m));
-    v = mods.filter(x => x.zona !== "OPCIONAL" && !conFisico.has(x.m)).map(x => ({ m: x.m, zona: x.zona }));
+    v = mods.filter(x => x.zona !== "OPCIONAL" && !conFisico.has(x.m)).map(x => ({ m: x.m, zona: x.zona, sec: seccionModulo_(x.m) }));
   } else {
     const cap = obtenerCapacidadesBodega();
     if (Object.keys(cap).length === 0) return null;
     const o = new Set(obtenerInventarioLocal().filter(i => i.tieneFisico).map(i => i.m));
-    v = Object.keys(cap).filter(m => !o.has(m)).map(m => ({ m: m, zona: zonaModulo_(m) }));
+    v = Object.keys(cap).filter(m => !o.has(m)).map(m => ({ m: m, zona: zonaModulo_(m), sec: seccionModulo_(m) }));
   }
   v.sort((a, b) => a.m.localeCompare(b.m, undefined, { numeric: true, sensitivity: "base" }));
   return v;
@@ -2095,6 +2105,23 @@ function construirPDFCarpa() {
   });
   const html = pdfDoc_("MAPA DE CARPA (M1 A M15)", `<table class="t"><thead><tr><th>Módulo</th><th>SKU</th><th class="izq">Producto</th><th>Cantidades</th><th>Vence</th><th>Estado</th><th class="izq">Obs.</th></tr></thead><tbody>${filas}</tbody></table>`, { leyenda: true });
   return { blob: htmlAPdf_(html, `Carpa_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "⛺ *Mapa de carpa (M1 a M15)*" };
+}
+
+// Tapacódigos: un bloque por producto con sus módulos (primero lo que tiene prioridad y lo que vence antes)
+function construirPDFTpc() {
+  const inv = obtenerInventarioLocal().filter(i => i.tieneFisico && i.tpc);
+  if (!inv.length) return { error: "No hay tapacódigos en bodega." };
+  const gr = {};
+  inv.forEach(i => { (gr[i.s] = gr[i.s] || { s: i.s, p: i.p, lotes: [] }).lotes.push(i); });
+  const orden = (a, b) => ((b.prio ? 1 : 0) - (a.prio ? 1 : 0)) || (a.d - b.d);
+  const grupos = Object.values(gr).map(g => { g.lotes.sort(orden); g.prio = g.lotes.some(x => x.prio); g.cajas = g.lotes.reduce((a, x) => a + x.c, 0); return g; })
+    .sort((a, b) => ((b.prio ? 1 : 0) - (a.prio ? 1 : 0)) || a.lotes[0].d - b.lotes[0].d);
+  const cuerpo = `<p class="sm">${grupos.length} productos · ${inv.length} ubicaciones con tapacódigo. Orden: prioridad y luego lo que vence antes.</p>` + grupos.map(g => `<div class="bloque">
+    <div class="bloque-t">${escHtml_(g.s)} · ${escHtml_(g.p)}${g.prio ? " <span class=\"rojo\">[PRIORIDAD]</span>" : ""} <span class="sm">· ${fM(g.cajas)} cajas en ${g.lotes.length} ${g.lotes.length === 1 ? "módulo" : "módulos"}</span></div>
+    <table class="t"><thead><tr><th>#</th><th>Módulo</th><th>Cantidades</th><th>Vence</th><th>Estado</th><th class="izq">Observación</th></tr></thead><tbody>
+    ${g.lotes.map((i, k) => `${trVida_(i.d)}<td>${k + 1}</td><td><b>${escHtml_(i.m)}</b></td><td>${cantHtml_(i)}</td><td>${fVD(i.v, i.d)}</td><td>${i.est === "DISPONIBLE" ? "Disponible" : `<b class="rojo">${escHtml_(i.est)}</b>`}</td><td class="izq">${escHtml_(i.obs)}</td></tr>`).join("")}</tbody></table></div>`).join("");
+  const html = pdfDoc_("TAPACÓDIGOS EN BODEGA", cuerpo, { leyenda: true, css: `.bloque{page-break-inside:avoid;margin-bottom:12px}.bloque-t{font-weight:bold;color:#003399;font-size:12px;padding:4px 0}` });
+  return { blob: htmlAPdf_(html, `Tapacodigos_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "🏷️ *Tapacódigos en bodega*" };
 }
 
 function construirPDFBarriles() {
@@ -3547,6 +3574,18 @@ function entQuitarItemCore_(seccion, sku, turnoId, usuario) {
   });
 }
 
+// Quitar toda una sección (por si alguien precargó por error)
+function entQuitarSeccionCore_(seccion, turnoId, usuario) {
+  seccion = String(seccion || "").toUpperCase();
+  if (!ENT_SECCIONES.includes(seccion)) throw new Error("Sección no válida.");
+  return conLock_(() => {
+    const turno = turnoParaEditar_(turnoId);
+    const n = tReescribir_(ENT_T.items, r => !(txt_(r[0]) === turno.id && txt_(r[1]).toUpperCase() === seccion));
+    if (n) marcarTurnoEditado_(turno, usuario || "");
+    return n;
+  });
+}
+
 function entNotaAgregarCore_(texto, usuario, turnoId) {
   texto = String(texto || "").trim();
   if (!texto) throw new Error("Escribe la novedad.");
@@ -4753,6 +4792,7 @@ function webEnt(tk, turnoId) { return webAuth_(tk, L_, () => entEstadoCore_(turn
 function webEntPrecargar(tk, secciones) { return webAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre), estado: entEstadoCore_() })); }
 function webEntGuardar(tk, seccion, sku, producto, cantidades, turnoId) { return webAuth_(tk, V_, u => { entGuardarItemCore_(seccion, sku, producto, cantidades, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
 function webEntQuitar(tk, seccion, sku, turnoId) { return webAuth_(tk, V_, u => { entQuitarItemCore_(seccion, sku, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntQuitarSeccion(tk, seccion, turnoId) { return webAuth_(tk, V_, u => ({ quitados: entQuitarSeccionCore_(seccion, turnoId || "", u.nombre), estado: entEstadoCore_(turnoId || "") })); }
 function webEntNota(tk, texto, turnoId) { return webAuth_(tk, V_, u => { entNotaAgregarCore_(texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
 function webEntNotaEditar(tk, id, texto, turnoId) { return webAuth_(tk, V_, u => { entNotaEditarCore_(id, texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
 function webEntNotaQuitar(tk, id, turnoId) { return webAuth_(tk, V_, u => { entNotaQuitarCore_(id, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
@@ -5045,6 +5085,7 @@ function construirPDFPorTipo_(tipo, id) {
     case "RETORNABLE": r = construirPDFRetornable(); break;
     case "CARPA": r = construirPDFCarpa(); break;
     case "BARRILES": r = construirPDFBarriles(); break;
+    case "TPC": r = construirPDFTpc(); break;
     case "VALIDACION": r = construirPDFValidacion(id || ""); break;
     case "ENTREGA": r = construirPDFEntrega(id || ""); break;
     case "CONCILIACION": r = construirPDFConciliacion(id || ""); break;
@@ -5142,7 +5183,7 @@ function construirInformePrioridades() {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEnvasado, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValInicial, webValQuitar, webValRegistrar, webValSugerencias};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEnvasado, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValInicial, webValQuitar, webValRegistrar, webValSugerencias};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+# El código de Apps Script queda fuera del repositorio público (tiene direcciones internas);
+# construir.py lo lee desde aquí en el equipo donde se arma la versión web.
+gas/

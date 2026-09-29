@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="theme-color" content="#04070f">
+<title>Frecs! · Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="iconos/icon-192.png">
+<link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Frecs!">
+<link rel="stylesheet" href="app.css?v=0a0f8a3e">
+</head>
+<body>
+<!-- Ingreso con nombre y PIN -->
+<div id="login" class="login hidden">
+  <div class="login-card">
+    <div class="logo-neon big">𝐹𝓇𝑒𝒸𝓈! ツ</div>
+    <div id="loginBody"></div>
+  </div>
+</div>
+
+<div id="busyBar" aria-hidden="true"></div>
+<header class="top">
+  <button class="menu-btn" id="menuBtn" aria-label="Abrir menú">☰</button>
+  <button class="menu-btn back-btn hidden" id="backBtn" aria-label="Volver" title="Volver">←</button>
+  <div class="logo-neon">𝐹𝓇𝑒𝒸𝓈! ツ</div>
+  <div class="spacer"></div>
+  <button class="cola-chip hidden" id="colaChip" title="Cambios guardados sin conexión"></button>
+  <div class="sync-chip" id="syncChip">…</div>
+  <button class="btn btn-sync" id="syncBtn" title="Traer inventario del WMS">⟳ <span class="txt">Sincronizar</span></button>
+  <button class="user-chip" id="userChip" title="Tu usuario">👤 …</button>
+</header>
+<div class="offline-bar hidden" id="offBar">📡 Sin conexión · trabajando con los datos guardados. Los cambios se suben cuando vuelva la conexión.</div>
+
+<div class="layout">
+  <nav class="nav" id="nav" aria-label="Secciones"></nav>
+  <div id="scrim"></div>
+  <main><div class="wrap" id="view"></div></main>
+</div>
+
+<nav class="bottombar" id="bottombar">
+  <button data-v="inicio"><span class="ic">🏠</span>Inicio</button>
+  <button data-v="validacion"><span class="ic">📝</span>Validación</button>
+  <button data-v="entrega"><span class="ic">📋</span>Entrega</button>
+  <button data-v="stock"><span class="ic">📡</span>Stock</button>
+</nav>
+
+<div class="modal hidden" id="modal"><div class="modal-card" id="modalCard" role="dialog" aria-modal="true"></div></div>
+<button class="nuevo-chip hidden" id="nuevoChip">↻ Hay cambios nuevos · Ver</button>
+<div id="toasts" aria-live="polite"></div>
+
+<script src="config.js?v=60efbe1a"></script>
+<script src="motor.js?v=fc0f9932"></script>
+<script src="puente.js?v=5acf088f"></script>
+<script src="app.js?v=13d707a6"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
+</body>
+</html>

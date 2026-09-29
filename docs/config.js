@@ -5,5 +5,5 @@ window.FRECS_CONFIG = {
   supabaseKey: "sb_publishable_79Eh5anXcSceRed8DV8EuA_sPmkL8RF",
   // URL de la implementación del BOT en Apps Script (la que termina en /exec). Solo sirve para ⟳:
   // Apps Script revisa la sesión en Supabase antes de consultar el WMS. Vacía = sin botón ⟳.
-  appsScriptUrl: ""
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbxoUKnTafZ5TwIf66IOgZKdvQkLjdrsBumJzTA1hjUBVCblcrNp-zyFb5Dlmv5OwRGY/exec"
 };

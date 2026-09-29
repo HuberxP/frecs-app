@@ -2197,12 +2197,22 @@ VISTAS.canales = async (el, p, vigente) => {
 // =====================================================================
 // ARRANQUE
 // =====================================================================
+// Después del cambio definitivo, el dashboard de Apps Script solo muestra los turnos
+function avisoTurnosNueva(url) {
+  let b = $("#nuevaBar");
+  document.body.classList.toggle("turnos-fuera", !!url);
+  if (!url) { if (b) b.remove(); document.body.classList.toggle("con-aviso", !!$(".web-aviso")); return; }
+  if (!b) { b = document.createElement("div"); b.id = "nuevaBar"; b.className = "web-aviso"; $("#offBar").after(b); }
+  b.innerHTML = `🚀 Los turnos, validaciones, entregas y conciliaciones ahora se hacen en la <a href="${h(url)}" target="_blank" rel="noopener"><b>versión nueva</b></a>. Aquí solo se consultan.`;
+  document.body.classList.add("con-aviso");
+}
 async function arrancar(yaPintado, forzarRepintar) {
   pintarCola();
   try {
     const i = await api("webInit");
     const cambioRol = !S.usuario || S.usuario.rol !== i.usuario.rol;
     S.usuario = i.usuario; S.grupoTg = i.grupoTelegram; S.instructivo = i.instructivo; S.turno = i.turno;
+    avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
     if (yaPintado) {

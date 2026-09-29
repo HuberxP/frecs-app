@@ -524,7 +524,13 @@
   .btn.danger-ghost { border-color: var(--bad); color: var(--bad); background: transparent; }
   /* Consumo: tarjetas desplegables */
   .cons-card .prod { font-weight: 700; font-size: 15.5px; }
-  .cons-card .sub { margin-top: 4px; }/* ============ Versión web (Supabase) ============ */
+  .cons-card .sub { margin-top: 4px; }
+  /* Después del cambio definitivo: en el dashboard actual los turnos solo se consultan */
+  .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
+  body.con-aviso .layout { padding-top: 0; }
+  @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }
+  body.turnos-fuera .turno .acciones, body.turnos-fuera [data-a="agregar"], body.turnos-fuera [data-a="precargar"], body.turnos-fuera .vc-acc,
+  body.turnos-fuera .sec-acc, body.turnos-fuera .ent-acc { display: none !important; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

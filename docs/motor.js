@@ -4495,10 +4495,15 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (!["sincronizar", "maestros", "pdf_telegram"].includes(data.accion)) throw new Error("Acción no válida.");
+    if (!["sincronizar", "maestros", "pdf_telegram", "turnos"].includes(data.accion)) throw new Error("Acción no válida.");
     let u;
     try { u = sbRpc_("mi_sesion", { p_token: String(data.token || "") }); }
     catch (e) { const m = String(e.message); if (/SESION:/.test(m)) throw new Error(m.substring(m.indexOf("SESION:"))); throw e; }
+    if (data.accion === "turnos") {
+      // Después del cambio definitivo: copia a las hojas los turnos y conciliaciones que cambiaron en la app
+      const r2 = turnosEnSupabase_() ? sbBajarTurnos_((data.turnos || []).map(String), (data.concs || []).map(String)) : { omitido: "modo prueba" };
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: r2 })).setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accion === "pdf_telegram") return ContentService.createTextOutput(JSON.stringify(sbPdfTelegram_(data, u))).setMimeType(ContentService.MimeType.JSON);
     if (data.accion === "maestros") {
       const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
@@ -4529,6 +4534,74 @@ function sbPdfTelegram_(data, u) {
   const cap = String(data.caption || "📄 PDF").substring(0, 800) + `\n_Enviado desde el dashboard por ${escapeMd(u.nombre)}_`;
   if (!enviarDocumento(GRUPO_CALIDAD_ID, blob, cap)) throw new Error("Telegram no aceptó el archivo.");
   return { ok: true };
+}
+
+// ---------------------------------------------------------
+// FASE 4d · CAMBIO DEFINITIVO (se activa a mano con sbCambioDefinitivo)
+// Desde ese momento los turnos, la validación, la entrega y la conciliación se hacen
+// en la versión nueva (Supabase). El dashboard actual los muestra pero no los cambia,
+// y las hojas quedan como copia (la llena sbBajarTurnos_) para el bot y sus PDF.
+// ---------------------------------------------------------
+const WEB_NUEVA_URL = prop_("WEB_NUEVA_URL", "https://huberxp.github.io/frecs-app/");
+function turnosEnSupabase_() { return PropertiesService.getScriptProperties().getProperty("TURNOS_EN_SUPABASE") === "si"; }
+function bloqueoTurnos_() {
+  if (turnosEnSupabase_()) throw new Error(`Los turnos, validaciones, entregas y conciliaciones ahora se hacen en la versión nueva: ${WEB_NUEVA_URL}`);
+}
+
+// Copia a las hojas las filas de esos turnos y conciliaciones (y completas la pre-conciliación y los destinos)
+function sbBajarTurnos_(turnos, concs) {
+  const d = sbRpc_("sb_turnos_hojas", { p_turnos: turnos || [], p_concs: concs || [] });
+  return conLock_(() => {
+    const idsT = new Set(d.turnos_pedidos || []), idsC = new Set(d.concs_pedidas || []);
+    const reemplazar = (def, col, ids, filas) => {
+      if (!ids.size && !(filas || []).length) return;
+      tReescribir_(def, r => !ids.has(txt_(r[col])));
+      tAgregar_(def, filas || []);
+    };
+    // Turnos y conciliaciones: se actualiza su fila (queda en el mismo lugar) o se agrega
+    const ponerFilas = (def, filas) => {
+      const act = tLeer_(def);
+      (filas || []).forEach(f => {
+        const k = act.findIndex(r => txt_(r[0]) === txt_(f[0]));
+        if (k >= 0) { tEscribir_(def, k + 2, 1, f); act[k] = f; } else { tAgregar_(def, [f]); act.push(f); }
+      });
+    };
+    ponerFilas(TURNOS_DEF, d.turnos);
+    reemplazar(VAL_T.productos, 0, idsT, d.val_productos);
+    reemplazar(VAL_T.registros, 1, idsT, d.val_registros);
+    reemplazar(VAL_T.histProd, 0, idsT, d.val_hist_productos);
+    reemplazar(VAL_T.histReg, 1, idsT, d.val_hist_registros);
+    reemplazar(ENT_T.items, 0, idsT, d.ent_items);
+    reemplazar(ENT_T.notas, 0, idsT, d.ent_notas);
+    ponerFilas(CONC_T.conc, d.conciliaciones);
+    reemplazar(CONC_T.items, 0, idsC, d.conc_items);
+    tReescribir_(CONC_T.pre, () => false); tAgregar_(CONC_T.pre, d.preconciliacion || []);
+    if ((d.destinos || []).length) { tReescribir_(VAL_T.destinos, () => false); tAgregar_(VAL_T.destinos, d.destinos); }
+    turnosCambiaron_();
+    return { turnos: idsT.size, conciliaciones: idsC.size };
+  });
+}
+
+// Correr a mano desde el editor, cuando nadie esté en medio de un turno:
+// 1) copia final de las hojas a Supabase (reemplaza lo que se hizo en modo prueba),
+// 2) cierra la importación y activa los turnos en Supabase,
+// 3) el dashboard actual deja de cambiar turnos (solo los muestra).
+function sbCambioDefinitivo() {
+  if (!sbActivo_()) throw new Error("Faltan las propiedades SUPABASE_URL y SUPABASE_SECRET.");
+  if (turnosEnSupabase_()) { console.log("El cambio definitivo ya estaba hecho."); return; }
+  const r = sbImportarTodo();
+  sbRpc_("sb_cambio_definitivo", {});
+  PropertiesService.getScriptProperties().setProperty("TURNOS_EN_SUPABASE", "si");
+  const n = (r.conteosSupabase || {});
+  console.log(`✅ Cambio definitivo hecho. Turnos: ${n.turnos}, conciliaciones: ${n.conciliaciones}.\nDesde ahora los turnos se hacen en ${WEB_NUEVA_URL}. Las hojas quedan como copia para el bot.`);
+  return { turnos: n.turnos, conciliaciones: n.conciliaciones, importado: r.importado };
+}
+
+// Emergencia: las hojas vuelven a mandar (tienen la copia al día) y se reabre la importación
+function sbVolverAHojas() {
+  sbRpc_("sb_volver_a_hojas", {});
+  PropertiesService.getScriptProperties().deleteProperty("TURNOS_EN_SUPABASE");
+  console.log("Las hojas vuelven a mandar en los turnos. La versión nueva queda otra vez en modo prueba.");
 }
 
 // Prueba rápida de conexión (correr desde el editor)
@@ -4572,6 +4645,8 @@ function webResp_(fn) {
 }
 // Ejecuta fn(usuario) si la sesión es válida y tiene el rol mínimo
 function webAuth_(tk, rol, fn) { return webResp_(() => fn(usrSesion_(tk, rol))); }
+// Escrituras de turnos: después del cambio definitivo se hacen solo en la versión nueva
+function webTurnoAuth_(tk, rol, fn) { return webResp_(() => { const u = usrSesion_(tk, rol); bloqueoTurnos_(); return fn(u); }); }
 const L_ = "lector", V_ = "validador", A_ = "administrador";
 
 function estadoSyncWeb_() {
@@ -4603,7 +4678,7 @@ function webInit(tk) {
     try { correo = Session.getActiveUser().getEmail() || ""; } catch (e) {}
     return {
       usuario: { nombre: u.nombre, rol: u.rol, correo: correo },
-      sync: estadoSyncWeb_(), grupoTelegram: !!GRUPO_CALIDAD_ID, instructivo: !!INSTRUCTIVO_DRIVE_ID,
+      sync: estadoSyncWeb_(), grupoTelegram: !!GRUPO_CALIDAD_ID, instructivo: !!INSTRUCTIVO_DRIVE_ID, turnosNueva: turnosEnSupabase_() ? WEB_NUEVA_URL : "",
       turno: turnoEstadoCore_(), inv: inventarioPayload_(), cat: catalogoWeb_()
     };
   });
@@ -4700,13 +4775,13 @@ function webBarriles(tk) {
 function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => ({ id: x.id, p: x.p, v: x.v, dias: x.dias, pres: x.pres, cub: x.cub, fecha: x.fecha, vida: vidaUtilInfo(x.dias).clave }))); }
 function webHistorial(tk, filtros) { return webAuth_(tk, L_, u => histListar_(filtros, u)); }
 function webMantPrevia(tk, dias) { return webAuth_(tk, A_, () => mantPreviaCore_(dias)); }
-function webMantArchivar(tk, dias) { return webAuth_(tk, A_, u => mantArchivarCore_(dias, u.nombre)); }
-function webTurnoEliminar(tk, id) { return webAuth_(tk, V_, u => turnoEliminarCore_(id, u)); }
-function webTurnoRestaurar(tk, id) { return webAuth_(tk, A_, u => turnoRestaurarCore_(id, u)); }
-function webTurnoNota(tk, id, nota) { return webAuth_(tk, V_, u => turnoNotaCore_(id, nota, u.nombre)); }
-function webConcEliminar(tk, id) { return webAuth_(tk, V_, u => concEliminarCore_(id, u)); }
-function webConcRestaurar(tk, id) { return webAuth_(tk, A_, u => concRestaurarCore_(id, u)); }
-function webConcNota(tk, id, nota) { return webAuth_(tk, V_, u => { concNotaCore_(id, nota, u.nombre); return { estado: concEstadoCore_(id) }; }); }
+function webMantArchivar(tk, dias) { return webTurnoAuth_(tk, A_, u => mantArchivarCore_(dias, u.nombre)); }
+function webTurnoEliminar(tk, id) { return webTurnoAuth_(tk, V_, u => turnoEliminarCore_(id, u)); }
+function webTurnoRestaurar(tk, id) { return webTurnoAuth_(tk, A_, u => turnoRestaurarCore_(id, u)); }
+function webTurnoNota(tk, id, nota) { return webTurnoAuth_(tk, V_, u => turnoNotaCore_(id, nota, u.nombre)); }
+function webConcEliminar(tk, id) { return webTurnoAuth_(tk, V_, u => concEliminarCore_(id, u)); }
+function webConcRestaurar(tk, id) { return webTurnoAuth_(tk, A_, u => concRestaurarCore_(id, u)); }
+function webConcNota(tk, id, nota) { return webTurnoAuth_(tk, V_, u => { concNotaCore_(id, nota, u.nombre); return { estado: concEstadoCore_(id) }; }); }
 
 // ---------------------------------------------------------
 // ESCRITURA: operación
@@ -4754,9 +4829,9 @@ function pdfB64_(r) { return { nombre: r.blob.getName(), b64: Utilities.base64En
 // TURNO (compartido por validación y entrega)
 // ---------------------------------------------------------
 function webTurno(tk) { return webAuth_(tk, L_, () => turnoEstadoCore_()); }
-function webTurnoAbrir(tk, numero, heredar) { return webAuth_(tk, V_, u => ({ resultado: abrirTurnoCore_(numero, heredar, u.nombre), turno: turnoEstadoCore_() })); }
+function webTurnoAbrir(tk, numero, heredar) { return webTurnoAuth_(tk, V_, u => ({ resultado: abrirTurnoCore_(numero, heredar, u.nombre), turno: turnoEstadoCore_() })); }
 function webTurnoCerrar(tk, opts) {
-  return webAuth_(tk, V_, u => {
+  return webTurnoAuth_(tk, V_, u => {
     opts = opts || {};
     const r = cerrarTurnoCore_(opts.nota, u.nombre);
     let pdfs = [], telegram = null;
@@ -4777,36 +4852,36 @@ function webTurnoCerrar(tk, opts) {
 // turnoId vacío = turno abierto; con id = turno del historial (se edita y queda "Editado por")
 function webVal(tk, turnoId) { return webAuth_(tk, L_, () => valEstadoCore_(turnoId || "")); }
 function webValSugerencias(tk, turnoId) { return webAuth_(tk, L_, () => valSugerenciasCore_(turnoId || "")); }
-function webValAgregar(tk, items, turnoId) { return webAuth_(tk, V_, u => ({ resultado: valAgregarProductosCore_(items, u.nombre, turnoId || ""), estado: valEstadoCore_(turnoId || "") })); }
-function webValInicial(tk, sku, inicial, contadoEn, turnoId) { return webAuth_(tk, V_, u => { valActualizarInicialCore_(sku, inicial, contadoEn, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
-function webValQuitar(tk, sku, turnoId) { return webAuth_(tk, V_, u => { valQuitarProductoCore_(sku, turnoId || "", u.nombre); return { estado: valEstadoCore_(turnoId || "") }; }); }
-function webValRegistrar(tk, obj, turnoId) { return webAuth_(tk, V_, u => ({ resultado: valRegistrarCore_(obj, u.nombre, turnoId || ""), estado: valEstadoCore_(turnoId || "") })); }
-function webValEditar(tk, id, obj, turnoId) { return webAuth_(tk, V_, u => { valEditarRegistroCore_(id, obj, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
-function webValAnular(tk, id, turnoId) { return webAuth_(tk, V_, u => { valAnularCore_(id, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
-function webValDestino(tk, accion, destino, turnoId) { return webAuth_(tk, V_, () => { valDestinoCore_(accion, destino); return { estado: valEstadoCore_(turnoId || "") }; }); }
+function webValAgregar(tk, items, turnoId) { return webTurnoAuth_(tk, V_, u => ({ resultado: valAgregarProductosCore_(items, u.nombre, turnoId || ""), estado: valEstadoCore_(turnoId || "") })); }
+function webValInicial(tk, sku, inicial, contadoEn, turnoId) { return webTurnoAuth_(tk, V_, u => { valActualizarInicialCore_(sku, inicial, contadoEn, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
+function webValQuitar(tk, sku, turnoId) { return webTurnoAuth_(tk, V_, u => { valQuitarProductoCore_(sku, turnoId || "", u.nombre); return { estado: valEstadoCore_(turnoId || "") }; }); }
+function webValRegistrar(tk, obj, turnoId) { return webTurnoAuth_(tk, V_, u => ({ resultado: valRegistrarCore_(obj, u.nombre, turnoId || ""), estado: valEstadoCore_(turnoId || "") })); }
+function webValEditar(tk, id, obj, turnoId) { return webTurnoAuth_(tk, V_, u => { valEditarRegistroCore_(id, obj, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
+function webValAnular(tk, id, turnoId) { return webTurnoAuth_(tk, V_, u => { valAnularCore_(id, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
+function webValDestino(tk, accion, destino, turnoId) { return webTurnoAuth_(tk, V_, () => { valDestinoCore_(accion, destino); return { estado: valEstadoCore_(turnoId || "") }; }); }
 
 // ---------------------------------------------------------
 // ENTREGA DE TURNO
 // ---------------------------------------------------------
 function webEnt(tk, turnoId) { return webAuth_(tk, L_, () => entEstadoCore_(turnoId || "")); }
-function webEntPrecargar(tk, secciones) { return webAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre), estado: entEstadoCore_() })); }
-function webEntGuardar(tk, seccion, sku, producto, cantidades, turnoId) { return webAuth_(tk, V_, u => { entGuardarItemCore_(seccion, sku, producto, cantidades, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
-function webEntQuitar(tk, seccion, sku, turnoId) { return webAuth_(tk, V_, u => { entQuitarItemCore_(seccion, sku, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
-function webEntQuitarSeccion(tk, seccion, turnoId) { return webAuth_(tk, V_, u => ({ quitados: entQuitarSeccionCore_(seccion, turnoId || "", u.nombre), estado: entEstadoCore_(turnoId || "") })); }
-function webEntNota(tk, texto, turnoId) { return webAuth_(tk, V_, u => { entNotaAgregarCore_(texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
-function webEntNotaEditar(tk, id, texto, turnoId) { return webAuth_(tk, V_, u => { entNotaEditarCore_(id, texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
-function webEntNotaQuitar(tk, id, turnoId) { return webAuth_(tk, V_, u => { entNotaQuitarCore_(id, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntPrecargar(tk, secciones) { return webTurnoAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre), estado: entEstadoCore_() })); }
+function webEntGuardar(tk, seccion, sku, producto, cantidades, turnoId) { return webTurnoAuth_(tk, V_, u => { entGuardarItemCore_(seccion, sku, producto, cantidades, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntQuitar(tk, seccion, sku, turnoId) { return webTurnoAuth_(tk, V_, u => { entQuitarItemCore_(seccion, sku, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntQuitarSeccion(tk, seccion, turnoId) { return webTurnoAuth_(tk, V_, u => ({ quitados: entQuitarSeccionCore_(seccion, turnoId || "", u.nombre), estado: entEstadoCore_(turnoId || "") })); }
+function webEntNota(tk, texto, turnoId) { return webTurnoAuth_(tk, V_, u => { entNotaAgregarCore_(texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntNotaEditar(tk, id, texto, turnoId) { return webTurnoAuth_(tk, V_, u => { entNotaEditarCore_(id, texto, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
+function webEntNotaQuitar(tk, id, turnoId) { return webTurnoAuth_(tk, V_, u => { entNotaQuitarCore_(id, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
 
 // ---------------------------------------------------------
 // CONCILIACIÓN Y PRE-CONCILIACIÓN
 // ---------------------------------------------------------
 function webConc(tk, concId) { return webAuth_(tk, L_, () => concEstadoCore_(concId || "")); }
-function webConcAbrir(tk, opts) { return webAuth_(tk, V_, u => ({ resultado: concAbrirCore_(opts, u.nombre), estado: concEstadoCore_() })); }
-function webConcAgregar(tk, items, concId) { return webAuth_(tk, V_, u => ({ resultado: concAgregarProductosCore_(items, u.nombre, concId || ""), estado: concEstadoCore_(concId || "") })); }
-function webConcGuardar(tk, sku, campos, concId) { return webAuth_(tk, V_, u => { concGuardarItemCore_(sku, campos, u.nombre, concId || ""); return { estado: concEstadoCore_(concId || "") }; }); }
-function webConcQuitar(tk, sku, concId) { return webAuth_(tk, V_, u => { concQuitarItemCore_(sku, concId || "", u.nombre); return { estado: concEstadoCore_(concId || "") }; }); }
+function webConcAbrir(tk, opts) { return webTurnoAuth_(tk, V_, u => ({ resultado: concAbrirCore_(opts, u.nombre), estado: concEstadoCore_() })); }
+function webConcAgregar(tk, items, concId) { return webTurnoAuth_(tk, V_, u => ({ resultado: concAgregarProductosCore_(items, u.nombre, concId || ""), estado: concEstadoCore_(concId || "") })); }
+function webConcGuardar(tk, sku, campos, concId) { return webTurnoAuth_(tk, V_, u => { concGuardarItemCore_(sku, campos, u.nombre, concId || ""); return { estado: concEstadoCore_(concId || "") }; }); }
+function webConcQuitar(tk, sku, concId) { return webTurnoAuth_(tk, V_, u => { concQuitarItemCore_(sku, concId || "", u.nombre); return { estado: concEstadoCore_(concId || "") }; }); }
 function webConcCerrar(tk, opts) {
-  return webAuth_(tk, V_, u => {
+  return webTurnoAuth_(tk, V_, u => {
     opts = opts || {};
     const id = concCerrarCore_(opts.nota, u.nombre);
     let pdf = null, telegram = null;
@@ -4818,9 +4893,9 @@ function webConcCerrar(tk, opts) {
     return { id: id, pdf: pdf, telegram: telegram, estado: concEstadoCore_() };
   });
 }
-function webPreAgregar(tk, sku, producto, motivo) { return webAuth_(tk, V_, u => { preAgregarCore_(sku, producto, motivo, u.nombre); return { estado: concEstadoCore_() }; }); }
-function webPreQuitar(tk, id) { return webAuth_(tk, V_, () => { preQuitarCore_(id); return { estado: concEstadoCore_() }; }); }
-function webPreLimpiar(tk) { return webAuth_(tk, V_, () => { preLimpiarCore_(); return { estado: concEstadoCore_() }; }); }
+function webPreAgregar(tk, sku, producto, motivo) { return webTurnoAuth_(tk, V_, u => { preAgregarCore_(sku, producto, motivo, u.nombre); return { estado: concEstadoCore_() }; }); }
+function webPreQuitar(tk, id) { return webTurnoAuth_(tk, V_, () => { preQuitarCore_(id); return { estado: concEstadoCore_() }; }); }
+function webPreLimpiar(tk) { return webTurnoAuth_(tk, V_, () => { preLimpiarCore_(); return { estado: concEstadoCore_() }; }); }
 
 // ---------------------------------------------------------
 // ADMINISTRADOR: usuarios, hoja Sku y canales

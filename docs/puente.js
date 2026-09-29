@@ -40,12 +40,12 @@
   const CLAVE_LS = "frecs_motor";
   const FRESCO_TURNOS_MS = 15000;   // varias personas trabajan el mismo turno: se relee si tiene más de 15 s
   function guardarLS() { try { localStorage.setItem(CLAVE_LS, JSON.stringify(datos)); } catch (e) {} }
-  function usarDatos(d) { datos = d; turnosEn = Date.now(); MOTOR.cargar(d); }
+  function usarDatos(d) { datos = d; turnosEn = Date.now(); MOTOR.cargar(d); pintarModo(); }
   async function cargarDatos(tk, forzar) {
     if (datos && !forzar) return datos;
     if (!cargando) {
       cargando = rpc("datos_consulta", { p_token: tk, p_extra: [...extras] })
-        .then(d => { usarDatos(d); guardarLS(); return d; })
+        .then(d => { usarDatos(d); guardarLS(); if (turnosReales()) espejoTurnos(tk, null); return d; })
         .catch(e => {
           // Sin conexión: se trabaja con la última copia guardada en este equipo
           if (e.red) { let c = null; try { c = JSON.parse(localStorage.getItem(CLAVE_LS) || "null"); } catch (x) {} if (c) { usarDatos(c); return c; } }
@@ -61,7 +61,7 @@
     if (!datos) return cargarDatos(tk, true);
     if (!cargandoT) {
       cargandoT = rpc("datos_turnos", { p_token: tk, p_extra: [...extras] })
-        .then(dt => { Object.assign(datos, dt); turnosEn = Date.now(); MOTOR.cargarTurnos(dt); guardarLS(); return datos; })
+        .then(dt => { Object.assign(datos, dt); turnosEn = Date.now(); MOTOR.cargarTurnos(dt); guardarLS(); pintarModo(); return datos; })
         .finally(() => { cargandoT = null; });
     }
     return cargandoT;
@@ -161,6 +161,14 @@
   const HOJAS_TURNO = [].concat(...LOGICAS.map(L => Object.keys(L.hojas)));
   function cambiosTurno(antes, despues) {
     const out = [];
+    const toca = { turnos: new Set(), concs: new Set(), otros: false };
+    const anotar = (tabla, f) => {
+      if (tabla === "turnos") toca.turnos.add(f.id);
+      else if (tabla === "conciliaciones") toca.concs.add(f.id);
+      else if (tabla === "conc_items") toca.concs.add(f.conc_id);
+      else if (f.turno_id) toca.turnos.add(f.turno_id);
+      else toca.otros = true;
+    };
     LOGICAS.forEach(L => {
       const clave = f => L.pk.map(k => txt(f[k])).join("\u0001");
       const leer = foto => {
@@ -175,14 +183,16 @@
       D.forEach((f, k) => {
         const a = A.get(k);
         if (a && Object.keys(f).every(c => JSON.stringify(f[c]) === JSON.stringify(a[c]))) return;
+        anotar(L.tabla, f);
         const firma = Object.keys(f).join(",");
         (grupos[firma] = grupos[firma] || []).push(f);
       });
-      A.forEach((f, k) => { if (!D.has(k)) { const o = {}; L.pk.forEach(p => { o[p] = f[p]; }); quitar.push(o); } });
+      A.forEach((f, k) => { if (!D.has(k)) { anotar(L.tabla, f); const o = {}; L.pk.forEach(p => { o[p] = f[p]; }); quitar.push(o); } });
       const firmas = Object.keys(grupos);
       if (!firmas.length && quitar.length) out.push({ tabla: L.tabla, poner: [], quitar: quitar });
       firmas.forEach((fm, i) => out.push({ tabla: L.tabla, poner: grupos[fm], quitar: i === 0 ? quitar : [] }));
     });
+    out.toca = toca;
     return out;
   }
   function filasDe(nombre, datosHoja) {
@@ -223,11 +233,40 @@
         if (m.indexOf("SESION:") === 0) return fallo(m.replace("SESION:", "").trim(), { sesion: true });
         return fallo(m.replace(/^PERMISO:\s*/, ""));
       }
-      if (esTurno) { turnosEn = Date.now(); guardarLS(); }
+      if (esTurno) { turnosEn = Date.now(); guardarLS(); if (turnosReales()) espejoTurnos(tk, cambios.toca); }
       else { avisarHojas(tk, cambios.map(c => c.tabla)); cargarDatos(tk, true).catch(() => {}); }
     }
     return JSON.stringify(r);
   }
+  // ---------- después del cambio definitivo (4d): copia de los turnos a las hojas ----------
+  // Apps Script copia a las hojas lo que cambió (el bot y sus PDF leen de allá). Si falla, se
+  // guarda en este equipo y se reintenta con el siguiente cambio.
+  const CLAVE_ESPEJO = "frecs_espejo";
+  const turnosReales = () => !!datos && datos.modo_turnos === "si";
+  function espejoTurnos(tk, toca) {
+    if (!CFG.appsScriptUrl) return;
+    let p = { turnos: [], concs: [] };
+    try { p = JSON.parse(localStorage.getItem(CLAVE_ESPEJO) || '{"turnos":[],"concs":[]}'); } catch (e) {}
+    const t = new Set(p.turnos.concat(toca ? [...toca.turnos] : [])), c = new Set(p.concs.concat(toca ? [...toca.concs] : []));
+    if (!t.size && !c.size && !(toca && toca.otros)) return;
+    const pend = { turnos: [...t], concs: [...c] };
+    try { localStorage.setItem(CLAVE_ESPEJO, JSON.stringify(pend)); } catch (e) {}
+    fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ accion: "turnos", token: tk }, pend)) })
+      .then(r => r.json()).then(j => {
+        if (!j.ok) return;
+        // Solo se borra lo que se copió (pudo llegar otro cambio mientras tanto)
+        let q = { turnos: [], concs: [] }; try { q = JSON.parse(localStorage.getItem(CLAVE_ESPEJO) || "null") || q; } catch (e) {}
+        const resto = { turnos: q.turnos.filter(x => !t.has(x)), concs: q.concs.filter(x => !c.has(x)) };
+        try { if (resto.turnos.length || resto.concs.length) localStorage.setItem(CLAVE_ESPEJO, JSON.stringify(resto)); else localStorage.removeItem(CLAVE_ESPEJO); } catch (e) {}
+      }).catch(() => {});
+  }
+  // Aviso de arriba: en modo prueba se muestra; después del cambio definitivo se quita
+  function pintarModo() {
+    const reales = turnosReales();
+    document.querySelectorAll(".web-aviso.prueba").forEach(a => a.classList.toggle("hidden", reales));
+    document.body.classList.toggle("con-aviso", !reales && !!document.querySelector(".web-aviso.prueba"));
+  }
+
   // ---------- PDF en el navegador ----------
   let libsPdf = null;
   function cargarScript(src) {
@@ -410,7 +449,7 @@
     ajustar() {
       // Aviso de modo prueba (hasta el cambio definitivo, fase 4d)
       const aviso = document.createElement("div");
-      aviso.className = "web-aviso";
+      aviso.className = "web-aviso prueba";
       aviso.innerHTML = `🧪 <b>Versión nueva</b> · <b>Turnos y conciliación en modo prueba:</b> lo que hagas aquí no pasa al dashboard actual ni al bot.<span class="solo-escritorio"> Limbo, Consumo, Sku y Canales sí se copian a las hojas.</span>`;
       const off = document.getElementById("offBar");
       if (off && off.parentNode) off.parentNode.insertBefore(aviso, off.nextSibling);

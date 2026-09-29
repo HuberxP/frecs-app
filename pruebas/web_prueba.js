@@ -375,6 +375,28 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_validacion.png" });
   await P.evaluate(() => ir("entrega")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_entrega.png" });
   await cel.page.evaluate(() => ir("validacion")); await cel.page.waitForTimeout(1500); await cel.page.screenshot({ path: "/tmp/m_w_validacion.png" });
+  // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
+  q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);
+  await P.reload(); await P.waitForSelector(".kpis", { timeout: 15000 }); await P.waitForTimeout(800);
+  if (await P.isVisible(".web-aviso.prueba")) errores.push("con el cambio definitivo sigue el aviso de modo prueba");
+  pedidos.length = 0; respSync = { ok: true, hojas: { turnos: 1 } };
+  const TT = turnoAb();
+  await P.evaluate(() => api("webEntNota", "nota para la copia"));
+  await P.waitForTimeout(500);
+  const pe = pedidos.find(x => x.accion === "turnos");
+  if (!pe || !pe.turnos.includes(TT)) errores.push("no se pidió copiar el turno a las hojas: " + JSON.stringify(pedidos.map(x => x.accion)));
+  if (await P.evaluate(() => localStorage.getItem("frecs_espejo"))) errores.push("quedó pendiente la copia aunque Apps Script respondió bien");
+  // Si Apps Script falla, queda pendiente y se reintenta con el siguiente cambio
+  respSync = { ok: false, error: "caído" }; pedidos.length = 0;
+  await P.evaluate(() => api("webEntNota", "otra nota"));
+  await P.waitForTimeout(500);
+  if (!(await P.evaluate(() => localStorage.getItem("frecs_espejo")))) errores.push("la copia fallida no quedó pendiente");
+  respSync = { ok: true }; pedidos.length = 0;
+  await P.evaluate(() => api("webEntNota", "tercera nota"));
+  await P.waitForTimeout(500);
+  if (await P.evaluate(() => localStorage.getItem("frecs_espejo"))) errores.push("la copia pendiente no se reintentó");
+  q("delete from frecs_config where clave='turnos_en_supabase'");
   console.log(errores.length ? "ERRORES:\n" + errores.join("\n") : "SIN ERRORES");
   await b.close(); srv.kill();
 })();

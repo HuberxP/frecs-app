@@ -4,6 +4,8 @@
 // así las mismas funciones del servidor (.gs) corren aquí sin cambios.
 // ---------------------------------------------------------------------
 const __TZ_DEF = "America/Bogota";
+// Los errores de negocio ("ya está en la lista"…) ya se muestran en pantalla: en la consola van como aviso
+const console = { log: (...a) => globalThis.console.log(...a), warn: (...a) => globalThis.console.warn(...a), error: (...a) => globalThis.console.warn(...a), info: (...a) => globalThis.console.info(...a) };
 function __colIdx(l) { let n = 0; for (const ch of l) n = n * 26 + (ch.charCodeAt(0) - 64); return n; }
 class __Rango {
   constructor(sh, r, c, nr, nc) { this.sh = sh; this.r = r; this.c = c; this.nr = nr; this.nc = nc; }

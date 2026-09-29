@@ -49,5 +49,11 @@ return {
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });
     return f.apply(null, args || []);
   },
-  exportadas: () => Object.keys(__EXPORTAR)
+  exportadas: () => Object.keys(__EXPORTAR),
+  // Copia de las hojas del libro principal (para saber qué filas cambió una acción)
+  foto(nombres) {
+    const main = SpreadsheetApp.openById(SHEET_ID), r = {};
+    nombres.forEach(n => { const h = main.getSheetByName(n); r[n] = h ? JSON.parse(JSON.stringify(h.data)) : []; });
+    return r;
+  }
 };

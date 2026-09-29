@@ -105,6 +105,59 @@ let llamadasSb = 0, sinRed = false;
   if (!conf) errores.push("⟳ bajada grande no pide confirmar");
   else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
   await sy.page.screenshot({ path: "/tmp/w_sync.png" });
+  // --- Fase 4a: escrituras (con el mismo contexto que tiene Apps Script configurado) ---
+  pedidos.length = 0; respSync = { ok: true, hojas: [] };
+  const P = sy.page, q = sql => psql(sql, "postgres");
+  const idL = await P.evaluate(() => api("webLimboAgregar", { nombre: "Prueba web limbo", fecha: "2027-05-10", pres: "LATA", cub: "269" }));
+  if (q(`select producto from limbo where id='${idL}'`) !== "Prueba web limbo") errores.push("limbo agregado no llegó a Supabase: " + idL);
+  if (q(`select vencimiento from limbo where id='${idL}'`) !== "10/05/2027") errores.push("limbo: fecha mal guardada");
+  await P.waitForTimeout(300);
+  if (!pedidos.some(p => p.accion === "maestros" && p.tablas.includes("limbo"))) errores.push("no avisó a Apps Script para copiar limbo a la hoja");
+  await P.evaluate(i => api("webLimboEliminar", i), idL);
+  if (q(`select count(*) from limbo where id='${idL}'`) !== "0") errores.push("limbo eliminado sigue en Supabase");
+  const dup = await P.evaluate(() => api("webConsumoAgregar", "3617").then(() => "sin error", e => e.message));
+  if (!/ya está/.test(dup)) errores.push("consumo repetido no avisa: " + dup);
+  const skuC = await P.evaluate(async () => {
+    const cands = [...new Set(S.inv.filter(x => x.fis && x.est === "DISPONIBLE" && !x.esOp).map(x => x.s))];
+    for (const c of cands) { try { await api("webConsumoAgregar", c); return c; } catch (e) {} }
+    return null;
+  });
+  if (!skuC || q(`select count(*) from consumo where sku='${skuC}'`) !== "1") errores.push("consumo agregado no llegó: " + skuC);
+  const mod = await P.evaluate(s2 => { const r = S.inv.find(x => x.s === s2 && x.fis && x.est === "DISPONIBLE"); return r ? r.m : null; }, skuC);
+  if (mod) {
+    await P.evaluate(a2 => api("webConsumoElegir", a2[0], a2[1]), [skuC, mod]);
+    const fila = q(`select modulo_elegido || '|' || elegido_por || '|' || to_char(elegido_en at time zone 'America/Bogota','YYYY-MM-DD') from consumo where sku='${skuC}'`);
+    if (!fila.startsWith(mod + "|Huber|")) errores.push("consumo elegido mal guardado: " + fila);
+  }
+  const malMod = await P.evaluate(s2 => api("webConsumoElegir", s2, "Z99").then(() => "sin error", e => e.message), skuC);
+  if (!/no hay producto disponible/.test(malMod)) errores.push("elegir módulo sin producto no avisa: " + malMod);
+  await P.evaluate(s2 => api("webConsumoEliminar", s2), skuC);
+  if (q(`select count(*) from consumo where sku='${skuC}'`) !== "0") errores.push("consumo eliminado sigue");
+  const cat = await P.evaluate(() => api("webSkuGuardar", "", { sku: "99002", prod: "Prueba web sku", minimo: "5", estCara: "3" }));
+  if (!cat.some(c => c.sku === "99002") || q("select minimo || '|' || estibas_por_cara || '|' || usuario from sku where sku='99002'") !== "5|3|Huber") errores.push("sku nuevo mal guardado");
+  await P.evaluate(() => api("webSkuGuardar", "99002", { sku: "99003", prod: "Prueba web renombrada", minimo: "" }));
+  if (q("select count(*) from sku where sku in ('99002')") !== "0" || q("select coalesce(minimo::text,'vacío') from sku where sku='99003'") !== "vacío") errores.push("renombrar sku falló");
+  await P.evaluate(() => api("webSkuEliminar", "99003"));
+  if (q("select count(*) from sku where sku='99003'") !== "0") errores.push("sku eliminado sigue");
+  const canMal = await P.evaluate(() => api("webCanalesGuardar", [{ canal: "T1", tipo: "General", dias: 90 }]).then(() => "sin error", e => e.message));
+  if (!/exactamente una regla General/.test(canMal)) errores.push("canales inválidos no avisan: " + canMal);
+  await P.evaluate(() => api("webCanalesGuardar", [{ canal: "T1", tipo: "General", dias: 91 }, { canal: "T2", tipo: "General", dias: 30 }, { canal: "KA", tipo: "General", dias: 120 }, { canal: "KA", tipo: "Familia", valor: "RETORNABLE", dias: 45 }]));
+  if (q("select string_agg(canal||tipo||dias_minimos, ',' order by orden) from canales") !== "T1General91,T2General30,KAGeneral120,KAFamilia45") errores.push("canales mal guardados: " + q("select string_agg(canal||tipo||dias_minimos, ',' order by orden) from canales"));
+  // Validador: no puede tocar Sku
+  const val = await nueva({ width: 1200, height: 800 }, "validador");
+  await val.page.goto("http://127.0.0.1:8766/"); await val.page.waitForSelector("#lgN");
+  await val.page.selectOption("#lgN", "Ana María"); await val.page.fill("#lgP", "5555"); await val.page.click("#lgB");
+  await val.page.waitForSelector(".kpis", { timeout: 15000 });
+  const sinPermiso = await val.page.evaluate(() => api("webSkuGuardar", "", { sku: "99004", prod: "no" }).then(() => "sin error", e => e.message));
+  if (!/permiso/.test(sinPermiso) || q("select count(*) from sku where sku='99004'") !== "0") errores.push("validador pudo tocar Sku: " + sinPermiso);
+  if (await val.page.$('a[data-v="skus"]')) errores.push("validador ve Administración");
+  // Si Supabase rechaza, la página se deshace
+  q("update perfiles set rol='lector' where nombre='Ana María'");
+  const rech = await val.page.evaluate(() => api("webLimboAgregar", { nombre: "No debe quedar", fecha: "2027-01-01" }).then(() => "sin error", e => e.message));
+  q("update perfiles set rol='validador' where nombre='Ana María'");
+  if (!/permiso/i.test(rech) || q("select count(*) from limbo where producto='No debe quedar'") !== "0") errores.push("rechazo del servidor no se respetó: " + rech);
+  await P.evaluate(() => ir("limbo")); await P.waitForTimeout(500); await P.screenshot({ path: "/tmp/w_limbo.png" });
+  await P.evaluate(() => ir("skus")); await P.waitForTimeout(500); await P.screenshot({ path: "/tmp/w_skus.png" });
   console.log(errores.length ? "ERRORES:\n" + errores.join("\n") : "SIN ERRORES");
   await b.close(); srv.kill();
 })();

@@ -6,6 +6,8 @@ const MOTOR = (() => {
 // así las mismas funciones del servidor (.gs) corren aquí sin cambios.
 // ---------------------------------------------------------------------
 const __TZ_DEF = "America/Bogota";
+// Los errores de negocio ("ya está en la lista"…) ya se muestran en pantalla: en la consola van como aviso
+const console = { log: (...a) => globalThis.console.log(...a), warn: (...a) => globalThis.console.warn(...a), error: (...a) => globalThis.console.warn(...a), info: (...a) => globalThis.console.info(...a) };
 function __colIdx(l) { let n = 0; for (const ch of l) n = n * 26 + (ch.charCodeAt(0) - 64); return n; }
 class __Rango {
   constructor(sh, r, c, nr, nc) { this.sh = sh; this.r = r; this.c = c; this.nr = nr; this.nc = nc; }
@@ -2222,6 +2224,7 @@ function agregarConsumoCore_(sku) {
   const f = skuInfo_(sku);
   const n = f ? f.prod : "SKU " + sku;
   tAgregar_(CONSUMO_DEF, [[sku, n, "", "", ""]]);
+  sbEspejo_("consumo");
   return { ok: true, nombre: String(n) };
 }
 
@@ -2239,7 +2242,9 @@ function preguntarEliminarConsumo(sku) {
 
 function eliminarConsumoCore_(sku) {
   if (!hoja_("Consumo")) return false;
-  return tReescribir_(CONSUMO_DEF, r => txt_(r[0]) !== String(sku).trim()) > 0;
+  const quitados = tReescribir_(CONSUMO_DEF, r => txt_(r[0]) !== String(sku).trim());
+  if (quitados > 0) sbEspejo_("consumo");
+  return quitados > 0;
 }
 
 function ejecutarEliminarConsumo(sku) {
@@ -2259,6 +2264,7 @@ function elegirModuloConsumoCore_(sku, modulo, usuario) {
       if (!ok) throw new Error(`En ${modulo} no hay producto disponible del SKU ${sku}. Solo se puede elegir un módulo disponible.`);
     }
     tEscribir_(CONSUMO_DEF, it.fila, 3, modulo ? [modulo, usuario, ahora_()] : ["", "", ""]);
+    sbEspejo_("consumo");
     return true;
   });
 }
@@ -2320,6 +2326,7 @@ function agregarLimboCore_(nombre, fechaISO, presentacion, cubicaje) {
   let idUnico;
   do { idUnico = "L-" + Math.floor(1000 + Math.random() * 9000); } while (usados.has(idUnico));
   sh.appendRow([idUnico, String(nombre).trim(), formatearFecha(fechaISO), presentacion || "", cubicaje || "", Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy HH:mm")]);
+  sbEspejo_("limbo");
   return { ok: true, id: idUnico };
 }
 
@@ -2328,7 +2335,7 @@ function eliminarLimboCore_(id) {
   if (!sh) return false;
   const data = sh.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(id).trim()) { sh.deleteRow(i + 1); return true; }
+    if (String(data[i][0]).trim() === String(id).trim()) { sh.deleteRow(i + 1); sbEspejo_("limbo"); return true; }
   }
   return false;
 }
@@ -2651,6 +2658,7 @@ function skuGuardarCore_(skuOriginal, obj, usuario) {
       sk.sh.appendRow(fila);
     }
     invalidarSku_();
+    sbEspejo_("sku");
     return o.sku;
   });
 }
@@ -2663,6 +2671,7 @@ function skuEliminarCore_(sku) {
     if (!actual) throw new Error(`El SKU ${sku} no existe.`);
     sk.sh.deleteRow(actual.fila);
     invalidarSku_();
+    sbEspejo_("sku");
     return true;
   });
 }
@@ -2701,6 +2710,7 @@ function canalesGuardarCore_(filas) {
     sh.getRange(2, 1, limpias.length, CANALES_DEF.cab.length).setValues(limpias);
     _CANALES = null;
     cacheBorrar_("inv");
+    sbEspejo_("canales");
     return true;
   });
 }
@@ -4175,6 +4185,111 @@ function sbSubirWmsDesdeHojas_() {
   return sbSubirWms_(filas, mods, { ultimo: parseInt(p.getProperty("wms_last_movement_ts") || "0", 10) || 0, filas: filas.filter(r => numero_(r[3]) > 0 || numero_(r[4]) > 0 || numero_(r[5]) > 0).length, por: "Importación" });
 }
 
+// ---------- filas de los maestros (hoja → base) ----------
+function sbFilasSku_() {
+  return sbSinRepetir_(catalogoSku_().map(c => ({
+    sku: c.sku, id_hoja: sbTxt_(c.idHoja),
+    producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
+    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara
+  })), x => x.sku);
+}
+function sbFilasCanales_(omitir) {
+  const TIPOS = { general: "General", familia: "Familia", contiene: "Contiene" };
+  const canales = [];
+  tLeer_(CANALES_DEF).forEach((r, k) => {
+    const canal = txt_(r[0]).toUpperCase(), tipo = TIPOS[txt_(r[1]).toLowerCase()], dias = sbNum_(r[3]);
+    if (!["T1", "T2", "KA"].includes(canal) || !tipo || dias === null) { if (omitir) omitir("canales", "canal, tipo o días no válidos"); return; }
+    canales.push({ orden: k + 1, canal: canal, tipo: tipo, valor: txt_(r[2]), dias_minimos: Math.round(dias), nota: sbTxt_(r[4]) });
+  });
+  return canales;
+}
+function sbFilasConsumo_() {
+  return sbSinRepetir_(tLeer_(CONSUMO_DEF).filter(r => txt_(r[0])).map((r, k) => ({
+    sku: txt_(r[0]), producto: sbTxt_(r[1]), modulo_elegido: sbTxt_(r[2]), elegido_por: sbTxt_(r[3]), elegido_en: sbTs_(r[4]), orden: k + 1 })), x => x.sku);
+}
+function sbFilasLimbo_() {
+  const limbo = [];
+  const shL = hoja_("Limbo");
+  if (shL) shL.getDataRange().getValues().slice(1).forEach(r => {
+    if (!String(r[0]).trim()) return;
+    limbo.push({ id: String(r[0]).trim(), producto: String(r[1] || "").trim() || "(sin nombre)", vencimiento: r[2] instanceof Date ? Utilities.formatDate(r[2], TZ, "dd/MM/yyyy") : sbTxt_(r[2]),
+      presentacion: sbTxt_(r[3]), cubicaje: sbTxt_(r[4]), fecha_reporte: r[5] instanceof Date ? Utilities.formatDate(r[5], TZ, "dd/MM/yyyy HH:mm") : sbTxt_(r[5]) });
+  });
+  return sbSinRepetir_(limbo, x => x.id);
+}
+const SB_FILAS = { sku: () => sbFilasSku_(), canales: () => sbFilasCanales_(null), consumo: () => sbFilasConsumo_(), limbo: () => sbFilasLimbo_() };
+
+// ---------- espejo en los dos sentidos (fase 4a) ----------
+// Hoja → Supabase: después de un cambio hecho en el dashboard actual o en el bot.
+// Nunca rompe la acción original: si falla, queda en el registro.
+function sbEspejo_(tabla) {
+  if (!sbActivo_() || !SB_FILAS[tabla]) return;
+  try { sbRpc_("guardar_filas", { p_token: "bot:Apps Script", p_cambios: [{ tabla: tabla, reemplazar: true, poner: SB_FILAS[tabla]() }] }); }
+  catch (e) { console.error(`Espejo ${tabla} → Supabase: ${e.message}`); }
+}
+
+// Supabase → hojas: después de un cambio hecho en el dashboard nuevo.
+function sbBajarMaestros_(tablas) {
+  const quiere = t => !tablas || !tablas.length || tablas.includes(t);
+  const m = sbRpc_("sb_maestros", {});
+  const hecho = [];
+  return conLock_(() => {
+    if (quiere("limbo")) {
+      const sh = hoja_("Limbo");
+      if (sh) {
+        const n = sh.getLastRow();
+        if (n > 1) sh.getRange(2, 1, n - 1, 6).clearContent();
+        const filas = m.limbo.map(x => [x.id, x.producto || "", x.vencimiento || "", x.presentacion || "", x.cubicaje || "", x.fecha_reporte || ""]);
+        if (filas.length) sh.getRange(2, 1, filas.length, 6).setValues(filas);
+        hecho.push("limbo");
+      }
+    }
+    if (quiere("consumo") && hoja_("Consumo")) {
+      tReescribir_(CONSUMO_DEF, () => false);
+      tAgregar_(CONSUMO_DEF, m.consumo.map(x => [x.sku, x.producto || "", x.modulo_elegido || "", x.elegido_por || "", x.elegido_en || ""]));
+      hecho.push("consumo");
+    }
+    if (quiere("canales")) {
+      const sh = tHoja_(CANALES_DEF), n = sh.getLastRow();
+      if (n > 1) sh.getRange(2, 1, n - 1, CANALES_DEF.cab.length).clearContent();
+      const filas = m.canales.map(x => [x.canal, x.tipo, x.valor || "", x.dias_minimos, x.nota || ""]);
+      if (filas.length) sh.getRange(2, 1, filas.length, CANALES_DEF.cab.length).setValues(filas);
+      _CANALES = null;
+      hecho.push("canales");
+    }
+    if (quiere("sku")) {
+      _SKU = null;
+      const sk = leerSku_();
+      if (sk.sh) {
+        const ancho = sk.sh.getLastColumn();
+        const campos = { id: "id_hoja", sku: "sku", prod: "producto", cub: "cubicaje", piso: "piso", plancha: "plancha", cantEst: "cant_x_estiba",
+          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara" };
+        const enBase = new Set();
+        m.sku.forEach(x => {
+          enBase.add(String(x.sku));
+          const actual = sk.mapa[String(x.sku)];
+          const fila = actual ? sk.sh.getRange(actual.fila, 1, 1, ancho).getValues()[0] : new Array(ancho).fill("");
+          const antes = JSON.stringify(fila);
+          Object.keys(campos).forEach(k => {
+            if (sk.cols[k] === undefined) return;
+            if (k === "id" && actual) return; // el Id de la hoja se respeta
+            const v = x[campos[k]];
+            fila[sk.cols[k]] = v === null || v === undefined ? "" : v;
+          });
+          if (!actual) sk.sh.appendRow(fila);
+          else if (JSON.stringify(fila) !== antes) sk.sh.getRange(actual.fila, 1, 1, ancho).setValues([fila]);
+        });
+        // Los que ya no están en la base se quitan de la hoja (de abajo hacia arriba)
+        sk.lista.filter(c => !enBase.has(String(c.sku))).map(c => c.fila).sort((a, b) => b - a).forEach(f => sk.sh.deleteRow(f));
+        invalidarSku_();
+        hecho.push("sku");
+      }
+    }
+    cacheBorrar_("inv");
+    return hecho;
+  });
+}
+
 // ---------- 2) importación completa ----------
 // Lee una tabla de turnos de su archivo y, si existe, también del archivo de historial viejo
 function sbLeerConArchivo_(def) {
@@ -4211,21 +4326,8 @@ function sbImportarTodo() {
   res.usuarios = sbRpc_("sb_importar_usuarios", { p_sal: salPin_(), p_usuarios: us });
 
   // --- Maestros ---
-  const sku = sbSinRepetir_(catalogoSku_().map(c => ({
-    sku: c.sku, id_hoja: sbTxt_(c.idHoja),
-    producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
-    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara
-  })), x => x.sku);
-  res.sku = sbEnviarTabla_("sku", sku);
-
-  const TIPOS = { general: "General", familia: "Familia", contiene: "Contiene" };
-  const canales = [];
-  tLeer_(CANALES_DEF).forEach((r, k) => {
-    const canal = txt_(r[0]).toUpperCase(), tipo = TIPOS[txt_(r[1]).toLowerCase()], dias = sbNum_(r[3]);
-    if (!["T1", "T2", "KA"].includes(canal) || !tipo || dias === null) return omitir("canales", "canal, tipo o días no válidos");
-    canales.push({ orden: k + 1, canal: canal, tipo: tipo, valor: txt_(r[2]), dias_minimos: Math.round(dias), nota: sbTxt_(r[4]) });
-  });
-  res.canales = sbEnviarTabla_("canales", canales);
+  res.sku = sbEnviarTabla_("sku", sbFilasSku_());
+  res.canales = sbEnviarTabla_("canales", sbFilasCanales_(omitir));
 
   const cap = [];
   const shCap = hoja_("Capacidad_Bodega");
@@ -4236,18 +4338,8 @@ function sbImportarTodo() {
   });
   res.capacidad_bodega = sbEnviarTabla_("capacidad_bodega", sbSinRepetir_(cap, x => x.modulo));
 
-  const cons = tLeer_(CONSUMO_DEF).filter(r => txt_(r[0])).map((r, k) => ({
-    sku: txt_(r[0]), producto: sbTxt_(r[1]), modulo_elegido: sbTxt_(r[2]), elegido_por: sbTxt_(r[3]), elegido_en: sbTs_(r[4]), orden: k + 1 }));
-  res.consumo = sbEnviarTabla_("consumo", sbSinRepetir_(cons, x => x.sku));
-
-  const limbo = [];
-  const shL = hoja_("Limbo");
-  if (shL) shL.getDataRange().getValues().slice(1).forEach(r => {
-    if (!String(r[0]).trim()) return;
-    limbo.push({ id: String(r[0]).trim(), producto: String(r[1] || "").trim() || "(sin nombre)", vencimiento: r[2] instanceof Date ? sbFecha_(r[2]) : sbTxt_(r[2]),
-      presentacion: sbTxt_(r[3]), cubicaje: sbTxt_(r[4]), fecha_reporte: r[5] instanceof Date ? Utilities.formatDate(r[5], TZ, "dd/MM/yyyy HH:mm") : sbTxt_(r[5]) });
-  });
-  res.limbo = sbEnviarTabla_("limbo", sbSinRepetir_(limbo, x => x.id));
+  res.consumo = sbEnviarTabla_("consumo", sbFilasConsumo_());
+  res.limbo = sbEnviarTabla_("limbo", sbFilasLimbo_());
 
   res.destinos = sbEnviarTabla_("destinos", sbSinRepetir_(valDestinos_().map((d, k) => ({ nombre: d, orden: k + 1 })), x => x.nombre.toLowerCase()));
 
@@ -4358,10 +4450,14 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (data.accion !== "sincronizar") throw new Error("Acción no válida.");
+    if (data.accion !== "sincronizar" && data.accion !== "maestros") throw new Error("Acción no válida.");
     let u;
     try { u = sbRpc_("mi_sesion", { p_token: String(data.token || "") }); }
     catch (e) { const m = String(e.message); if (/SESION:/.test(m)) throw new Error(m.substring(m.indexOf("SESION:"))); throw e; }
+    if (data.accion === "maestros") {
+      const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: hecho })).setMimeType(ContentService.MimeType.JSON);
+    }
     const s = sincronizarWMSCore(data.forzar === true);
     if (!s.ok) throw new Error(s.error);
     console.log(`Sincronización desde el dashboard nuevo por ${u.nombre}: ${s.fisicas} ubicaciones`);
@@ -5075,7 +5171,13 @@ return {
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });
     return f.apply(null, args || []);
   },
-  exportadas: () => Object.keys(__EXPORTAR)
+  exportadas: () => Object.keys(__EXPORTAR),
+  // Copia de las hojas del libro principal (para saber qué filas cambió una acción)
+  foto(nombres) {
+    const main = SpreadsheetApp.openById(SHEET_ID), r = {};
+    nombres.forEach(n => { const h = main.getSheetByName(n); r[n] = h ? JSON.parse(JSON.stringify(h.data)) : []; });
+    return r;
+  }
 };
 
 })();

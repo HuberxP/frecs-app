@@ -77,6 +77,72 @@
     return ok({ filas: j.filas, modulos: j.modulos, inv: inv });
   }
 
+  // ---------- escrituras (fase 4a) ----------
+  // La acción corre primero en el motor (mismas reglas y mensajes del Frecs actual) sobre
+  // una copia fresca de los datos; luego solo las filas que cambiaron van a Supabase
+  // (guardar_filas), que revisa la sesión y el rol. Si Supabase lo rechaza, se deshace.
+  const ESCRITURA = {
+    webLimboAgregar: ["Limbo"], webLimboEliminar: ["Limbo"],
+    webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"],
+    webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"]
+  };
+  const txt = v => (v === null || v === undefined) ? "" : String(v).trim();
+  const nul = v => { const t = txt(v); return t === "" ? null : t; };
+  const num = v => { const t = txt(v).replace(",", "."); if (t === "") return null; const n = Number(t); return isFinite(n) ? n : null; };
+  const ts = v => { const t = txt(v); const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/.exec(t); return m ? `${m[1]}T${m[2]}${m[3] || ":00"}-05:00` : (t || null); };
+  const HOJAS = {
+    Limbo: { tabla: "limbo", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]) }) },
+    Consumo: { tabla: "consumo", clave: f => f.sku, fila: (r, k) => ({ sku: txt(r[0]), producto: nul(r[1]), modulo_elegido: nul(r[2]), elegido_por: nul(r[3]), elegido_en: ts(r[4]), orden: k + 1 }) },
+    Sku: { tabla: "sku", clave: f => f.sku, fila: (r, k, cab) => {
+      const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
+      return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
+        cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
+        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")) };
+    } },
+    Canales: { tabla: "canales", reemplazar: true, fila: (r, k) => ({ orden: k + 1, canal: txt(r[0]).toUpperCase(), tipo: txt(r[1]), valor: txt(r[2]), dias_minimos: Math.round(num(r[3]) || 0), nota: nul(r[4]) }) }
+  };
+  function filasDe(nombre, datosHoja) {
+    const cfg = HOJAS[nombre], cab = (datosHoja[0] || []).map(String);
+    // Solo filas con dato clave (en Sku la primera columna es el Id, que puede ir vacío)
+    return datosHoja.slice(1).filter(r => r && r.some(v => txt(v) !== "")).map((r, k) => cfg.fila(r, k, cab))
+      .filter(f => cfg.clave ? txt(cfg.clave(f)) !== "" : txt(f.canal) !== "");
+  }
+  function cambiosDe(nombre, antes, despues) {
+    const cfg = HOJAS[nombre], a = filasDe(nombre, antes), d = filasDe(nombre, despues);
+    if (cfg.reemplazar) return JSON.stringify(a) === JSON.stringify(d) ? null : { tabla: cfg.tabla, reemplazar: true, poner: d };
+    const mapA = new Map(a.map(f => [cfg.clave(f), JSON.stringify(f)])), claves = new Set(d.map(cfg.clave));
+    const poner = d.filter(f => mapA.get(cfg.clave(f)) !== JSON.stringify(f));
+    const quitar = a.filter(f => !claves.has(cfg.clave(f))).map(f => { const o = {}; o[cfg.tabla === "limbo" ? "id" : "sku"] = cfg.clave(f); return o; });
+    return poner.length || quitar.length ? { tabla: cfg.tabla, poner: poner, quitar: quitar } : null;
+  }
+  // Avisa a Apps Script para que copie el cambio a las hojas (bot y dashboard actual). No se espera.
+  function avisarHojas(tk, tablas) {
+    if (!CFG.appsScriptUrl) return;
+    fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "maestros", token: tk, tablas: tablas }) }).catch(() => {});
+  }
+  async function escribir(fn, args, ok, fallo) {
+    const tk = args[0], hojas = ESCRITURA[fn];
+    await cargarDatos(tk, true);                     // lo más reciente antes de cambiar
+    const antes = MOTOR.foto(hojas);
+    const r = JSON.parse(MOTOR.llamar(fn, args));    // reglas del Frecs actual
+    if (!r.ok) return JSON.stringify(r);
+    const despues = MOTOR.foto(hojas);
+    const cambios = hojas.map(h => cambiosDe(h, antes[h], despues[h])).filter(Boolean);
+    if (cambios.length) {
+      try { await rpc("guardar_filas", { p_token: tk, p_cambios: cambios }); }
+      catch (e) {
+        datos = null; cargarDatos(tk, true).catch(() => {});   // se deshace con lo que hay en la base
+        if (e.red) throw e;
+        const m = String(e.message || e);
+        if (m.indexOf("SESION:") === 0) return fallo(m.replace("SESION:", "").trim(), { sesion: true });
+        return fallo(m.replace(/^PERMISO:\s*/, ""));
+      }
+      avisarHojas(tk, cambios.map(c => c.tabla));
+      cargarDatos(tk, true).catch(() => {});
+    }
+    return JSON.stringify(r);
+  }
+
   async function ejecutar(fn, args) {
     const ok = data => JSON.stringify({ ok: true, data: data });
     const fallo = (msg, extra) => JSON.stringify(Object.assign({ ok: false, error: msg }, extra || {}));
@@ -90,6 +156,7 @@
       }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
+      if (ESCRITURA[fn]) return await escribir(fn, args, ok, fallo);
       if (LECTURA.has(fn)) {
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
         return MOTOR.llamar(fn, args);
@@ -126,7 +193,9 @@
       const turnos = NAV.find(g => g.g === "Turnos");
       const op = NAV.find(g => g.g === "Operación");
       if (turnos && op) { const c = turnos.items.find(i => i.id === "consumo"); if (c) op.items.push(c); }
-      const fuera = ["Turnos", "Historial", "Reportes", "Administración"];
+      const fuera = ["Turnos", "Historial", "Reportes"];
+      const adm = NAV.find(g => g.g === "Administración");
+      if (adm) adm.items = adm.items.filter(i => { if (i.id === "usuarios") { delete VISTAS[i.id]; return false; } return true; });
       for (let k = NAV.length - 1; k >= 0; k--) if (fuera.includes(NAV[k].g)) {
         NAV[k].items.forEach(i => { if (i.id !== "consumo") delete VISTAS[i.id]; });
         NAV.splice(k, 1);
@@ -138,7 +207,7 @@
       // Aviso de versión
       const aviso = document.createElement("div");
       aviso.className = "web-aviso";
-      aviso.innerHTML = `🧪 <b>Versión nueva (Supabase)</b> · consultas${CFG.appsScriptUrl ? " y ⟳ sincronizar" : ""}. Turnos, PDF y cambios: en el dashboard actual.`;
+      aviso.innerHTML = `🧪 <b>Versión nueva (Supabase)</b> · consultas, Limbo, Consumo, Sku y Canales. Turnos, PDF y usuarios: en el dashboard actual.`;
       const off = document.getElementById("offBar");
       if (off && off.parentNode) off.parentNode.insertBefore(aviso, off.nextSibling);
       document.body.classList.add("con-aviso");

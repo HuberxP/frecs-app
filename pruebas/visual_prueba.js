@@ -25,6 +25,10 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
     await page.waitForTimeout(300);
     for (let k = 0; k < 2; k++) { await page.click("#eiMas"); await page.waitForTimeout(100); }
     await page.screenshot({ path: `/tmp/v_${nombre}_entrega_modal.png` });
+    await page.evaluate(() => { cerrarModal(true); ir("capacidad"); }); await page.waitForTimeout(900);
+    await page.evaluate(() => { const c = document.querySelector('.cap-card .pl-cab'); if (c) c.click(); const d = document.querySelector('.cap-faltan'); if (d) d.open = true; });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `/tmp/v_${nombre}_capacidad.png`, fullPage: nombre === "cel" ? false : false });
     await ctx.close();
   }
   await b.close(); srv.kill();

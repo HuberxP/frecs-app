@@ -2759,6 +2759,89 @@ function canalesGuardarCore_(filas) {
   });
 }
 
+// ---------------------------------------------------------
+// 4. CAPACIDAD DE BODEGA (pestaña Capacidad_Bodega, solo administrador)
+// Son los módulos que existen en físico: con esta lista se cruzan huecos, módulos
+// vacíos, organizar, consumo y la capacidad de cada módulo.
+// Caras = frentes del módulo · Capacidad = estibas por cara (vacío = la del producto o 8)
+// ---------------------------------------------------------
+const CAP_CAB = ["Modulo", "Caras", "Capacidad"];
+function capHoja_() {
+  let sh = hoja_("Capacidad_Bodega");
+  if (!sh) { sh = ss_().insertSheet("Capacidad_Bodega"); sh.getRange(1, 1, 1, 3).setValues([CAP_CAB]); sh.setFrozenRows(1); }
+  return sh;
+}
+const cmpModulo_ = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+
+function capacidadListar_() {
+  const sh = hoja_("Capacidad_Bodega");
+  const filas = sh ? sh.getDataRange().getValues().slice(1) : [];
+  const wms = {};
+  obtenerModulosLocal().forEach(x => { wms[x.m] = x; });
+  const ubic = {};
+  obtenerInventarioLocal().filter(i => i.tieneFisico).forEach(i => { ubic[i.m] = (ubic[i.m] || 0) + 1; });
+  const vistos = new Set(), mods = [];
+  filas.forEach(r => {
+    const m = limpiarModulo(r[0]);
+    if (!m || m === "N/A" || vistos.has(m)) return;
+    vistos.add(m);
+    const cap = parseInt(r[2], 10);
+    mods.push({ m: m, caras: parseInt(r[1], 10) || 0, cap: cap > 0 ? cap : "", sec: seccionModulo_(m), enWms: !!wms[m], ubic: ubic[m] || 0 });
+  });
+  mods.sort((a, b) => cmpModulo_(a.m, b.m));
+  // Módulos del WMS que no están en la lista (para añadirlos si existen en físico)
+  const faltan = Object.keys(wms).filter(m => !vistos.has(m)).map(m => ({ m: m, sec: seccionModulo_(m), ubic: ubic[m] || 0, zona: wms[m].zona }))
+    .sort((a, b) => (b.ubic ? 1 : 0) - (a.ubic ? 1 : 0) || cmpModulo_(a.m, b.m));
+  return { mods: mods, faltan: faltan, total: mods.length, caras: mods.reduce((a, x) => a + x.caras, 0) };
+}
+
+function validarCapacidad_(obj) {
+  const m = limpiarModulo(obj && obj.modulo);
+  if (!m || m === "N/A") throw new Error("Escribe el nombre del módulo (ej.: B12, KA3, M4).");
+  const caras = Number(String(obj.caras === undefined ? "" : obj.caras).trim());
+  if (!Number.isInteger(caras) || caras < 1 || caras > 99) throw new Error("Las caras deben ser un número entero entre 1 y 99.");
+  const t = String(obj.cap === undefined || obj.cap === null ? "" : obj.cap).trim();
+  let cap = "";
+  if (t !== "") {
+    cap = Number(t);
+    if (!Number.isInteger(cap) || cap < 1 || cap > 99) throw new Error("Las estibas por cara deben ser un número entero entre 1 y 99 (o vacío).");
+  }
+  return { m: m, caras: caras, cap: cap };
+}
+
+// original vacío = módulo nuevo
+function capacidadGuardarCore_(original, obj) {
+  const o = validarCapacidad_(obj);
+  return conLock_(() => {
+    const sh = capHoja_();
+    const data = sh.getDataRange().getValues();
+    const fila = m => { for (let k = 1; k < data.length; k++) if (limpiarModulo(data[k][0]) === m) return k + 1; return 0; };
+    const orig = original ? limpiarModulo(original) : "";
+    const fo = orig ? fila(orig) : 0, fn = fila(o.m);
+    if (orig && !fo) throw new Error(`El módulo ${orig} ya no está en la lista.`);
+    if (fn && fn !== fo) throw new Error(`El módulo ${o.m} ya está en la lista.`);
+    if (fo) sh.getRange(fo, 1, 1, 3).setValues([[o.m, o.caras, o.cap]]);
+    else sh.appendRow([o.m, o.caras, o.cap]);
+    sbEspejo_("capacidad_bodega");
+    return o.m;
+  });
+}
+
+function capacidadEliminarCore_(modulo) {
+  const m = limpiarModulo(modulo);
+  return conLock_(() => {
+    const sh = capHoja_();
+    const data = sh.getDataRange().getValues();
+    let f = 0;
+    for (let k = 1; k < data.length; k++) if (limpiarModulo(data[k][0]) === m) { f = k + 1; break; }
+    if (!f) throw new Error(`El módulo ${m} no está en la lista.`);
+    sh.deleteRow(f);
+    sbEspejo_("capacidad_bodega");
+    return true;
+  });
+}
+
+
 ;
 // ===== 20_Turnos.gs =====
 // =========================================================
@@ -4298,7 +4381,17 @@ function sbFilasLimbo_() {
   });
   return sbSinRepetir_(limbo, x => x.id);
 }
-const SB_FILAS = { sku: () => sbFilasSku_(), canales: () => sbFilasCanales_(null), consumo: () => sbFilasConsumo_(), limbo: () => sbFilasLimbo_() };
+function sbFilasCapacidad_(omitir) {
+  const cap = [];
+  const shCap = hoja_("Capacidad_Bodega");
+  if (shCap) shCap.getDataRange().getValues().slice(1).forEach(r => {
+    const m = limpiarModulo(r[0]), caras = parseInt(r[1], 10);
+    if (!m || m === "N/A" || !caras) { if (omitir) omitir("capacidad_bodega", "sin módulo o sin caras"); return; }
+    cap.push({ modulo: m, caras: caras, capacidad: parseInt(r[2], 10) || null });
+  });
+  return sbSinRepetir_(cap, x => x.modulo);
+}
+const SB_FILAS = { sku: () => sbFilasSku_(), canales: () => sbFilasCanales_(null), consumo: () => sbFilasConsumo_(), limbo: () => sbFilasLimbo_(), capacidad_bodega: () => sbFilasCapacidad_(null) };
 
 // ---------- espejo en los dos sentidos (fase 4a) ----------
 // Hoja → Supabase: después de un cambio hecho en el dashboard actual o en el bot.
@@ -4337,6 +4430,13 @@ function sbBajarMaestros_(tablas) {
       if (filas.length) sh.getRange(2, 1, filas.length, CANALES_DEF.cab.length).setValues(filas);
       _CANALES = null;
       hecho.push("canales");
+    }
+    if (quiere("capacidad_bodega") && m.capacidad) {
+      const sh = capHoja_(), n = sh.getLastRow();
+      if (n > 1) sh.getRange(2, 1, n - 1, 3).clearContent();
+      const filas = m.capacidad.map(x => [x.modulo, x.caras, x.capacidad === null || x.capacidad === undefined ? "" : x.capacidad]);
+      if (filas.length) sh.getRange(2, 1, filas.length, 3).setValues(filas);
+      hecho.push("capacidad_bodega");
     }
     if (quiere("sku")) {
       _SKU = null;
@@ -4410,14 +4510,7 @@ function sbImportarTodo() {
   res.sku = sbEnviarTabla_("sku", sbFilasSku_());
   res.canales = sbEnviarTabla_("canales", sbFilasCanales_(omitir));
 
-  const cap = [];
-  const shCap = hoja_("Capacidad_Bodega");
-  if (shCap) shCap.getDataRange().getValues().slice(1).forEach(r => {
-    const m = limpiarModulo(r[0]), caras = parseInt(r[1], 10);
-    if (!m || m === "N/A" || !caras) return omitir("capacidad_bodega", "sin módulo o sin caras");
-    cap.push({ modulo: m, caras: caras, capacidad: parseInt(r[2], 10) || null });
-  });
-  res.capacidad_bodega = sbEnviarTabla_("capacidad_bodega", sbSinRepetir_(cap, x => x.modulo));
+  res.capacidad_bodega = sbEnviarTabla_("capacidad_bodega", sbFilasCapacidad_(omitir));
 
   res.consumo = sbEnviarTabla_("consumo", sbFilasConsumo_());
   res.limbo = sbEnviarTabla_("limbo", sbFilasLimbo_());
@@ -4652,7 +4745,14 @@ function sbCambioDefinitivo() {
 // sbVolverBotAAppsScript(): deshace todo (el bot vuelve a responder desde aquí).
 // ---------------------------------------------------------
 function sbUrlFuncionBot_() { return sbCfg_().url + "/functions/v1/frecs-bot"; }
-function sbUrlAppsScript_() { return prop_("APPS_SCRIPT_URL", "") || ScriptApp.getService().getUrl(); }
+// Dirección publicada (/exec) de este Apps Script. Desde el editor, getUrl() puede dar la de pruebas (/dev).
+function sbUrlAppsScript_() {
+  const p = prop_("APPS_SCRIPT_URL", "").trim();
+  if (p) return p;
+  const d = String(DASHBOARD_URL || "").trim();
+  if (/^https:\/\/script\.google\.com\/.*\/exec$/.test(d)) return d;
+  return ScriptApp.getService().getUrl();
+}
 
 function sbPasarBotASupabase() {
   if (!sbActivo_()) throw new Error("Faltan las propiedades SUPABASE_URL y SUPABASE_SECRET.");
@@ -4662,7 +4762,7 @@ function sbPasarBotASupabase() {
   const secretoWebhook = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
   pr.setProperty("BOT_SECRET", secreto);
   const urlAS = sbUrlAppsScript_();
-  if (!/\/exec$/.test(urlAS)) throw new Error("La dirección de Apps Script debe terminar en /exec (publica la implementación o pon la propiedad APPS_SCRIPT_URL): " + urlAS);
+  if (!/\/exec$/.test(urlAS)) throw new Error("Falta la dirección publicada de Apps Script (la que termina en /exec). Agrega la propiedad del script APPS_SCRIPT_URL con esa dirección y vuelve a correr esto. Se obtuvo: " + urlAS);
   sbRpc_("sb_bot_config_guardar", { p_config: { bot_grupo: String(GRUPO_CALIDAD_ID || ""), bot_chats: prop_("CHATS_PERMITIDOS", ""), bot_dashboard: DASHBOARD_URL || "",
     bot_apps_script_url: urlAS, bot_funcion_url: sbUrlFuncionBot_(), bot_secreto: secreto, bot_webhook_secreto: secretoWebhook } });
   // La función debe estar publicada y con el token antes de cambiar el webhook
@@ -4679,7 +4779,9 @@ function sbPasarBotASupabase() {
 
 function sbVolverBotAAppsScript() {
   const sec = prop_("WEBHOOK_SECRET", "");
-  const url = sbUrlAppsScript_() + (sec ? "?k=" + encodeURIComponent(sec) : "");
+  const base = sbUrlAppsScript_();
+  if (!/\/exec$/.test(base)) throw new Error("Falta la propiedad APPS_SCRIPT_URL (la dirección publicada que termina en /exec). No se cambió nada.");
+  const url = base + (sec ? "?k=" + encodeURIComponent(sec) : "");
   const r = UrlFetchApp.fetch(TELEGRAM_API + "/setWebhook", { method: "post", contentType: "application/json", muteHttpExceptions: true, payload: JSON.stringify({ url: url }) });
   if (r.getResponseCode() !== 200) throw new Error("Telegram no aceptó el cambio: " + r.getContentText());
   try { sbRpc_("sb_bot_alertas", { p_activar: false }); } catch (e) { console.warn("Alertas: " + e.message); }
@@ -4994,6 +5096,9 @@ function webUsuarioGuardar(tk, obj) { return webAuth_(tk, A_, u => { usrGuardarC
 function webUsuarioEliminar(tk, nombre) { return webAuth_(tk, A_, u => { usrEliminarCore_(nombre, u.nombre); return usrListarAdmin_(); }); }
 function webSkuGuardar(tk, skuOriginal, obj) { return webAuth_(tk, A_, u => { skuGuardarCore_(skuOriginal, obj, u.nombre); return catalogoWeb_(); }); }
 function webSkuEliminar(tk, sku) { return webAuth_(tk, A_, () => { skuEliminarCore_(sku); return catalogoWeb_(); }); }
+function webCapacidad(tk) { return webAuth_(tk, L_, () => capacidadListar_()); }
+function webCapacidadGuardar(tk, original, obj) { return webAuth_(tk, A_, () => { capacidadGuardarCore_(original, obj); return capacidadListar_(); }); }
+function webCapacidadEliminar(tk, modulo) { return webAuth_(tk, A_, () => { capacidadEliminarCore_(modulo); return capacidadListar_(); }); }
 function webCanalesGuardar(tk, filas) { return webAuth_(tk, A_, () => { canalesGuardarCore_(filas); return { reglas: canalesListar_(), defecto: POCOS_DEFECTO }; }); }
 
 ;
@@ -5509,7 +5614,7 @@ function construirInformePrioridades() {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEnvasado, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValInicial, webValQuitar, webValRegistrar, webValSugerencias};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEnvasado, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValInicial, webValQuitar, webValRegistrar, webValSugerencias};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

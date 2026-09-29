@@ -563,7 +563,15 @@
   .cant-ed + .cant-ed { border-top: 2px dashed var(--line2); padding-top: 10px; margin-top: 10px; }
   .cant-ed .cant-n { width: 24px; height: 24px; border-radius: 50%; background: var(--card2); border: 1px solid var(--line2); font-size: 12px; font-weight: 900; display: grid; place-items: center; color: var(--cyan); }
   @media (max-width: 699px) { .cant-ed, .cant-ed.sin-mod { grid-template-columns: 26px 1fr 1fr 36px; } .cant-ed input[data-f="m"] { grid-column: 2 / 4; } }
-  .cant.tot { border-color: var(--cyan); color: var(--cyan); }/* ============ Versión web (Supabase) ============ */
+  .cant.tot { border-color: var(--cyan); color: var(--cyan); }
+  /* Capacidad de bodega */
+  .cap-lista { display: flex; flex-direction: column; gap: 10px; }
+  .cap-card .pl-cab h3 { margin: 0; font-size: 16px; }
+  .cap-card .sec-n { display: inline-block; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 2px 9px; margin-left: 6px; background: rgba(125,249,255,.14); color: #bff9ff; }
+  .cap-no { color: #ffb4b4; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+  .cap-faltan { margin-top: 12px; }
+  .cap-faltan summary { cursor: pointer; font-weight: 800; }
+  .cap-faltan-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

@@ -56,7 +56,8 @@ const NAV = [
   { g: "Administración", rol: "administrador", items: [
     { id: "usuarios", ic: "👥", t: "Usuarios y PIN" },
     { id: "skus", ic: "🗃️", t: "Productos (hoja Sku)" },
-    { id: "canales", ic: "🚦", t: "Canales (días mínimos)" } ] }
+    { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
+    { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
 
@@ -2203,6 +2204,80 @@ function modalSku(c, alGuardar) {
     try { S.cat = await api("webSkuGuardar", c ? c.sku : "", obj); ls.setJ("cat", S.cat); ocupado(btn, false); cerrarModal(true); toast("Producto guardado", "ok"); alGuardar(); }
     catch (e) { ocupado(btn, false); toast(e.message, "bad", 6000); }
   };
+}
+
+// ---------- Capacidad de bodega (módulos que existen en físico) ----------
+const nombreSeccion = k => ({ M: "Carpa (M)", KA: "KA", PREV: "Picking preventa", H: "Módulos H", BARRILES: "Barriles" }[k] || (/^[A-Z]$/.test(k) ? "Pasillo " + k : k));
+VISTAS.capacidad = async (el, p, vigente) => {
+  let d = await api("webCapacidad");
+  if (!vigente()) return;
+  const admin = puede("administrador");
+  el.innerHTML = cab("🧱 Capacidad de bodega", "Los módulos que existen en físico. Con esta lista se cruzan huecos, módulos vacíos, organizar, consumo y la capacidad de cada módulo. Caras = frentes del módulo. Estibas por cara vacío = la del producto (columna Est/cara de Sku) o 8.",
+      admin ? `<button class="btn primary" data-a="nuevo">＋ Nuevo módulo</button>` : "") +
+    `<div class="lista-tools"><input type="search" id="cpQ" placeholder="Buscar módulo (B12, KA, M…)"><button class="btn sm" data-a="todas">Abrir todas</button><button class="btn sm" data-a="ninguna">Cerrar todas</button><span class="count" id="cpC"></span></div>
+    <div id="cpR"></div><div id="cpF"></div>`;
+  const pintar = () => {
+    const q = norm($("#cpQ", el).value).replace(/\s+/g, "");
+    const lis = q ? d.mods.filter(x => norm(x.m).replace(/\s+/g, "").includes(q)) : d.mods;
+    $("#cpC", el).textContent = `${d.total} módulos · ${fm(d.caras)} caras${q ? ` · ${lis.length} coinciden` : ""}`;
+    const secs = {};
+    lis.forEach(x => (secs[x.sec] = secs[x.sec] || []).push(x));
+    const orden = Object.keys(secs).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const v = (x, t) => x ? h(x) : `<span class="muted small">${t}</span>`;
+    $("#cpR", el).innerHTML = lis.length ? `<div class="cap-lista">${orden.map(s => {
+      const it = secs[s], ab = !!q || abierto("cap", s), caras = it.reduce((a, x) => a + x.caras, 0);
+      return `<section class="card plegable cap-card ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="cap|${h(s)}" role="button" tabindex="0" aria-expanded="${ab}">
+        <h3>${h(nombreSeccion(s))} <span class="sec-n">${it.length} módulos · ${fm(caras)} caras</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+        <div class="pl-cuerpo"><table class="tabla resp"><thead><tr><th>Módulo</th><th class="num">Caras</th><th class="num">Estibas por cara</th><th class="num">Ubicaciones con producto</th><th>WMS</th>${admin ? "<th></th>" : ""}</tr></thead><tbody>
+        ${it.map(x => `<tr><td data-l="Módulo">${modChip(x.m)}</td><td data-l="Caras" class="num"><b>${x.caras}</b></td><td data-l="Estibas por cara" class="num">${v(x.cap, "del producto u 8")}</td>
+          <td data-l="Con producto" class="num">${v(x.ubic, "vacío")}</td><td data-l="WMS">${x.enWms ? "✓" : `<span class="cap-no">⚠️ no está en el WMS</span>`}</td>
+          ${admin ? `<td class="acc"><button class="btn sm" data-a="editar" data-m="${h(x.m)}">Editar</button> <button class="btn sm" data-a="borrar" data-m="${h(x.m)}" aria-label="Quitar ${h(x.m)}">🗑</button></td>` : ""}</tr>`).join("")}
+        </tbody></table></div></section>`; }).join("")}</div>`
+      : vacio(q ? "Ningún módulo coincide con la búsqueda." : "Todavía no hay módulos. Agrega los que existen en físico.", "🧱");
+    const f = q ? d.faltan.filter(x => norm(x.m).replace(/\s+/g, "").includes(q)) : d.faltan;
+    $("#cpF", el).innerHTML = f.length ? `<details class="card cap-faltan" ${q ? "open" : ""}><summary>📡 Módulos del WMS que no están en la lista (${f.length})</summary>
+      <p class="muted small">No se cruzan en huecos, vacíos ni organizar. ${admin ? "Si existen en físico, tócalos para agregarlos." : ""}</p>
+      <div class="cap-faltan-lista">${f.map(x => admin ? `<button class="btn sm" data-a="agregar" data-m="${h(x.m)}">＋ ${h(x.m)}${x.ubic ? ` <span class="muted small">· ${x.ubic} con producto</span>` : ""}</button>`
+        : `<span class="mod-chip">${h(x.m)}</span>`).join("")}</div></details>` : "";
+  };
+  const guardado = nd => { d = nd; pintar(); };
+  $("#cpQ", el).oninput = pintar;
+  el.onclick = async e => {
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    const a = b.dataset.a;
+    if (a === "todas" || a === "ninguna") { S.abiertos.cap = {}; if (a === "todas") d.mods.forEach(x => { S.abiertos.cap[x.sec] = true; }); pintar(); return; }
+    if (!admin) return;
+    if (a === "nuevo") return modalCapacidad(null, "", guardado);
+    if (a === "agregar") return modalCapacidad(null, b.dataset.m, guardado);
+    const x = d.mods.find(y => y.m === b.dataset.m); if (!x) return;
+    if (a === "editar") return modalCapacidad(x, "", guardado);
+    if (a === "borrar") {
+      const aviso = x.ubic ? ` Tiene ${x.ubic} ubicación(es) con producto: dejará de contar en huecos y capacidad.` : "";
+      if (!(await confirmar("Quitar módulo", `¿Quitar ${modChip(x.m)} de la capacidad de bodega?${h(aviso)}`, "Quitar", true))) return;
+      try { guardado(await api("webCapacidadEliminar", x.m)); toast(`Módulo ${x.m} quitado`, "ok"); } catch (er) { toast(er.message, "bad", 6000); }
+    }
+  };
+  pintar();
+};
+function modalCapacidad(x, sugerido, alGuardar) {
+  const m = abrirModal(`<h3>${x ? `Editar módulo ${h(x.m)}` : "Nuevo módulo"}</h3>
+    <div class="grid2" style="gap:0 14px">
+      <label class="field"><span>Módulo</span><input type="text" id="cmM" autocapitalize="characters" placeholder="B12, KA3, M4…" value="${h(x ? x.m : sugerido || "")}"></label>
+      <label class="field"><span>Caras</span><input type="text" inputmode="numeric" id="cmC" placeholder="Ej.: 4" value="${h(x ? x.caras : "")}"></label>
+      <label class="field"><span>Estibas por cara (opcional)</span><input type="text" inputmode="numeric" id="cmE" placeholder="Vacío = la del producto u 8" value="${h(x && x.cap ? x.cap : "")}"></label>
+    </div>
+    <p class="muted small">Caras = cuántos frentes tiene el módulo. Capacidad del módulo = caras × estibas por cara.</p>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="cmOk">Guardar</button></div>`);
+  const ok = async () => {
+    const btn = $("#cmOk", m); ocupado(btn, true);
+    try {
+      const d = await api("webCapacidadGuardar", x ? x.m : "", { modulo: $("#cmM", m).value.trim(), caras: $("#cmC", m).value.trim(), cap: $("#cmE", m).value.trim() });
+      ocupado(btn, false); cerrarModal(true); toast("Módulo guardado", "ok"); alGuardar(d);
+    } catch (e) { ocupado(btn, false); toast(e.message, "bad", 6000); }
+  };
+  $("#cmOk", m).onclick = ok;
+  $$("input", m).forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") ok(); }));
+  setTimeout(() => $(x ? "#cmC" : (sugerido ? "#cmC" : "#cmM"), m).focus(), 50);
 }
 
 // ---------- Canales (días mínimos por defecto) ----------

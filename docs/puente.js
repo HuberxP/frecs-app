@@ -77,7 +77,7 @@
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webConsumo",
-    "webCarpa", "webBarriles", "webLimbo", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
+    "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
     webSetup: "Los usuarios se crean desde Administración → Usuarios.",
@@ -109,7 +109,8 @@
   const ESCRITURA = {
     webLimboAgregar: ["Limbo"], webLimboEliminar: ["Limbo"],
     webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"],
-    webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"]
+    webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"],
+    webCapacidadGuardar: ["Capacidad_Bodega"], webCapacidadEliminar: ["Capacidad_Bodega"]
   };
   // Fase 4b: turnos, validación y entrega. Se comparan todas sus hojas como tablas lógicas.
   const ESCRITURA_TURNO = new Set(["webTurnoAbrir", "webTurnoCerrar", "webTurnoNota", "webTurnoEliminar", "webTurnoRestaurar",
@@ -123,14 +124,16 @@
   const bool = v => v === true || /^(true|si|sí|verdadero)$/i.test(txt(v));
   const ts = v => { const t = txt(v); const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/.exec(t); return m ? `${m[1]}T${m[2]}${m[3] || ":00"}-05:00` : (t || null); };
   const HOJAS = {
-    Limbo: { tabla: "limbo", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]) }) },
-    Consumo: { tabla: "consumo", clave: f => f.sku, fila: (r, k) => ({ sku: txt(r[0]), producto: nul(r[1]), modulo_elegido: nul(r[2]), elegido_por: nul(r[3]), elegido_en: ts(r[4]), orden: k + 1 }) },
-    Sku: { tabla: "sku", clave: f => f.sku, fila: (r, k, cab) => {
+    Limbo: { tabla: "limbo", pk: "id", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]) }) },
+    Consumo: { tabla: "consumo", pk: "sku", clave: f => f.sku, fila: (r, k) => ({ sku: txt(r[0]), producto: nul(r[1]), modulo_elegido: nul(r[2]), elegido_por: nul(r[3]), elegido_en: ts(r[4]), orden: k + 1 }) },
+    Sku: { tabla: "sku", pk: "sku", clave: f => f.sku, fila: (r, k, cab) => {
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
       return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
         cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
         minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")) };
     } },
+    Capacidad_Bodega: { tabla: "capacidad_bodega", pk: "modulo", clave: f => f.modulo,
+      fila: r => ({ modulo: txt(r[0]).toUpperCase(), caras: Math.round(num(r[1]) || 0), capacidad: num(r[2]) === null ? null : Math.round(num(r[2])) }) },
     Canales: { tabla: "canales", reemplazar: true, fila: (r, k) => ({ orden: k + 1, canal: txt(r[0]).toUpperCase(), tipo: txt(r[1]), valor: txt(r[2]), dias_minimos: Math.round(num(r[3]) || 0), nota: nul(r[4]) }) }
   };
   // Cantidades de la entrega: siempre {n, un, m} en ese orden (la base las devuelve en otro)
@@ -206,7 +209,7 @@
     if (cfg.reemplazar) return JSON.stringify(a) === JSON.stringify(d) ? null : { tabla: cfg.tabla, reemplazar: true, poner: d };
     const mapA = new Map(a.map(f => [cfg.clave(f), JSON.stringify(f)])), claves = new Set(d.map(cfg.clave));
     const poner = d.filter(f => mapA.get(cfg.clave(f)) !== JSON.stringify(f));
-    const quitar = a.filter(f => !claves.has(cfg.clave(f))).map(f => { const o = {}; o[cfg.tabla === "limbo" ? "id" : "sku"] = cfg.clave(f); return o; });
+    const quitar = a.filter(f => !claves.has(cfg.clave(f))).map(f => { const o = {}; o[cfg.pk] = cfg.clave(f); return o; });
     return poner.length || quitar.length ? { tabla: cfg.tabla, poner: poner, quitar: quitar } : null;
   }
   // Avisa a Apps Script para que copie el cambio a las hojas (bot y dashboard actual). No se espera.

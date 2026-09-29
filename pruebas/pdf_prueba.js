@@ -16,7 +16,7 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
   page.on("pageerror", e => console.log("ERR", e.message));
   await page.goto("http://127.0.0.1:8767/"); await page.waitForSelector("#lgN");
   await page.selectOption("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForSelector(".kpis", { timeout: 15000 });
-  const T = psql("select id from turnos where estado='CERRADO' order by cierre desc limit 1", "postgres");
+  const T = process.env.TURNO || psql("select id from turnos where estado='CERRADO' order by cierre desc limit 1", "postgres");
   for (const [tipo, id] of [["RESUMEN", ""], ["ENTREGA", T], ["CONSUMO", ""], ["RETORNABLE", ""], ["POCOS", ""], ["CARPA", ""], ["VALIDACION", T], ["CONCILIACION", ""], ["BARRILES", ""], ["CONSUMO_SOLO", ""], ["TPC", ""], ["INFORME", ""]]) {
     const t0 = Date.now();
     const r = await page.evaluate(a => api("webPDF", a[0], a[1]).then(x => x, e => ({ error: e.message })), [tipo, id]);

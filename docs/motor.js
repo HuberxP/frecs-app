@@ -1809,13 +1809,14 @@ function calcularOrganizar() {
 // FEFO al juntar: lo que se mueve suele quedar adelante en el módulo que lo recibe.
 // Si lo que se mueve vence DESPUÉS que lo que ya está allá, el producto más viejo queda detrás.
 function fefoMovimiento_(emi, rec) {
-  const fd = v => formatearFecha(v) || "sin fecha", dd = d => d === 9999 ? "" : ` (${d} días)`;
+  const fd = v => formatearFecha(v) || "sin fecha";
+  const f = (v, d) => d === 9999 ? fd(v) : `${fd(v)} (${d} días)`;
   const dif = emi.tMin - rec.tMin, cinco = 86400000 * 5;
   if (Math.abs(dif) <= cinco) return { ok: true, titulo: "✅ FEFO correcto", detalle: `Mismas fechas o casi: lo que mueves vence ${fd(emi.v)} y en ${rec.mod} vence ${fd(rec.v)}.` };
   if (dif > 0) return { ok: false, titulo: "⚠️ FEFO se incumple",
-    detalle: `Lo que mueves de ${emi.mod} vence ${fd(emi.v)}${dd(emi.d)}, pero en ${rec.mod} hay producto que vence antes: ${fd(rec.v)}${dd(rec.d)}. Si lo pones adelante, lo de ${fd(rec.v)} queda detrás y sale después. Ponlo detrás o saca primero lo de ${rec.mod}.` };
+    detalle: `Lo que mueves de ${emi.mod} vence ${f(emi.v, emi.d)}, pero en ${rec.mod} hay producto que vence antes: ${f(rec.v, rec.d)}. Si lo pones adelante, lo de ${fd(rec.v)} queda tapado detrás y sale después. Ponlo detrás o saca primero lo de ${rec.mod}.` };
   return { ok: false, titulo: "⚠️ Cuidado con el FEFO",
-    detalle: `Lo que mueves de ${emi.mod} vence antes (${fd(emi.v)}${dd(emi.d)}) que lo que hay en ${rec.mod} (${fd(rec.v)}${dd(rec.d)}). Ponlo adelante para que salga primero; si queda detrás, se incumple el FEFO.` };
+    detalle: `Lo que mueves de ${emi.mod} vence antes, ${f(emi.v, emi.d)}, que lo que hay en ${rec.mod}, ${f(rec.v, rec.d)}. Ponlo adelante para que salga primero; si queda detrás, tapa su fecha y se incumple el FEFO.` };
 }
 
 function obtenerOrganizar(pagina) {
@@ -3453,6 +3454,15 @@ function entLimpiarCant_(arr) {
   }).filter(x => x.n > 0 || x.m);
 }
 
+// Para el PDF: si hay varias cantidades, primero el total (por unidad) y luego cada una con su módulo
+function cantidadesPdf_(arr) {
+  if (!arr || arr.length < 2) return escHtml_(cantTexto_(arr));
+  const tot = {};
+  arr.forEach(x => { tot[x.un] = (tot[x.un] || 0) + (Number(x.n) || 0); });
+  const total = ENT_UNIDADES.filter(u => tot[u]).map(u => `${fM(tot[u])} ${u}`).join(" + ");
+  return `<b>Total: ${escHtml_(total)}</b>` + arr.map(x => `<div class="cm">${x.m ? `<b>${escHtml_(x.m)}</b>: ` : ""}${fM(x.n)} ${escHtml_(x.un)}</div>`).join("");
+}
+
 function cantTexto_(arr) {
   if (!arr || !arr.length) return "—";
   return arr.map(x => `${fM(x.n)} ${x.un}${x.m ? " · " + x.m : ""}`).join(" | ");
@@ -3646,7 +3656,7 @@ function construirPDFEntrega(turnoId) {
   const d = entLeerTurno_(t.id);
   const tablaSec = s => {
     const it = d.secciones[s];
-    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${escHtml_(cantTexto_(x.cant))}</td></tr>`).join("")
+    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant)}</td></tr>`).join("")
       : `<tr><td colspan="3" class="vacio">Sin productos</td></tr>`;
     return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><thead><tr><th style="width:16%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:38%">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
   };
@@ -3656,7 +3666,7 @@ function construirPDFEntrega(turnoId) {
     <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>
     <div style="page-break-before:always"></div>${cabeceraPDF_("ENTREGA DE TURNO · NOTAS", fechaCorte_(), "#003399")}
     <p><b>${escHtml_(turnoTexto_(t))}</b> · ${escHtml_(t.abiertoPor)}</p>${notas}`;
-  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 5px;border:none}.sec{margin-bottom:10px;page-break-inside:avoid}.sec-t{font-weight:bold;color:#003399;font-size:11.5px;margin:4px 0}table.t td,table.t th{font-size:9px;padding:3px 4px}.notas li{margin-bottom:8px;font-size:11px}` });
+  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 5px;border:none}.sec{margin-bottom:10px;page-break-inside:avoid}.sec-t{font-weight:bold;color:#003399;font-size:11.5px;margin:4px 0}table.t td,table.t th{font-size:9px;padding:3px 4px}.notas li{margin-bottom:8px;font-size:11px}.cm{border-top:1px dotted #aaa;margin-top:2px;padding-top:2px}` });
   return { blob: htmlAPdf_(html, `Entrega_${t.id}.pdf`), caption: `📋 *Entrega de turno* · ${turnoTexto_(t)}` };
 }
 

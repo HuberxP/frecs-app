@@ -1077,10 +1077,13 @@ VISTAS.organizar = async (el, p, vigente) => {
   if (!vigente()) return;
   if (!lis.length) { el.innerHTML = cab("🧩 Organizar bodega", "Movimientos sugeridos para liberar módulos (mismo SKU repartido)") + vacio("Bodega organizada. No hay nada por consolidar."); return; }
   el.innerHTML = cab("🧩 Organizar bodega", "Movimientos sugeridos para liberar módulos (mismo SKU repartido)") + LEYENDA +
-    `<div class="lista-tools"><input type="search" id="oq" placeholder="Buscar por SKU, producto o módulo…"><span class="count" id="oc"></span></div><div id="or"></div>`;
+    `<div class="lista-tools"><input type="search" id="oq" placeholder="Buscar por SKU, producto o módulo…"><div class="seg" id="of"><button data-f="ALL">Todos</button><button data-f="OK">✅ FEFO se cumple</button><button data-f="MAL">⚠️ FEFO en riesgo</button></div><span class="count" id="oc"></span></div><div id="or"></div>`;
+  let filtroF = ls.get("orgFefo", "ALL");
+  $("#of", el).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; filtroF = b.dataset.f; ls.set("orgFefo", filtroF); pintar(); };
   const pintar = () => {
+    $$("#of button", el).forEach(b => b.classList.toggle("on", b.dataset.f === filtroF));
     const q = norm($("#oq", el).value).split(/\s+/).filter(x => x);
-    const it = q.length ? lis.filter(s2 => coincide(norm(`${s2.sku} ${s2.p} ${s2.from} ${s2.to}`), q) > 0) : lis;
+    const it = lis.filter(s2 => (filtroF === "ALL" || (filtroF === "OK" ? s2.fefoOk !== false : s2.fefoOk === false)) && (!q.length || coincide(norm(`${s2.sku} ${s2.p} ${s2.from} ${s2.to}`), q) > 0));
     $("#oc", el).textContent = `${it.length} movimientos`;
     $("#or", el).innerHTML = it.length ? `<div class="grid">${it.map(s2 => `<article class="card inv v-${h(s2.vida)}">
     <div class="prod">${skuTxt(s2.sku, s2.p)}</div><div class="fefo-est ${s2.fefoOk === false ? "mal" : "bien"}"><b>${h(s2.fefo)}</b>${s2.fefoDet ? `<div class="small">${h(s2.fefoDet)}</div>` : ""}</div>
@@ -1590,7 +1593,12 @@ async function modalAgregar() {
 // ENTREGA DE TURNO
 // =====================================================================
 const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Cajas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK (picking / preventa)", un: "Cajas", mod: false } };
-const cantChips = arr => arr && arr.length ? arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("") : `<span class="muted small">Sin cantidades</span>`;
+const cantChips = arr => {
+  if (!arr || !arr.length) return `<span class="muted small">Sin cantidades</span>`;
+  let tot = "";
+  if (arr.length > 1) { const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); }); tot = `<span class="cant tot">Total: <b>${["Estibas", "Cajas", "Unidades"].filter(u => t[u]).map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span>`; }
+  return tot + arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("");
+};
 S.entTurno = null;
 
 async function cargarEnt() {
@@ -1715,7 +1723,7 @@ function modalEntItem(s, item) {
     <button class="btn sm" id="eiMas" style="margin-top:8px">＋ Otra cantidad</button>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="eiOk">Guardar</button></div>`, { wide: true });
   const pintarCant = () => {
-    $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}">
+    $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}"><span class="cant-n">${k + 1}</span>
       <input type="text" inputmode="decimal" data-f="n" value="${h(x.n)}" placeholder="Cantidad">
       <select data-f="un">${["Estibas", "Cajas", "Unidades"].map(u => `<option ${u === x.un ? "selected" : ""}>${u}</option>`).join("")}</select>
       ${cfg.mod ? `<input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo">` : ""}

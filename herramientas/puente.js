@@ -61,6 +61,22 @@
   };
   const NO_AUN = "Esta versión nueva es solo de consulta por ahora. Hazlo en el dashboard actual (llega en la fase 4).";
 
+  // ⟳ Sincronizar: lo hace Apps Script (tiene la clave del WMS). Autoriza con la sesión de Supabase.
+  async function sincronizar(tk, forzar, ok, fallo) {
+    if (!CFG.appsScriptUrl) return fallo(AVISO.webSincronizar);
+    let r;
+    try {
+      r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "sincronizar", token: tk, forzar: !!forzar }) });
+    } catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
+    let j = null;
+    try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+    if (!j.ok) return fallo(j.error || "No se pudo sincronizar.", j.sesion ? { sesion: true } : null);
+    await cargarDatos(tk, true);
+    const inv = JSON.parse(MOTOR.llamar("webInventario", [tk])).data;
+    if (j.supabase && j.supabase.error) return fallo("El WMS se guardó en las hojas, pero no llegó a Supabase: " + j.supabase.error);
+    return ok({ filas: j.filas, modulos: j.modulos, inv: inv });
+  }
+
   async function ejecutar(fn, args) {
     const ok = data => JSON.stringify({ ok: true, data: data });
     const fallo = (msg, extra) => JSON.stringify(Object.assign({ ok: false, error: msg }, extra || {}));
@@ -73,6 +89,7 @@
         return ok({ token: r.token, usuario: r.usuario });
       }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
+      if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
       if (LECTURA.has(fn)) {
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
         return MOTOR.llamar(fn, args);
@@ -121,10 +138,11 @@
       // Aviso de versión
       const aviso = document.createElement("div");
       aviso.className = "web-aviso";
-      aviso.innerHTML = `🧪 <b>Versión nueva (Supabase)</b> · solo consultas. Turnos, PDF y cambios: en el dashboard actual.`;
+      aviso.innerHTML = `🧪 <b>Versión nueva (Supabase)</b> · consultas${CFG.appsScriptUrl ? " y ⟳ sincronizar" : ""}. Turnos, PDF y cambios: en el dashboard actual.`;
       const off = document.getElementById("offBar");
       if (off && off.parentNode) off.parentNode.insertBefore(aviso, off.nextSibling);
       document.body.classList.add("con-aviso");
+      if (CFG.appsScriptUrl) document.body.classList.add("con-sync");
     }
   };
 })();

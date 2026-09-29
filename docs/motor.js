@@ -302,9 +302,13 @@ function num(val, def) { if (def === undefined) def = 1; let n = parseInt(val, 1
 
 function doPost(e) {
   try {
+    const data = JSON.parse(e.postData.contents);
+    // Pedido del dashboard nuevo (GitHub Pages): { accion: "sincronizar", token }.
+    // No lleva la clave del webhook; se autoriza con la sesión de Supabase (26_Supabase).
+    if (data && data.accion && data.update_id === undefined) return sbWebPost_(data);
+
     const secreto = prop_("WEBHOOK_SECRET", "");
     if (secreto && (!e.parameter || e.parameter.k !== secreto)) return;
-    const data = JSON.parse(e.postData.contents);
 
     // Telegram reintenta el mismo update si la respuesta tarda: se procesa una sola vez
     if (data.update_id !== undefined) {
@@ -4345,6 +4349,28 @@ function sbImportarTodo() {
   const resumen = { importado: res, omitidas: omit, conteosSupabase: conteos };
   console.log("Importación a Supabase:\n" + JSON.stringify(resumen, null, 2));
   return resumen;
+}
+
+// ---------- 3) pedidos del dashboard nuevo ----------
+// El dashboard en GitHub Pages pide sincronizar con el WMS. Se valida la sesión en Supabase
+// (la misma que usa para entrar) y se hace la sincronización normal: hojas + Supabase.
+function sbWebPost_(data) {
+  let r;
+  try {
+    if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
+    if (data.accion !== "sincronizar") throw new Error("Acción no válida.");
+    let u;
+    try { u = sbRpc_("mi_sesion", { p_token: String(data.token || "") }); }
+    catch (e) { const m = String(e.message); if (/SESION:/.test(m)) throw new Error(m.substring(m.indexOf("SESION:"))); throw e; }
+    const s = sincronizarWMSCore(data.forzar === true);
+    if (!s.ok) throw new Error(s.error);
+    console.log(`Sincronización desde el dashboard nuevo por ${u.nombre}: ${s.fisicas} ubicaciones`);
+    r = { ok: true, filas: s.fisicas, modulos: s.modulos, supabase: s.supabase };
+  } catch (e) {
+    const m = String(e && e.message || e);
+    r = /^SESION:/.test(m) ? { ok: false, sesion: true, error: m.replace(/^SESION:\s*/, "") } : { ok: false, error: m };
+  }
+  return ContentService.createTextOutput(JSON.stringify(r)).setMimeType(ContentService.MimeType.JSON);
 }
 
 // Prueba rápida de conexión (correr desde el editor)

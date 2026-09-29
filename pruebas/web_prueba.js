@@ -84,6 +84,27 @@ let llamadasSb = 0, sinRed = false;
   if (!sw) errores.push("sin service worker");
   const man = await cel.page.evaluate(async () => (await fetch("manifest.webmanifest")).ok);
   if (!man) errores.push("sin manifest");
+  // ⟳ con Apps Script configurado
+  const sy = await nueva({ width: 1280, height: 800 }, "sync");
+  let respSync = { ok: true, filas: 362, modulos: 383, supabase: { filas: 362, modulos: 383 } }, pedidos = [];
+  await sy.ctx.route("**/config.js*", async route => { const r = await route.fetch(); const t = (await r.text()).replace('appsScriptUrl: ""', 'appsScriptUrl: "https://script.google.com/macros/s/PRUEBA/exec"'); await route.fulfill({ response: r, body: t }); });
+  await sy.ctx.route("https://script.google.com/**", async route => { pedidos.push(JSON.parse(route.request().postData())); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(respSync) }); });
+  await sy.page.goto("http://127.0.0.1:8766/"); await sy.page.waitForSelector("#lgN");
+  await sy.page.selectOption("#lgN", "Huber"); await sy.page.fill("#lgP", "1234"); await sy.page.click("#lgB");
+  await sy.page.waitForSelector(".kpis", { timeout: 15000 });
+  if (!(await sy.page.isVisible("#syncBtn"))) errores.push("⟳ no aparece con Apps Script configurado");
+  const nAntes = llamadasSb;
+  await sy.page.click("#syncBtn"); await sy.page.waitForTimeout(1500);
+  const tst = await sy.page.$eval("#toasts", e => e.innerText);
+  if (!/Base actualizada/.test(tst)) errores.push("⟳ sin aviso de éxito: " + tst);
+  if (!pedidos.length || pedidos[0].accion !== "sincronizar" || !pedidos[0].token) errores.push("⟳ pedido mal formado: " + JSON.stringify(pedidos));
+  if (llamadasSb - nAntes < 1) errores.push("⟳ no recargó los datos de Supabase");
+  respSync = { ok: false, error: "El WMS devolvió 10 ubicaciones con producto y la última vez fueron 362. Por seguridad no se reemplazó la base. Si la bajada es real, usa /sincronizar forzar." };
+  await sy.page.click("#syncBtn"); await sy.page.waitForTimeout(800);
+  const conf = await sy.page.isVisible("#cfOk");
+  if (!conf) errores.push("⟳ bajada grande no pide confirmar");
+  else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
+  await sy.page.screenshot({ path: "/tmp/w_sync.png" });
   console.log(errores.length ? "ERRORES:\n" + errores.join("\n") : "SIN ERRORES");
   await b.close(); srv.kill();
 })();

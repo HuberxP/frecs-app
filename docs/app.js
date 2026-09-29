@@ -2503,7 +2503,8 @@ VISTAS.canales = async (el, p, vigente) => {
 function avisoTurnosNueva(url) {
   let b = $("#nuevaBar");
   document.body.classList.toggle("turnos-fuera", !!url);
-  if (!url) { if (b) b.remove(); document.body.classList.toggle("con-aviso", !!$(".web-aviso")); return; }
+  // (solo cuenta un aviso que se esté viendo: el de «modo prueba» queda escondido después del cambio definitivo)
+  if (!url) { if (b) b.remove(); document.body.classList.toggle("con-aviso", !!$(".web-aviso:not(.hidden)")); return; }
   if (!b) { b = document.createElement("div"); b.id = "nuevaBar"; b.className = "web-aviso"; $("#offBar").after(b); }
   b.innerHTML = `🚀 Los turnos, validaciones, entregas y conciliaciones ahora se hacen en la <a href="${h(url)}" target="_blank" rel="noopener"><b>versión nueva</b></a>. Aquí solo se consultan.`;
   document.body.classList.add("con-aviso");

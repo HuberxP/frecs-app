@@ -1155,7 +1155,7 @@ async function modalCerrarTurno() {
   const pend = cola().length + S.enviando.length;
   const nSec = s => en.secciones[s].length;
   c.innerHTML = `<h3>Cerrar ${h(v.turno.texto)}</h3>
-    <p class="muted small">Se guarda la validación y la entrega en el historial y se descargan los dos PDF. Si se te olvida algo, después lo puedes editar desde el historial.</p>
+    <p class="muted small">Se guarda la validación y la entrega en el historial. Si se te olvida algo, después lo puedes editar desde el historial.</p>
     ${pend ? `<div class="err">Hay ${pend} cambio(s) que aún no suben. Espera a que suban antes de cerrar.</div>` : ""}
     ${conf ? `<div class="note warn">⚠️ Hay ${conf} validación(es) en conflicto. Quedarán así si no las corriges o anulas.</div>` : ""}
     <div class="kv-list">
@@ -1165,7 +1165,7 @@ async function modalCerrarTurno() {
       <div><span>🗒️ Puntos en la nota</span><b>${en.notas.length}</b></div></div>
     <label class="check"><input type="checkbox" id="ctT" ${S.grupoTg ? "" : "disabled"}><span>Enviar los PDF al grupo de Telegram${S.grupoTg ? "" : " (no configurado)"}</span></label>
     <label class="field"><span>Nota de cierre (opcional)</span><textarea id="ctN" placeholder="Algo más para el siguiente turno…"></textarea></label>
-    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ctOk" ${pend ? "disabled" : ""}>Cerrar turno y descargar PDF</button></div>`;
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ctOk" ${pend ? "disabled" : ""}>Cerrar turno</button></div>`;
   $$("[data-x]", c).forEach(b => b.onclick = () => cerrarModal());
   $("#ctOk", c).onclick = async () => {
     const btn = $("#ctOk", c); ocupado(btn, true, "Cerrando turno…");

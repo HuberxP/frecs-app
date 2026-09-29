@@ -39,7 +39,8 @@ let llamadasSb = 0, sinRed = false;
   console.log(`ingreso + inicio: ${Date.now() - t0} ms (servidor simulado)`);
   await page.screenshot({ path: "/tmp/w_inicio.png" });
   const vistas = await page.evaluate(() => NAV.flatMap(g => g.items.map(i => i.id)));
-  if (vistas.some(v => ["validacion", "entrega", "conciliacion", "hval", "usuarios", "reportes"].includes(v))) errores.push("siguen vistas de fase 4: " + vistas);
+  if (vistas.some(v => ["conciliacion", "preconciliacion", "hval", "usuarios", "reportes"].includes(v))) errores.push("siguen vistas de la fase 4c: " + vistas);
+  if (!["validacion", "entrega", "consumo"].every(v => vistas.includes(v))) errores.push("faltan vistas de turno: " + vistas);
   for (const v of vistas) {
     await page.evaluate(v2 => ir(v2), v); await page.waitForTimeout(250);
     const t = await page.$eval("#view", el => el.innerText.slice(0, 120).replace(/\n/g, " "));
@@ -51,7 +52,7 @@ let llamadasSb = 0, sinRed = false;
   const campo = await page.$("#view input[type=search], #view input[type=text]");
   if (campo) { await campo.fill("2222"); await campo.press("Enter"); await page.waitForTimeout(500); await page.screenshot({ path: "/tmp/w_stock2.png" }); }
   // Algo que escribe: avisa y no rompe
-  const aviso = await page.evaluate(async () => { try { await api("webTurnoAbrir", 2, true); return "sin error"; } catch (e) { return e.message; } });
+  const aviso = await page.evaluate(async () => { try { await api("webConcAbrir", { numero: 2 }); return "sin error"; } catch (e) { return e.message; } });
   if (!/dashboard actual/.test(aviso)) errores.push("escritura no bloqueada: " + aviso);
   const sync = await page.evaluate(async () => { try { await api("webSincronizar"); return "sin error"; } catch (e) { return e.message; } });
   if (!/sincronizar|NetworkError/.test(sync)) errores.push("⟳ sin aviso: " + sync); // sin Apps Script simulado en este contexto
@@ -158,6 +159,101 @@ let llamadasSb = 0, sinRed = false;
   if (!/permiso/i.test(rech) || q("select count(*) from limbo where producto='No debe quedar'") !== "0") errores.push("rechazo del servidor no se respetó: " + rech);
   await P.evaluate(() => ir("limbo")); await P.waitForTimeout(500); await P.screenshot({ path: "/tmp/w_limbo.png" });
   await P.evaluate(() => ir("skus")); await P.waitForTimeout(500); await P.screenshot({ path: "/tmp/w_skus.png" });
+  // --- Fase 4b: turnos, validación y entrega ---
+  const tkA = JSON.parse(psql("select ingresar('Ana María','5555')::text;")).token;
+  const turnoAb = () => q("select id from turnos where estado='ABIERTO'");
+  const T = turnoAb();
+  if (!T) errores.push("no hay turno abierto para probar");
+  let v = await P.evaluate(() => api("webVal"));
+  const p2222 = v.productos.find(x => x.sku === "2222");
+  if (!v.turno || v.turno.id !== T || !p2222) errores.push("webVal no trae el turno abierto: " + JSON.stringify(v.turno));
+  const disp0 = p2222 ? p2222.disponible : 0;
+  let r = await P.evaluate(() => api("webValRegistrar", { sku: "2222", destino: "KA", cantidad: 10, nota: "web" }));
+  const idR = r.resultado.id;
+  if (q(`select cantidad || '|' || destino || '|' || estado || '|' || usuario from val_registros where id='${idR}'`) !== "10|KA|ACTIVO|Huber") errores.push("validación no llegó a Supabase");
+  if (r.resultado.disponible !== disp0 - 10) errores.push(`disponible mal: ${r.resultado.disponible} (esperado ${disp0 - 10})`);
+  const mucho = await P.evaluate(() => api("webValRegistrar", { sku: "2222", destino: "KA", cantidad: 100000 }).then(() => "sin error", e => e.message));
+  if (!/No alcanza/.test(mucho)) errores.push("sobre-validación no avisa: " + mucho);
+  // Dos personas a la vez: la base no deja pasar el saldo aunque la página tenga datos viejos
+  let falso = "sin error";
+  try { psql(`select guardar_filas('${tkA}', ${lit([{ tabla: "val_registros", poner: [{ id: "VCHOQUE", turno_id: T, fecha: "2026-09-28T10:00:00-05:00", sku: "2222", producto: "Pony", destino: "KA", cantidad: disp0, usuario: "Ana María", estado: "ACTIVO" }] }])}::jsonb);`); } catch (e) { falso = String(e.stderr || e.message); }
+  if (!/No alcanza.*al mismo tiempo/.test(falso) || q("select count(*) from val_registros where id='VCHOQUE'") !== "0") errores.push("la base dejó pasar el saldo: " + falso.slice(0, 200));
+  // CONFLICTO no descuenta: sí entra
+  try { psql(`select guardar_filas('${tkA}', ${lit([{ tabla: "val_registros", poner: [{ id: "VCONF", turno_id: T, fecha: "2026-09-28T10:00:00-05:00", sku: "2222", destino: "KA", cantidad: 99999, estado: "CONFLICTO" }] }])}::jsonb);`); } catch (e) { errores.push("un CONFLICTO fue rechazado"); }
+  q("delete from val_registros where id='VCONF'");
+  await P.evaluate(i => api("webValEditar", i, { destino: "Tradicional", cantidad: 12, nota: "editado" }), idR);
+  if (q(`select cantidad || '|' || destino || '|' || (modificado_por like 'Editado por Huber%') from val_registros where id='${idR}'`) !== "12|Tradicional|true") errores.push("editar validación falló: " + q(`select to_jsonb(r) from val_registros r where id='${idR}'`));
+  await P.evaluate(i => api("webValAnular", i), idR);
+  if (q(`select estado from val_registros where id='${idR}'`) !== "ANULADO") errores.push("anular falló");
+  await P.evaluate(() => api("webValAgregar", [{ sku: "3617", inicial: 20, contadoEn: "2026-09-28T09:15" }]));
+  if (q(`select inicial || '|' || to_char(contado_en at time zone 'America/Bogota','HH24:MI') from val_productos where turno_id='${T}' and sku='3617'`) !== "20|09:15") errores.push("agregar producto a validación falló");
+  await P.evaluate(() => api("webValInicial", "3617", 25, "2026-09-28T09:30"));
+  if (q(`select inicial from val_productos where turno_id='${T}' and sku='3617'`) !== "25") errores.push("cambiar inicial falló");
+  const ordenV = (await P.evaluate(() => api("webVal"))).productos.map(x => x.sku);
+  if (ordenV[ordenV.length - 1] !== "3617") errores.push("orden de productos cambió: " + ordenV);
+  await P.evaluate(() => api("webValQuitar", "3617"));
+  if (q(`select count(*) from val_productos where turno_id='${T}' and sku='3617'`) !== "0") errores.push("quitar producto falló");
+  await P.evaluate(() => api("webValDestino", "agregar", "Destino Web"));
+  if (q("select count(*) from destinos where nombre='Destino Web'") !== "1") errores.push("destino nuevo no llegó");
+  await P.evaluate(() => api("webValDestino", "quitar", "Destino Web"));
+  if (q("select count(*) from destinos where nombre='Destino Web'") !== "0") errores.push("destino quitado sigue");
+  // Entrega
+  const pre = await P.evaluate(() => api("webEntPrecargar", ["BODEGA", "TPC", "KA", "PK"]));
+  const nEnt = +q(`select count(*) from ent_items where turno_id='${T}'`);
+  if (!nEnt || nEnt !== Object.values(pre.resultado).reduce((a, b) => a + b, 0)) errores.push(`precarga: ${nEnt} en Supabase, ${JSON.stringify(pre.resultado)} en la página`);
+  await P.evaluate(() => api("webEntGuardar", "BODEGA", "2222", "Pony", [{ n: 3, un: "Estibas", m: "a1" }, { n: 5, un: "Cajas", m: "" }]));
+  const cj = q(`select cantidades::text || '|' || origen from ent_items where turno_id='${T}' and seccion='BODEGA' and sku='2222'`);
+  if (cj !== '[{"m": "A1", "n": 3, "un": "Estibas"}, {"m": "", "n": 5, "un": "Cajas"}]|Usuario') errores.push("entrega guardada mal: " + cj);
+  await P.evaluate(() => api("webEntQuitar", "BODEGA", "2222"));
+  if (q(`select count(*) from ent_items where turno_id='${T}' and seccion='BODEGA' and sku='2222'`) !== "0") errores.push("quitar de la entrega falló");
+  await P.evaluate(() => api("webEntNota", "Nota desde la web"));
+  const idN = q(`select id from ent_notas where turno_id='${T}' and texto='Nota desde la web'`);
+  if (!idN) errores.push("nota de entrega no llegó");
+  await P.evaluate(i => api("webEntNotaEditar", i, "Nota editada"), idN);
+  if (q(`select texto from ent_notas where id='${idN}'`) !== "Nota editada") errores.push("editar nota falló");
+  await P.evaluate(i => api("webEntNotaQuitar", i), idN);
+  if (q(`select count(*) from ent_notas where id='${idN}'`) !== "0") errores.push("quitar nota falló");
+  // El otro usuario ve los cambios (se releen los turnos si tienen más de 15 s)
+  await val.page.evaluate(() => api("webVal"));
+  await P.evaluate(() => api("webValRegistrar", { sku: "2882", destino: "Bodegas", cantidad: 7 }));
+  await val.page.waitForTimeout(16000);
+  const vA = await val.page.evaluate(() => api("webVal"));
+  if (!vA.registros.some(x => x.sku === "2882" && x.cantidad === 7)) errores.push("el otro usuario no ve la validación nueva");
+  const rA = await val.page.evaluate(() => api("webValRegistrar", { sku: "2882", destino: "KA", cantidad: 1 }));
+  if (q(`select usuario from val_registros where id='${rA.resultado.id}'`) !== "Ana María") errores.push("validador no pudo validar");
+  // Sin conexión: error de red (la página lo guarda en la cola)
+  sinRed = true;
+  const off = await val.page.evaluate(() => api("webValRegistrar", { sku: "2882", destino: "KA", cantidad: 1 }).then(() => "sin error", e => (e.red ? "red" : e.message)));
+  sinRed = false;
+  if (off !== "red") errores.push("sin conexión la validación no queda como error de red: " + off);
+  // Cerrar el turno desde la pantalla
+  const nProd = q(`select count(*) from val_productos where turno_id='${T}'`), nReg = q(`select count(*) from val_registros where turno_id='${T}'`);
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(600);
+  await P.click('[data-t="cerrar"]'); await P.waitForSelector("#ctOk", { timeout: 10000 });
+  if (/PDF/.test(await P.$eval("#ctOk", e => e.innerText))) errores.push("el botón de cerrar habla de PDF");
+  await P.screenshot({ path: "/tmp/w_cerrar.png" });
+  await P.fill("#ctN", "cierre desde la web"); await P.waitForTimeout(450); await P.click("#ctOk"); await P.waitForTimeout(1500);
+  if (q(`select estado || '|' || cerrado_por || '|' || nota || '|' || (cierre is not null) from turnos where id='${T}'`) !== "CERRADO|Huber|cierre desde la web|true") errores.push("cerrar turno falló: " + q(`select to_jsonb(t) from turnos t where id='${T}'`));
+  if (q(`select count(*) from val_productos where turno_id='${T}'`) !== nProd || q(`select count(*) from val_registros where turno_id='${T}'`) !== nReg) errores.push("al cerrar se perdieron filas de la validación");
+  const cerr = await P.evaluate(() => api("webValRegistrar", { sku: "2222", destino: "KA", cantidad: 1 }).then(() => "sin error", e => e.message));
+  if (!/No hay turno abierto/.test(cerr)) errores.push("validar sin turno abierto no avisa: " + cerr);
+  // Abrir el siguiente heredando el saldo
+  const saldo = JSON.parse(q(`select jsonb_object_agg(p.sku, p.inicial - coalesce((select sum(cantidad) from val_registros r where r.turno_id=p.turno_id and r.sku=p.sku and r.estado='ACTIVO'),0)) from val_productos p where p.turno_id='${T}'`));
+  await P.click('[data-t="abrir"]'); await P.waitForSelector("#atOk", { timeout: 10000 });
+  await P.click('#np [data-n="3"]'); await P.waitForTimeout(450); await P.click("#atOk"); await P.waitForTimeout(1500);
+  const T2 = turnoAb();
+  if (!T2 || T2 === T || q(`select numero || '|' || recibe_de_id || '|' || abierto_por from turnos where id='${T2}'`) !== `3|${T}|Huber`) errores.push("abrir turno falló: " + T2);
+  const her = JSON.parse(q(`select coalesce(jsonb_object_agg(sku, inicial), '{}') from val_productos where turno_id='${T2}'`) || "{}");
+  if (JSON.stringify(Object.keys(her).sort()) !== JSON.stringify(Object.keys(saldo).sort()) || Object.keys(saldo).some(k => Number(her[k]) !== Math.max(Number(saldo[k]), 0))) errores.push("herencia mal: " + JSON.stringify({ her, saldo }));
+  await P.screenshot({ path: "/tmp/w_turno_nuevo.png" });
+  const otra = await val.page.evaluate(() => api("webTurnoAbrir", 1, false).then(() => "sin error", e => e.message));
+  if (!/Ya está abierto/.test(otra)) errores.push("se pudo abrir otro turno: " + otra);
+  let carrera = "sin error";
+  try { psql(`select guardar_filas('${tkA}', ${lit([{ tabla: "turnos", poner: [{ id: "TCARRERA", numero: 1, estado: "ABIERTO", inicio: "2026-09-28T10:00:00-05:00" }] }])}::jsonb);`); } catch (e) { carrera = String(e.stderr || e.message); }
+  if (!/Alguien más acaba de abrir/.test(carrera)) errores.push("dos turnos abiertos a la vez: " + carrera.slice(0, 150));
+  await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_validacion.png" });
+  await P.evaluate(() => ir("entrega")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_entrega.png" });
+  await cel.page.evaluate(() => ir("validacion")); await cel.page.waitForTimeout(1500); await cel.page.screenshot({ path: "/tmp/m_w_validacion.png" });
   console.log(errores.length ? "ERRORES:\n" + errores.join("\n") : "SIN ERRORES");
   await b.close(); srv.kill();
 })();

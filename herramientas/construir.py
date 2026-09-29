@@ -44,6 +44,10 @@ js = "\n".join(leer(p) for p in sorted(glob.glob(os.path.join(GAS, "js", "*.js")
 marca = "(function inicio() {"
 assert marca in js, "no se encontró el arranque de la página"
 js = js.replace(marca, "// Ajustes de la versión web (Supabase)\nif (window.FRECS_WEB) FRECS_WEB.ajustar();\n\n" + marca, 1)
+# Textos que en la versión web no aplican (los PDF todavía salen del dashboard actual)
+for viejo, nuevo in [(" y se descargan los dos PDF", ""), ("Cerrar turno y descargar PDF", "Cerrar turno")]:
+    assert viejo in js, viejo
+    js = js.replace(viejo, nuevo)
 v_app = escribir("app.js", "// GENERADO por herramientas/construir.py: no editar a mano.\n" + js)
 
 # ---------- app.css ----------

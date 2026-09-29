@@ -3,8 +3,9 @@
 // - Ingreso, salida: funciones de Supabase (rpc).
 // - Consultas: los datos llegan de Supabase en UNA llamada (datos_consulta) y la
 //   misma lógica del servidor (motor.js) los calcula aquí en el navegador.
-// - Lo que escribe (turnos, validaciones, PDF, sincronizar…): todavía en el
-//   dashboard actual (fase 4 de la migración).
+// - Escrituras: la acción corre en el motor y solo las filas que cambiaron van a
+//   Supabase (guardar_filas). Maestros (4a) y turnos, validación y entrega (4b).
+// - PDF, conciliación, historiales y usuarios: todavía en el dashboard actual.
 // =====================================================================
 (function () {
   const CFG = window.FRECS_CONFIG || {};
@@ -30,14 +31,16 @@
   }
 
   // ---------- datos para el motor ----------
-  let datos = null, cargando = null;
+  let datos = null, cargando = null, cargandoT = null, turnosEn = 0;
   const CLAVE_LS = "frecs_motor";
-  function usarDatos(d) { datos = d; MOTOR.cargar(d); }
+  const FRESCO_TURNOS_MS = 15000;   // varias personas trabajan el mismo turno: se relee si tiene más de 15 s
+  function guardarLS() { try { localStorage.setItem(CLAVE_LS, JSON.stringify(datos)); } catch (e) {} }
+  function usarDatos(d) { datos = d; turnosEn = Date.now(); MOTOR.cargar(d); }
   async function cargarDatos(tk, forzar) {
     if (datos && !forzar) return datos;
     if (!cargando) {
       cargando = rpc("datos_consulta", { p_token: tk })
-        .then(d => { usarDatos(d); try { localStorage.setItem(CLAVE_LS, JSON.stringify(d)); } catch (e) {} return d; })
+        .then(d => { usarDatos(d); guardarLS(); return d; })
         .catch(e => {
           // Sin conexión: se trabaja con la última copia guardada en este equipo
           if (e.red) { let c = null; try { c = JSON.parse(localStorage.getItem(CLAVE_LS) || "null"); } catch (x) {} if (c) { usarDatos(c); return c; } }
@@ -48,10 +51,22 @@
     return cargando;
   }
 
+  // Solo turnos, validación y entrega (sin volver a bajar el WMS). Sin conexión: error de red.
+  async function cargarTurnos(tk) {
+    if (!datos) return cargarDatos(tk, true);
+    if (!cargandoT) {
+      cargandoT = rpc("datos_turnos", { p_token: tk })
+        .then(dt => { Object.assign(datos, dt); turnosEn = Date.now(); MOTOR.cargarTurnos(dt); guardarLS(); return datos; })
+        .finally(() => { cargandoT = null; });
+    }
+    return cargandoT;
+  }
+  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt"]);
+
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webConsumo",
-    "webCarpa", "webBarriles", "webLimbo", "webTurno"]);
+    "webCarpa", "webBarriles", "webLimbo", "webTurno", "webVal", "webValSugerencias", "webEnt"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
     webPDF: "Los PDF todavía se sacan del dashboard actual.",
@@ -59,7 +74,7 @@
     webCambiarPin: "El PIN todavía se cambia en el dashboard actual.",
     webSetup: "Los usuarios se crean en el dashboard actual y se importan a Supabase."
   };
-  const NO_AUN = "Esta versión nueva es solo de consulta por ahora. Hazlo en el dashboard actual (llega en la fase 4).";
+  const NO_AUN = "Esto todavía se hace en el dashboard actual (llega en la siguiente fase).";
 
   // ⟳ Sincronizar: lo hace Apps Script (tiene la clave del WMS). Autoriza con la sesión de Supabase.
   async function sincronizar(tk, forzar, ok, fallo) {
@@ -86,6 +101,10 @@
     webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"],
     webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"]
   };
+  // Fase 4b: turnos, validación y entrega. Se comparan todas sus hojas como tablas lógicas.
+  const ESCRITURA_TURNO = new Set(["webTurnoAbrir", "webTurnoCerrar", "webTurnoNota", "webTurnoEliminar", "webTurnoRestaurar",
+    "webValAgregar", "webValInicial", "webValQuitar", "webValRegistrar", "webValEditar", "webValAnular", "webValDestino",
+    "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar"]);
   const txt = v => (v === null || v === undefined) ? "" : String(v).trim();
   const nul = v => { const t = txt(v); return t === "" ? null : t; };
   const num = v => { const t = txt(v).replace(",", "."); if (t === "") return null; const n = Number(t); return isFinite(n) ? n : null; };
@@ -101,6 +120,52 @@
     } },
     Canales: { tabla: "canales", reemplazar: true, fila: (r, k) => ({ orden: k + 1, canal: txt(r[0]).toUpperCase(), tipo: txt(r[1]), valor: txt(r[2]), dias_minimos: Math.round(num(r[3]) || 0), nota: nul(r[4]) }) }
   };
+  // Cantidades de la entrega: siempre {n, un, m} en ese orden (la base las devuelve en otro)
+  const cantJSON = v => { let a = []; try { a = JSON.parse(txt(v) || "[]"); } catch (e) { a = []; } return (Array.isArray(a) ? a : []).map(x => ({ n: Number(x.n) || 0, un: String(x.un || "Cajas"), m: String(x.m || "") })); };
+  const filaReg = r => ({ id: txt(r[0]), turno_id: txt(r[1]), fecha: ts(r[2]), sku: txt(r[3]), producto: nul(r[4]), destino: nul(r[5]), cantidad: num(r[6]),
+    usuario: nul(r[7]), nota: nul(r[8]), estado: txt(r[9]).toUpperCase() || "ACTIVO", modificado_por: nul(r[10]), contado_en: ts(r[11]) });
+  // Una tabla de Supabase puede venir de varias hojas (la del turno abierto y la del historial).
+  // En el historial faltan columnas (Actualizado, Usuario): se comparan y se mandan solo las que hay.
+  const LOGICAS = [
+    { tabla: "turnos", pk: ["id"], hojas: { Turnos: r => ({ id: txt(r[0]), numero: num(r[1]), fecha: nul(txt(r[2]).substring(0, 10)), estado: txt(r[3]).toUpperCase(),
+      inicio: ts(r[4]), abierto_por: nul(r[5]), cierre: ts(r[6]), cerrado_por: nul(r[7]), recibe_de_id: nul(r[8]), recibe_de: nul(r[9]), nota: nul(r[10]),
+      editado_por: nul(r[11]), eliminado_por: nul(r[12]) }) } },
+    { tabla: "val_productos", pk: ["turno_id", "sku"], hojas: {
+      Val_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, actualizado: ts(r[4]), usuario: nul(r[5]), contado_en: ts(r[6]) }),
+      Val_Hist_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, contado_en: ts(r[7]) }) } },
+    { tabla: "val_registros", pk: ["id"], hojas: { Val_Registros: filaReg, Val_Hist_Registros: filaReg } },
+    { tabla: "destinos", pk: ["nombre"], hojas: { Val_Destinos: (r, k) => ({ nombre: txt(r[0]), orden: k + 1 }) } },
+    { tabla: "ent_items", pk: ["turno_id", "seccion", "sku"], hojas: { Ent_Items: r => ({ turno_id: txt(r[0]), seccion: txt(r[1]).toUpperCase(), sku: txt(r[2]),
+      producto: nul(r[3]), cantidades: cantJSON(r[4]), actualizado: ts(r[5]), usuario: nul(r[6]), origen: nul(r[7]) }) } },
+    { tabla: "ent_notas", pk: ["id"], hojas: { Ent_Notas: r => ({ id: txt(r[1]), turno_id: txt(r[0]), hora: ts(r[2]), usuario: nul(r[3]), texto: txt(r[4]) }) } }
+  ];
+  const HOJAS_TURNO = [].concat(...LOGICAS.map(L => Object.keys(L.hojas)));
+  function cambiosTurno(antes, despues) {
+    const out = [];
+    LOGICAS.forEach(L => {
+      const clave = f => L.pk.map(k => txt(f[k])).join("\u0001");
+      const leer = foto => {
+        const m = new Map();
+        Object.keys(L.hojas).forEach(h => (foto[h] || []).slice(1).filter(r => r && r.some(v => txt(v) !== "")).forEach((r, k) => {
+          const f = L.hojas[h](r, k);
+          if (L.pk.every(p => txt(f[p]) !== "")) m.set(clave(f), f);
+        }));
+        return m;
+      };
+      const A = leer(antes), D = leer(despues), grupos = {}, quitar = [];
+      D.forEach((f, k) => {
+        const a = A.get(k);
+        if (a && Object.keys(f).every(c => JSON.stringify(f[c]) === JSON.stringify(a[c]))) return;
+        const firma = Object.keys(f).join(",");
+        (grupos[firma] = grupos[firma] || []).push(f);
+      });
+      A.forEach((f, k) => { if (!D.has(k)) { const o = {}; L.pk.forEach(p => { o[p] = f[p]; }); quitar.push(o); } });
+      const firmas = Object.keys(grupos);
+      if (!firmas.length && quitar.length) out.push({ tabla: L.tabla, poner: [], quitar: quitar });
+      firmas.forEach((fm, i) => out.push({ tabla: L.tabla, poner: grupos[fm], quitar: i === 0 ? quitar : [] }));
+    });
+    return out;
+  }
   function filasDe(nombre, datosHoja) {
     const cfg = HOJAS[nombre], cab = (datosHoja[0] || []).map(String);
     // Solo filas con dato clave (en Sku la primera columna es el Id, que puede ir vacío)
@@ -121,26 +186,35 @@
     fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "maestros", token: tk, tablas: tablas }) }).catch(() => {});
   }
   async function escribir(fn, args, ok, fallo) {
-    const tk = args[0], hojas = ESCRITURA[fn];
-    await cargarDatos(tk, true);                     // lo más reciente antes de cambiar
+    const tk = args[0], esTurno = ESCRITURA_TURNO.has(fn), hojas = esTurno ? HOJAS_TURNO : ESCRITURA[fn];
+    // Lo más reciente antes de cambiar (en turnos basta releer los turnos; sin conexión, error de red → cola)
+    if (esTurno) await cargarTurnos(tk); else await cargarDatos(tk, true);
     const antes = MOTOR.foto(hojas);
     const r = JSON.parse(MOTOR.llamar(fn, args));    // reglas del Frecs actual
     if (!r.ok) return JSON.stringify(r);
     const despues = MOTOR.foto(hojas);
-    const cambios = hojas.map(h => cambiosDe(h, antes[h], despues[h])).filter(Boolean);
+    const cambios = esTurno ? cambiosTurno(antes, despues) : hojas.map(h => cambiosDe(h, antes[h], despues[h])).filter(Boolean);
     if (cambios.length) {
       try { await rpc("guardar_filas", { p_token: tk, p_cambios: cambios }); }
       catch (e) {
-        datos = null; cargarDatos(tk, true).catch(() => {});   // se deshace con lo que hay en la base
+        // Se deshace con lo que hay en la base
+        if (esTurno) { turnosEn = 0; cargarTurnos(tk).catch(() => {}); } else { datos = null; cargarDatos(tk, true).catch(() => {}); }
         if (e.red) throw e;
         const m = String(e.message || e);
         if (m.indexOf("SESION:") === 0) return fallo(m.replace("SESION:", "").trim(), { sesion: true });
         return fallo(m.replace(/^PERMISO:\s*/, ""));
       }
-      avisarHojas(tk, cambios.map(c => c.tabla));
-      cargarDatos(tk, true).catch(() => {});
+      if (esTurno) { turnosEn = Date.now(); guardarLS(); }
+      else { avisarHojas(tk, cambios.map(c => c.tabla)); cargarDatos(tk, true).catch(() => {}); }
     }
     return JSON.stringify(r);
+  }
+  // Una escritura a la vez (en orden), para que cada una parta de lo que guardó la anterior
+  let cadena = Promise.resolve();
+  function escribirEnOrden(fn, args, ok, fallo) {
+    const p = cadena.then(() => escribir(fn, args, ok, fallo));
+    cadena = p.catch(() => {});
+    return p;
   }
 
   async function ejecutar(fn, args) {
@@ -156,9 +230,10 @@
       }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
-      if (ESCRITURA[fn]) return await escribir(fn, args, ok, fallo);
+      if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await escribirEnOrden(fn, args, ok, fallo);
       if (LECTURA.has(fn)) {
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
+        if (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
         return MOTOR.llamar(fn, args);
       }
       return fallo(AVISO[fn] || NO_AUN);
@@ -189,25 +264,20 @@
   // ---------- ajustes de la versión web (se llaman antes de arrancar la página) ----------
   window.FRECS_WEB = {
     ajustar() {
-      // Consumo pasa a Operación; se quitan los grupos que todavía viven en el dashboard actual
+      // Turnos: solo Validaciones, Entrega y Consumo (conciliación y pre-conciliación llegan en la 4c)
       const turnos = NAV.find(g => g.g === "Turnos");
-      const op = NAV.find(g => g.g === "Operación");
-      if (turnos && op) { const c = turnos.items.find(i => i.id === "consumo"); if (c) op.items.push(c); }
-      const fuera = ["Turnos", "Historial", "Reportes"];
+      if (turnos) turnos.items = turnos.items.filter(i => { if (["conciliacion", "preconciliacion"].includes(i.id)) { delete VISTAS[i.id]; return false; } return true; });
+      const fuera = ["Historial", "Reportes"];
       const adm = NAV.find(g => g.g === "Administración");
       if (adm) adm.items = adm.items.filter(i => { if (i.id === "usuarios") { delete VISTAS[i.id]; return false; } return true; });
       for (let k = NAV.length - 1; k >= 0; k--) if (fuera.includes(NAV[k].g)) {
-        NAV[k].items.forEach(i => { if (i.id !== "consumo") delete VISTAS[i.id]; });
+        NAV[k].items.forEach(i => delete VISTAS[i.id]);
         NAV.splice(k, 1);
       }
-      // Barra de abajo (celular): Inicio, Stock, Producto, Pocos
-      const bb = document.getElementById("bottombar");
-      if (bb) bb.innerHTML = [["inicio", "🏠", "Inicio"], ["stock", "📡", "Stock"], ["producto", "🔍", "Producto"], ["pocos", "🧯", "Pocos"]]
-        .map(x => `<button data-v="${x[0]}"><span class="ic">${x[1]}</span>${x[2]}</button>`).join("");
       // Aviso de versión
       const aviso = document.createElement("div");
       aviso.className = "web-aviso";
-      aviso.innerHTML = `🧪 <b>Versión nueva (Supabase)</b> · consultas, Limbo, Consumo, Sku y Canales. Turnos, PDF y usuarios: en el dashboard actual.`;
+      aviso.innerHTML = `🧪 <b>Versión nueva</b> · <b>Turnos en modo prueba:</b> lo que hagas aquí en Validación y Entrega no pasa al dashboard actual ni al bot.<span class="solo-escritorio"> PDF, conciliación, historiales y usuarios: en el dashboard actual.</span>`;
       const off = document.getElementById("offBar");
       if (off && off.parentNode) off.parentNode.insertBefore(aviso, off.nextSibling);
       document.body.classList.add("con-aviso");

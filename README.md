@@ -12,7 +12,7 @@ Migración en curso de **Google Sheets + Apps Script** a **Supabase + GitHub Pag
 | `herramientas/` | `construir.py` arma `docs/` desde `gas/`, más las piezas de la versión web. |
 | `pruebas/` | Pruebas de la versión web. |
 
-## Cómo funciona la versión web (fase 3: solo consultas)
+## Cómo funciona la versión web
 
 - **Ingreso con nombre + PIN**, validado por Supabase (funciones `ingresar`, `salir`).
 - **Una sola llamada** (`datos_consulta`) trae el inventario, Sku, canales, capacidad, consumo, limbo y turnos.
@@ -21,7 +21,10 @@ Migración en curso de **Google Sheets + Apps Script** a **Supabase + GitHub Pag
 - **App instalable (PWA):**
   - Android: menú ⋮ → *Instalar aplicación*.
   - iPhone: Compartir → *Agregar a pantalla de inicio*.
-- **Todavía en el dashboard actual (fase 4):** turnos, validación, entrega, conciliación, PDF, sincronizar y administración.
+- **Escrituras:** la acción corre en el motor con las reglas del Frecs actual y solo las filas que cambiaron van a Supabase (`guardar_filas`, que revisa sesión y rol).
+  - 4a: Limbo, Consumo, Sku y Canales (se copian a las hojas).
+  - 4b: turnos, validación y entrega, **en modo prueba** (no pasan a las hojas ni al bot hasta el cambio definitivo).
+- **Todavía en el dashboard actual:** conciliación, pre-conciliación, historiales, PDF y usuarios.
 
 ## Publicar (una vez)
 

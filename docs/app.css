@@ -462,13 +462,10 @@
     .form-row .field { flex-basis: 100% !important; max-width: none !important; }
     .btn { white-space: normal; text-align: center; line-height: 1.2; max-width: 100%; }
     .kpi .n { font-size: 24px; }
-  }
-/* ============ Versión web (Supabase) ============ */
+  }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }
-/* Fase 3 (solo consultas): se ocultan los botones que todavía viven en el dashboard actual */
-body.con-aviso .turno .acciones, body.con-aviso [data-pdf], body.con-aviso [data-tg], body.con-aviso:not(.con-sync) #syncBtn,
-body.con-aviso #vs, body.con-aviso #view h2:has(+ #vs) { display: none !important; }
-/* El turno llega a Supabase solo al importar: mientras tanto no se muestra para no confundir */
-body.con-aviso #view #tb { display: none !important; }
+/* Lo que todavía vive en el dashboard actual: PDF, envío a Telegram y (sin Apps Script) ⟳ */
+body.con-aviso [data-pdf], body.con-aviso [data-tg], body.con-aviso:not(.con-sync) #syncBtn,
+body.con-aviso label.check:has(#ctT) { display: none !important; }

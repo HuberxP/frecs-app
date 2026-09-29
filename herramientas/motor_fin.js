@@ -32,28 +32,47 @@ function __cargar(d) {
   main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte"]].concat(d.limbo || []));
   main.poner("Usuarios", [USR_DEF.cab]);
 
+  __cargarTurnos(d);
+}
+
+// Turnos, validación, entrega y conciliación (se recargan solos, sin volver a bajar el WMS)
+function __cargarTurnos(d) {
+  if (d.usuario) __usuario = d.usuario;
+  _TURNOS = null; _THOJAS = {};
+  delete __cache.turno_abierto;
   const val = SpreadsheetApp.openById(ARCHIVOS.VAL);
   val.poner(VAL_T.destinos.nombre, [VAL_T.destinos.cab].concat(d.destinos || []));
-  [VAL_T.productos, VAL_T.registros, VAL_T.histProd, VAL_T.histReg].forEach(t => val.poner(t.nombre, [t.cab]));
+  val.poner(VAL_T.productos.nombre, [VAL_T.productos.cab].concat(d.val_productos || []));
+  val.poner(VAL_T.registros.nombre, [VAL_T.registros.cab].concat(d.val_registros || []));
+  val.poner(VAL_T.histProd.nombre, [VAL_T.histProd.cab].concat(d.val_hist_productos || []));
+  val.poner(VAL_T.histReg.nombre, [VAL_T.histReg.cab].concat(d.val_hist_registros || []));
   const ent = SpreadsheetApp.openById(ARCHIVOS.ENTREGA);
   ent.poner(TURNOS_DEF.nombre, [TURNOS_DEF.cab].concat(d.turnos || []));
-  [ENT_T.items, ENT_T.notas].forEach(t => ent.poner(t.nombre, [t.cab]));
+  ent.poner(ENT_T.items.nombre, [ENT_T.items.cab].concat(d.ent_items || []));
+  ent.poner(ENT_T.notas.nombre, [ENT_T.notas.cab].concat(d.ent_notas || []));
   const conc = SpreadsheetApp.openById(ARCHIVOS.CONC);
-  [CONC_T.conc, CONC_T.items, CONC_T.pre].forEach(t => conc.poner(t.nombre, [t.cab]));
+  conc.poner(CONC_T.conc.nombre, [CONC_T.conc.cab].concat(d.conciliaciones || []));
+  conc.poner(CONC_T.items.nombre, [CONC_T.items.cab].concat(d.conc_items || []));
+  conc.poner(CONC_T.pre.nombre, [CONC_T.pre.cab].concat(d.preconciliacion || []));
 }
 
 return {
   cargar: __cargar,
+  cargarTurnos: __cargarTurnos,
   llamar(fn, args) {
     const f = __EXPORTAR[fn];
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });
     return f.apply(null, args || []);
   },
   exportadas: () => Object.keys(__EXPORTAR),
-  // Copia de las hojas del libro principal (para saber qué filas cambió una acción)
+  // Copia de las hojas (de cualquier libro) para saber qué filas cambió una acción
   foto(nombres) {
-    const main = SpreadsheetApp.openById(SHEET_ID), r = {};
-    nombres.forEach(n => { const h = main.getSheetByName(n); r[n] = h ? JSON.parse(JSON.stringify(h.data)) : []; });
+    const r = {};
+    nombres.forEach(n => {
+      let h = null;
+      Object.keys(__libros).some(id => (h = __libros[id].getSheetByName(n)));
+      r[n] = h ? JSON.parse(JSON.stringify(h.data)) : [];
+    });
     return r;
   }
 };

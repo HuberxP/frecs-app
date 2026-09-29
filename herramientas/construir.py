@@ -39,6 +39,19 @@ motor = ("// GENERADO por herramientas/construir.py: no editar a mano.\n"
          + leer(os.path.join(HERR, "motor_fin.js")) + "\n})();\n")
 v_motor = escribir("motor.js", motor)
 
+# ---------- motor del bot (función frecs-bot de Supabase) ----------
+BOT = os.path.join(RAIZ, "supabase", "functions", "frecs-bot")
+os.makedirs(BOT, exist_ok=True)
+motor_bot = ("// GENERADO por herramientas/construir.py: no editar a mano.\n"
+             "// La lógica de Apps Script (gas/*.gs) corriendo en la función del bot.\n"
+             "// crearMotor(props): las constantes de Apps Script (token, grupo…) se leen al crearlo.\n"
+             "export function crearMotor(__PROPS_INICIALES) { return (() => {\n"
+             + leer(os.path.join(HERR, "shim_bot.js")) + "\n"
+             + codigo + "\n;\n"
+             + leer(os.path.join(HERR, "motor_bot_fin.js")) + "\n})(); }\n")
+with open(os.path.join(BOT, "motor.js"), "w", encoding="utf-8") as f:
+    f.write(motor_bot)
+
 # ---------- app.js ----------
 js = "\n".join(leer(p) for p in sorted(glob.glob(os.path.join(GAS, "js", "*.js"))))
 marca = "(function inicio() {"

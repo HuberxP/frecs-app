@@ -351,8 +351,21 @@
     const p = MOTOR.pdf(tipo, id || "");
     return { nombre: p.nombre, b64: await pdfDesdeHtml(p.html), caption: p.caption };
   }
+  // El envío lo hace la función del bot en Supabase; si aún no está lista (bot sin pasar), lo hace Apps Script
+  const URL_BOT = CFG.botUrl || (CFG.supabaseUrl ? CFG.supabaseUrl.replace(/\/+$/, "") + "/functions/v1/frecs-bot" : "");
   async function pdfATelegram(tk, p) {
-    if (!CFG.appsScriptUrl) throw new Error("No está configurada la conexión con el bot (appsScriptUrl).");
+    let errBot = null;
+    if (URL_BOT) {
+      try {
+        const rb = await fetch(URL_BOT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "pdf_telegram", token: tk, nombre: p.nombre, b64: p.b64, caption: p.caption }) });
+        const jb = await rb.json();
+        if (jb.ok) return true;
+        if (jb.sesion) throw new Error("SESION:" + (jb.error || "Sesión vencida"));
+        errBot = new Error(jb.error || "Telegram no aceptó el archivo.");
+        if (/permiso/i.test(errBot.message)) throw errBot;
+      } catch (e) { if (/^SESION:|permiso/i.test(e.message)) throw e; errBot = errBot || e; }
+    }
+    if (!CFG.appsScriptUrl) throw errBot || new Error("No está configurada la conexión con el bot.");
     let r;
     try { r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "pdf_telegram", token: tk, nombre: p.nombre, b64: p.b64, caption: p.caption }) }); }
     catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
@@ -429,7 +442,7 @@
         const res = MOTOR.llamar(fn, args);
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
-        if (r.ok) r.data.grupoTelegram = !!CFG.appsScriptUrl;   // el envío lo hace Apps Script
+        if (r.ok) r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl);   // lo envía la función del bot (o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

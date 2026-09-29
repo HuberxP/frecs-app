@@ -9,7 +9,7 @@ código de Apps Script (carpeta gas/). Correr después de cualquier cambio en ga
 - docs/app.css  : estilos (gas/Dashboard_css.html + herramientas/web.css).
 - docs/index.html
 """
-import hashlib, os, re, glob, json
+import hashlib, os, re, glob, json, shutil
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GAS, DOCS, HERR = (os.path.join(RAIZ, d) for d in ("gas", "docs", "herramientas"))
@@ -44,8 +44,8 @@ js = "\n".join(leer(p) for p in sorted(glob.glob(os.path.join(GAS, "js", "*.js")
 marca = "(function inicio() {"
 assert marca in js, "no se encontró el arranque de la página"
 js = js.replace(marca, "// Ajustes de la versión web (Supabase)\nif (window.FRECS_WEB) FRECS_WEB.ajustar();\n\n" + marca, 1)
-# Textos que en la versión web no aplican (los PDF todavía salen del dashboard actual)
-for viejo, nuevo in [(" y se descargan los dos PDF", ""), ("Cerrar turno y descargar PDF", "Cerrar turno")]:
+# Lo que en la versión web no aplica (el informe de prioridad usa una plantilla de Apps Script)
+for viejo, nuevo in [('    ["INFORME", "📊 Prioridad de consumo", "Índice de frescura de toda la bodega, coloreado por vida útil"],\n', "")]:
     assert viejo in js, viejo
     js = js.replace(viejo, nuevo)
 v_app = escribir("app.js", "// GENERADO por herramientas/construir.py: no editar a mano.\n" + js)
@@ -56,6 +56,8 @@ css = re.sub(r"^\s*<style>\s*|\s*</style>\s*$", "", css)
 v_css = escribir("app.css", css + leer(os.path.join(HERR, "web.css")))
 
 v_puente = escribir("puente.js", leer(os.path.join(HERR, "puente.js")))
+# Librerías para armar los PDF en el navegador (se cargan solo al pedir un PDF)
+shutil.copytree(os.path.join(HERR, "vendor"), os.path.join(DOCS, "vendor"), dirs_exist_ok=True)
 v_cfg = hashlib.sha1(leer(os.path.join(DOCS, "config.js")).encode()).hexdigest()[:8]
 
 # ---------- index.html ----------

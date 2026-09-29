@@ -3938,6 +3938,10 @@ function obtenerPreconciliacionBot() {
 // ver los eliminados y restaurarlos).
 // =========================================================
 
+// Resumen ya calculado (lo pone la versión nueva, que no baja todas las filas viejas):
+// { turnos: { id: { prod, val, cajas, BODEGA, TPC, KA, PK, notas } }, conc: { id: { prod, mal } } }
+let _HIST_RESUMEN = null;
+
 // f = { tipo: "VALIDACION"|"ENTREGA"|"CONCILIACION", desde, hasta, turno, persona, eliminados }
 function histListar_(f, u) {
   f = f || {};
@@ -3950,7 +3954,8 @@ function histListar_(f, u) {
   if (tipo === "VALIDACION" || tipo === "ENTREGA") {
     let det = {};
     const suma = (id, k, n) => { det[id] = det[id] || {}; det[id][k] = (det[id][k] || 0) + (n === undefined ? 1 : n); };
-    if (tipo === "VALIDACION") {
+    if (_HIST_RESUMEN) det = _HIST_RESUMEN.turnos || {};
+    else if (tipo === "VALIDACION") {
       tLeer_(VAL_T.histProd).forEach(r => suma(txt_(r[0]), "prod"));
       tLeer_(VAL_T.productos).forEach(r => suma(txt_(r[0]), "prod"));
       tLeer_(VAL_T.histReg).concat(tLeer_(VAL_T.registros)).forEach(r => { if ((txt_(r[9]) || "ACTIVO") === "ACTIVO") { suma(txt_(r[1]), "val"); suma(txt_(r[1]), "cajas", Number(r[6]) || 0); } });
@@ -3972,7 +3977,8 @@ function histListar_(f, u) {
     });
   } else {
     let det = {};
-    tLeer_(CONC_T.items).forEach(r => {
+    if (_HIST_RESUMEN) det = _HIST_RESUMEN.conc || {};
+    else tLeer_(CONC_T.items).forEach(r => {
       const id = txt_(r[0]);
       det[id] = det[id] || { prod: 0, mal: 0 };
       det[id].prod++;
@@ -4450,10 +4456,11 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (data.accion !== "sincronizar" && data.accion !== "maestros") throw new Error("Acción no válida.");
+    if (!["sincronizar", "maestros", "pdf_telegram"].includes(data.accion)) throw new Error("Acción no válida.");
     let u;
     try { u = sbRpc_("mi_sesion", { p_token: String(data.token || "") }); }
     catch (e) { const m = String(e.message); if (/SESION:/.test(m)) throw new Error(m.substring(m.indexOf("SESION:"))); throw e; }
+    if (data.accion === "pdf_telegram") return ContentService.createTextOutput(JSON.stringify(sbPdfTelegram_(data, u))).setMimeType(ContentService.MimeType.JSON);
     if (data.accion === "maestros") {
       const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
       return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: hecho })).setMimeType(ContentService.MimeType.JSON);
@@ -4467,6 +4474,22 @@ function sbWebPost_(data) {
     r = /^SESION:/.test(m) ? { ok: false, sesion: true, error: m.replace(/^SESION:\s*/, "") } : { ok: false, error: m };
   }
   return ContentService.createTextOutput(JSON.stringify(r)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// La versión nueva arma el PDF en el navegador y Apps Script solo lo envía al grupo
+// (el token del bot vive aquí). Solo validador o administrador; solo archivos PDF.
+function sbPdfTelegram_(data, u) {
+  if (!ROLES[u.rol] || ROLES[u.rol] < ROLES.validador) throw new Error("No tienes permiso para enviar al grupo.");
+  if (!GRUPO_CALIDAD_ID) throw new Error("No está configurado el grupo de Telegram (GRUPO_CALIDAD_ID).");
+  const b64 = String(data.b64 || "");
+  if (!b64 || b64.length > 20 * 1024 * 1024) throw new Error("El PDF está vacío o es demasiado grande.");
+  const bytes = Utilities.base64Decode(b64);
+  if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== "%PDF") throw new Error("El archivo no es un PDF.");
+  const nombre = String(data.nombre || "Frecs.pdf").replace(/[^\w.\-]+/g, "_").substring(0, 80);
+  const blob = Utilities.newBlob(bytes, "application/pdf", /\.pdf$/i.test(nombre) ? nombre : nombre + ".pdf");
+  const cap = String(data.caption || "📄 PDF").substring(0, 800) + `\n_Enviado desde el dashboard por ${escapeMd(u.nombre)}_`;
+  if (!enviarDocumento(GRUPO_CALIDAD_ID, blob, cap)) throw new Error("Telegram no aceptó el archivo.");
+  return { ok: true };
 }
 
 // Prueba rápida de conexión (correr desde el editor)
@@ -5131,6 +5154,9 @@ usrSesion_ = function (tk, rolMinimo) {
   return { nombre: __usuario.nombre, rol: __usuario.rol };
 };
 
+// PDF: aquí no hay conversor de Apps Script; se devuelve el HTML y la página lo pasa a PDF
+htmlAPdf_ = function (html, nombre) { return { __html: html, getName: () => nombre, getBytes: () => { throw new Error("PDF en el navegador"); } }; };
+
 function __cargar(d) {
   __usuario = d.usuario || null;
   Object.keys(__libros).forEach(k => delete __libros[k]);
@@ -5176,6 +5202,8 @@ function __cargarTurnos(d) {
   conc.poner(CONC_T.conc.nombre, [CONC_T.conc.cab].concat(d.conciliaciones || []));
   conc.poner(CONC_T.items.nombre, [CONC_T.items.cab].concat(d.conc_items || []));
   conc.poner(CONC_T.pre.nombre, [CONC_T.pre.cab].concat(d.preconciliacion || []));
+  // Historiales: el resumen de cada turno viene calculado (no se bajan todas las filas viejas)
+  _HIST_RESUMEN = d.resumen_turnos ? { turnos: d.resumen_turnos, conc: d.resumen_conc || {} } : null;
 }
 
 return {
@@ -5187,6 +5215,12 @@ return {
     return f.apply(null, args || []);
   },
   exportadas: () => Object.keys(__EXPORTAR),
+  // HTML de un PDF del sistema (tipo como en construirPDFPorTipo_)
+  pdf(tipo, id) {
+    if (tipo === "INFORME" || tipo === "INSTRUCTIVO") throw new Error("Este PDF todavía se saca del dashboard actual.");
+    const r = construirPDFPorTipo_(tipo, id || "");
+    return { nombre: r.blob.getName(), html: r.blob.__html, caption: r.caption || "" };
+  },
   // Copia de las hojas (de cualquier libro) para saber qué filas cambió una acción
   foto(nombres) {
     const r = {};

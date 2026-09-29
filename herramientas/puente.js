@@ -5,7 +5,9 @@
 //   misma lógica del servidor (motor.js) los calcula aquí en el navegador.
 // - Escrituras: la acción corre en el motor y solo las filas que cambiaron van a
 //   Supabase (guardar_filas). Maestros (4a) y turnos, validación y entrega (4b).
-// - PDF, conciliación, historiales y usuarios: todavía en el dashboard actual.
+//   Conciliación, pre-conciliación e historiales (4c). Usuarios y PIN: funciones de Supabase.
+// - PDF: el motor arma el HTML y aquí se pasa a PDF (jsPDF + html2canvas, carpeta vendor/).
+//   Para Telegram, Apps Script solo lo envía al grupo (el token del bot vive allá).
 // =====================================================================
 (function () {
   const CFG = window.FRECS_CONFIG || {};
@@ -32,6 +34,9 @@
 
   // ---------- datos para el motor ----------
   let datos = null, cargando = null, cargandoT = null, turnosEn = 0;
+  // Turnos y conciliaciones viejos que se abrieron desde el historial (se piden aparte)
+  const extras = new Set();
+  const ES_ID = /^[TC]\d{8}-\d{6}(-\d+)?$/;
   const CLAVE_LS = "frecs_motor";
   const FRESCO_TURNOS_MS = 15000;   // varias personas trabajan el mismo turno: se relee si tiene más de 15 s
   function guardarLS() { try { localStorage.setItem(CLAVE_LS, JSON.stringify(datos)); } catch (e) {} }
@@ -39,7 +44,7 @@
   async function cargarDatos(tk, forzar) {
     if (datos && !forzar) return datos;
     if (!cargando) {
-      cargando = rpc("datos_consulta", { p_token: tk })
+      cargando = rpc("datos_consulta", { p_token: tk, p_extra: [...extras] })
         .then(d => { usarDatos(d); guardarLS(); return d; })
         .catch(e => {
           // Sin conexión: se trabaja con la última copia guardada en este equipo
@@ -55,24 +60,29 @@
   async function cargarTurnos(tk) {
     if (!datos) return cargarDatos(tk, true);
     if (!cargandoT) {
-      cargandoT = rpc("datos_turnos", { p_token: tk })
+      cargandoT = rpc("datos_turnos", { p_token: tk, p_extra: [...extras] })
         .then(dt => { Object.assign(datos, dt); turnosEn = Date.now(); MOTOR.cargarTurnos(dt); guardarLS(); return datos; })
         .finally(() => { cargandoT = null; });
     }
     return cargandoT;
   }
-  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt"]);
+  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
+  // Si la llamada nombra un turno o conciliación que no está cargado, se agrega a los que se piden
+  function pideExtras(args) {
+    let nuevo = false;
+    (args || []).slice(1).forEach(a => { if (typeof a === "string" && ES_ID.test(a) && !extras.has(a)) { extras.add(a); nuevo = true; } });
+    return nuevo;
+  }
 
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webConsumo",
-    "webCarpa", "webBarriles", "webLimbo", "webTurno", "webVal", "webValSugerencias", "webEnt"]);
+    "webCarpa", "webBarriles", "webLimbo", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
-    webPDF: "Los PDF todavía se sacan del dashboard actual.",
-    webPDFTelegram: "Los PDF todavía se envían desde el dashboard actual.",
-    webCambiarPin: "El PIN todavía se cambia en el dashboard actual.",
-    webSetup: "Los usuarios se crean en el dashboard actual y se importan a Supabase."
+    webSetup: "Los usuarios se crean desde Administración → Usuarios.",
+    webMantPrevia: "En la versión nueva no hace falta archivar: Supabase guarda el historial completo sin ponerse lento.",
+    webMantArchivar: "En la versión nueva no hace falta archivar: Supabase guarda el historial completo sin ponerse lento."
   };
   const NO_AUN = "Esto todavía se hace en el dashboard actual (llega en la siguiente fase).";
 
@@ -104,10 +114,13 @@
   // Fase 4b: turnos, validación y entrega. Se comparan todas sus hojas como tablas lógicas.
   const ESCRITURA_TURNO = new Set(["webTurnoAbrir", "webTurnoCerrar", "webTurnoNota", "webTurnoEliminar", "webTurnoRestaurar",
     "webValAgregar", "webValInicial", "webValQuitar", "webValRegistrar", "webValEditar", "webValAnular", "webValDestino",
-    "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar"]);
+    "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar",
+    "webConcAbrir", "webConcAgregar", "webConcGuardar", "webConcQuitar", "webConcCerrar", "webConcNota", "webConcEliminar", "webConcRestaurar",
+    "webPreAgregar", "webPreQuitar", "webPreLimpiar"]);
   const txt = v => (v === null || v === undefined) ? "" : String(v).trim();
   const nul = v => { const t = txt(v); return t === "" ? null : t; };
   const num = v => { const t = txt(v).replace(",", "."); if (t === "") return null; const n = Number(t); return isFinite(n) ? n : null; };
+  const bool = v => v === true || /^(true|si|sí|verdadero)$/i.test(txt(v));
   const ts = v => { const t = txt(v); const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/.exec(t); return m ? `${m[1]}T${m[2]}${m[3] || ":00"}-05:00` : (t || null); };
   const HOJAS = {
     Limbo: { tabla: "limbo", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]) }) },
@@ -137,7 +150,13 @@
     { tabla: "destinos", pk: ["nombre"], hojas: { Val_Destinos: (r, k) => ({ nombre: txt(r[0]), orden: k + 1 }) } },
     { tabla: "ent_items", pk: ["turno_id", "seccion", "sku"], hojas: { Ent_Items: r => ({ turno_id: txt(r[0]), seccion: txt(r[1]).toUpperCase(), sku: txt(r[2]),
       producto: nul(r[3]), cantidades: cantJSON(r[4]), actualizado: ts(r[5]), usuario: nul(r[6]), origen: nul(r[7]) }) } },
-    { tabla: "ent_notas", pk: ["id"], hojas: { Ent_Notas: r => ({ id: txt(r[1]), turno_id: txt(r[0]), hora: ts(r[2]), usuario: nul(r[3]), texto: txt(r[4]) }) } }
+    { tabla: "ent_notas", pk: ["id"], hojas: { Ent_Notas: r => ({ id: txt(r[1]), turno_id: txt(r[0]), hora: ts(r[2]), usuario: nul(r[3]), texto: txt(r[4]) }) } },
+    { tabla: "conciliaciones", pk: ["id"], hojas: { Conciliaciones: r => ({ id: txt(r[0]), turno_id: nul(r[1]), numero: num(r[2]), fecha: nul(txt(r[3]).substring(0, 10)),
+      estado: txt(r[4]).toUpperCase(), inicio: ts(r[5]), abierto_por: nul(r[6]), cierre: ts(r[7]), cerrado_por: nul(r[8]), nota: nul(r[9]), editado_por: nul(r[10]), eliminado_por: nul(r[11]) }) } },
+    { tabla: "conc_items", pk: ["conc_id", "sku"], hojas: { Conc_Items: r => ({ conc_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), bodega: num(r[3]), ka: num(r[4]), pk: num(r[5]),
+      facturacion: num(r[6]), bloqueo: bool(r[7]), actualizado: ts(r[8]), usuario: nul(r[9]), origen: nul(r[10]) }) } },
+    { tabla: "preconciliacion", pk: ["id"], hojas: { Preconciliacion: r => ({ id: txt(r[0]), fecha: ts(r[1]), turno: num(r[2]), sku: txt(r[3]), producto: nul(r[4]), motivo: nul(r[5]),
+      usuario: nul(r[6]), estado: txt(r[7]).toUpperCase() || "PENDIENTE", conc_id: nul(r[8]) }) } }
   ];
   const HOJAS_TURNO = [].concat(...LOGICAS.map(L => Object.keys(L.hojas)));
   function cambiosTurno(antes, despues) {
@@ -209,6 +228,117 @@
     }
     return JSON.stringify(r);
   }
+  // ---------- PDF en el navegador ----------
+  let libsPdf = null;
+  function cargarScript(src) {
+    return new Promise((ok, mal) => {
+      const s = document.createElement("script"); s.src = src; s.onload = ok;
+      s.onerror = () => { const e = new Error("NetworkError: no se pudo cargar el generador de PDF"); e.red = true; mal(e); };
+      document.head.appendChild(s);
+    });
+  }
+  function cargarLibsPdf() {
+    if (!libsPdf) libsPdf = Promise.all([window.html2canvas ? 0 : cargarScript("vendor/html2canvas.min.js"), window.jspdf ? 0 : cargarScript("vendor/jspdf.umd.min.js")])
+      .catch(e => { libsPdf = null; throw e; });
+    return libsPdf;
+  }
+  const MM = 96 / 25.4;   // px por mm
+  // HTML del motor → PDF tamaño carta. Se dibuja página por página y nunca se corta una fila por la mitad.
+  async function pdfDesdeHtml(html) {
+    await cargarLibsPdf();
+    const horizontal = /size:\s*letter\s+landscape/i.test(html);
+    const pag = horizontal ? { w: 279.4, h: 215.9 } : { w: 215.9, h: 279.4 }, margen = 10;
+    const anchoPx = Math.round((pag.w - 2 * margen) * MM), altoPag = (pag.h - 2 * margen) * MM;
+    const ifr = document.createElement("iframe");
+    ifr.setAttribute("aria-hidden", "true"); ifr.tabIndex = -1;
+    ifr.style.cssText = `position:fixed;left:-30000px;top:0;width:${anchoPx}px;height:${Math.round(altoPag)}px;border:0;background:#fff`;
+    document.body.appendChild(ifr);
+    try {
+      await new Promise(r => { ifr.onload = r; ifr.srcdoc = html; });
+      const doc = ifr.contentDocument, body = doc.body;
+      body.style.margin = "0"; body.style.background = "#fff";
+      try { await doc.fonts.ready; } catch (e) {}
+      const alto = Math.ceil(body.scrollHeight);
+      ifr.style.height = alto + "px";
+      const top0 = body.getBoundingClientRect().top;
+      const pos = n => { const r = n.getBoundingClientRect(); return [r.top - top0, r.bottom - top0]; };
+      const estilo = n => doc.defaultView.getComputedStyle(n), todos = [...body.querySelectorAll("*")];
+      // No se corta dentro de una fila ni de un bloque "no partir" (si cabe en una página)
+      const enteros = todos.filter(n => n.tagName === "TR" || estilo(n).breakInside === "avoid" || estilo(n).pageBreakInside === "avoid")
+        .map(pos).filter(f => f[1] - f[0] < altoPag * 0.6);
+      const partiria = y => enteros.some(f => y > f[0] + 0.5 && y < f[1] - 0.5);
+      const cortes = new Set();
+      todos.forEach(n => pos(n).forEach(y => { if (!partiria(y)) cortes.add(Math.round(y)); }));
+      // Saltos de página pedidos por el HTML (antes o después de un elemento)
+      const forzados = [];
+      todos.forEach(n => {
+        const cs = estilo(n);
+        if (cs.breakBefore === "page" || cs.pageBreakBefore === "always") forzados.push(Math.round(pos(n)[0]));
+        if (cs.breakAfter === "page" || cs.pageBreakAfter === "always") forzados.push(Math.round(pos(n)[1]));
+      });
+      const escala = Math.min(2, window.devicePixelRatio > 1 ? 2 : 1.6);
+      const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: horizontal ? "landscape" : "portrait", compress: true });
+      let y = 0, n = 0;
+      while (y < alto - 2 && n < 200) {
+        const lim = y + altoPag;
+        const f = forzados.filter(v => v > y + 2 && v < lim).sort((a, b) => a - b)[0];
+        let corte;
+        if (f !== undefined) corte = f;
+        else if (lim >= alto) corte = alto;
+        else { const c = [...cortes].filter(v => v > y + altoPag * 0.3 && v <= lim); corte = c.length ? Math.max(...c) : Math.floor(lim); }
+        const h = corte - y;
+        const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", x: 0, y: y, width: anchoPx, height: h, windowWidth: anchoPx, windowHeight: alto, logging: false });
+        if (n) pdf.addPage();
+        pdf.addImage(lienzo.toDataURL("image/jpeg", 0.9), "JPEG", margen, margen, pag.w - 2 * margen, h / MM);
+        y = corte; n++;
+      }
+      return pdf.output("datauristring").split(",")[1];
+    } finally { ifr.remove(); }
+  }
+  async function pdfDe(tipo, id) {
+    const p = MOTOR.pdf(tipo, id || "");
+    return { nombre: p.nombre, b64: await pdfDesdeHtml(p.html), caption: p.caption };
+  }
+  async function pdfATelegram(tk, p) {
+    if (!CFG.appsScriptUrl) throw new Error("No está configurada la conexión con el bot (appsScriptUrl).");
+    let r;
+    try { r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "pdf_telegram", token: tk, nombre: p.nombre, b64: p.b64, caption: p.caption }) }); }
+    catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
+    let j = null; try { j = await r.json(); } catch (e) { throw new Error("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+    if (!j.ok) { const er = new Error(j.error || "Telegram no aceptó el archivo."); if (j.sesion) er.message = "SESION:" + er.message; throw er; }
+    return true;
+  }
+  // Al cerrar turno o conciliación: los PDF se arman aquí (y se envían si lo pidieron)
+  async function despuesDeEscribir(fn, args, res) {
+    if (fn !== "webTurnoCerrar" && fn !== "webConcCerrar") return res;
+    const r = JSON.parse(res);
+    if (!r.ok) return res;
+    const tk = args[0], opts = args[1] || {};
+    try {
+      if (fn === "webTurnoCerrar") {
+        const id = r.data.resultado.id;
+        r.data.pdfs = [await pdfDe("VALIDACION", id), await pdfDe("ENTREGA", id)];
+        if (opts.telegram) { r.data.telegram = true; for (const p of r.data.pdfs) { try { await pdfATelegram(tk, p); } catch (e) { r.data.telegram = false; } } }
+      } else {
+        r.data.pdf = await pdfDe("CONCILIACION", r.data.id);
+        if (opts.telegram) { try { r.data.telegram = await pdfATelegram(tk, r.data.pdf); } catch (e) { r.data.telegram = false; } }
+      }
+    } catch (e) { console.warn("PDF al cerrar:", e); }
+    return JSON.stringify(r);
+  }
+
+  // ---------- usuarios y PIN (funciones de Supabase) ----------
+  async function usuarios(fn, args, ok) {
+    const tk = args[0];
+    if (fn === "webUsuarioGuardar") {
+      const o = args[1] || {};
+      await rpc("usuario_guardar", { p_token: tk, p_original: o.nombreOriginal || "", p_nombre: o.nombre || "", p_rol: o.rol || "", p_pin: o.pin || "", p_activo: o.activo !== false });
+    }
+    if (fn === "webUsuarioEliminar") await rpc("usuario_eliminar", { p_token: tk, p_nombre: args[1] });
+    if (fn === "webCambiarPin") { await rpc("cambiar_pin", { p_token: tk, p_actual: args[1], p_nuevo: args[2] }); return ok(true); }
+    return ok(await rpc("usuarios_listar", { p_token: tk }));
+  }
+
   // Una escritura a la vez (en orden), para que cada una parta de lo que guardó la anterior
   let cadena = Promise.resolve();
   function escribirEnOrden(fn, args, ok, fallo) {
@@ -230,11 +360,25 @@
       }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
-      if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await escribirEnOrden(fn, args, ok, fallo);
+      if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
+      const nuevoExtra = pideExtras(args);
+      if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await despuesDeEscribir(fn, args, await escribirEnOrden(fn, args, ok, fallo));
+      if (fn === "webPDF" || fn === "webPDFTelegram") {
+        await cargarDatos(args[0]);
+        if (nuevoExtra || Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
+        const p = await pdfDe(args[1], args[2]);
+        if (fn === "webPDF") return ok({ nombre: p.nombre, b64: p.b64 });
+        await pdfATelegram(args[0], p);
+        return ok(true);
+      }
       if (LECTURA.has(fn)) {
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
-        if (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
-        return MOTOR.llamar(fn, args);
+        if (nuevoExtra || (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS)) { await cadena; await cargarTurnos(args[0]); }
+        const res = MOTOR.llamar(fn, args);
+        if (fn !== "webInit") return res;
+        const r = JSON.parse(res);
+        if (r.ok) r.data.grupoTelegram = !!CFG.appsScriptUrl;   // el envío lo hace Apps Script
+        return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);
     } catch (e) {
@@ -264,20 +408,10 @@
   // ---------- ajustes de la versión web (se llaman antes de arrancar la página) ----------
   window.FRECS_WEB = {
     ajustar() {
-      // Turnos: solo Validaciones, Entrega y Consumo (conciliación y pre-conciliación llegan en la 4c)
-      const turnos = NAV.find(g => g.g === "Turnos");
-      if (turnos) turnos.items = turnos.items.filter(i => { if (["conciliacion", "preconciliacion"].includes(i.id)) { delete VISTAS[i.id]; return false; } return true; });
-      const fuera = ["Historial", "Reportes"];
-      const adm = NAV.find(g => g.g === "Administración");
-      if (adm) adm.items = adm.items.filter(i => { if (i.id === "usuarios") { delete VISTAS[i.id]; return false; } return true; });
-      for (let k = NAV.length - 1; k >= 0; k--) if (fuera.includes(NAV[k].g)) {
-        NAV[k].items.forEach(i => delete VISTAS[i.id]);
-        NAV.splice(k, 1);
-      }
-      // Aviso de versión
+      // Aviso de modo prueba (hasta el cambio definitivo, fase 4d)
       const aviso = document.createElement("div");
       aviso.className = "web-aviso";
-      aviso.innerHTML = `🧪 <b>Versión nueva</b> · <b>Turnos en modo prueba:</b> lo que hagas aquí en Validación y Entrega no pasa al dashboard actual ni al bot.<span class="solo-escritorio"> PDF, conciliación, historiales y usuarios: en el dashboard actual.</span>`;
+      aviso.innerHTML = `🧪 <b>Versión nueva</b> · <b>Turnos y conciliación en modo prueba:</b> lo que hagas aquí no pasa al dashboard actual ni al bot.<span class="solo-escritorio"> Limbo, Consumo, Sku y Canales sí se copian a las hojas.</span>`;
       const off = document.getElementById("offBar");
       if (off && off.parentNode) off.parentNode.insertBefore(aviso, off.nextSibling);
       document.body.classList.add("con-aviso");

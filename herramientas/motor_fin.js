@@ -9,6 +9,9 @@ usrSesion_ = function (tk, rolMinimo) {
   return { nombre: __usuario.nombre, rol: __usuario.rol };
 };
 
+// PDF: aquí no hay conversor de Apps Script; se devuelve el HTML y la página lo pasa a PDF
+htmlAPdf_ = function (html, nombre) { return { __html: html, getName: () => nombre, getBytes: () => { throw new Error("PDF en el navegador"); } }; };
+
 function __cargar(d) {
   __usuario = d.usuario || null;
   Object.keys(__libros).forEach(k => delete __libros[k]);
@@ -54,6 +57,8 @@ function __cargarTurnos(d) {
   conc.poner(CONC_T.conc.nombre, [CONC_T.conc.cab].concat(d.conciliaciones || []));
   conc.poner(CONC_T.items.nombre, [CONC_T.items.cab].concat(d.conc_items || []));
   conc.poner(CONC_T.pre.nombre, [CONC_T.pre.cab].concat(d.preconciliacion || []));
+  // Historiales: el resumen de cada turno viene calculado (no se bajan todas las filas viejas)
+  _HIST_RESUMEN = d.resumen_turnos ? { turnos: d.resumen_turnos, conc: d.resumen_conc || {} } : null;
 }
 
 return {
@@ -65,6 +70,12 @@ return {
     return f.apply(null, args || []);
   },
   exportadas: () => Object.keys(__EXPORTAR),
+  // HTML de un PDF del sistema (tipo como en construirPDFPorTipo_)
+  pdf(tipo, id) {
+    if (tipo === "INFORME" || tipo === "INSTRUCTIVO") throw new Error("Este PDF todavía se saca del dashboard actual.");
+    const r = construirPDFPorTipo_(tipo, id || "");
+    return { nombre: r.blob.getName(), html: r.blob.__html, caption: r.caption || "" };
+  },
   // Copia de las hojas (de cualquier libro) para saber qué filas cambió una acción
   foto(nombres) {
     const r = {};

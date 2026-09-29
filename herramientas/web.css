@@ -2,6 +2,5 @@
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }
-/* Lo que todavía vive en el dashboard actual: PDF, envío a Telegram y (sin Apps Script) ⟳ */
-body.con-aviso [data-pdf], body.con-aviso [data-tg], body.con-aviso:not(.con-sync) #syncBtn,
-body.con-aviso label.check:has(#ctT) { display: none !important; }
+/* Sin Apps Script configurado no hay ⟳ ni envío a Telegram; archivar no hace falta en Supabase */
+body.con-aviso:not(.con-sync) #syncBtn, body.con-aviso:not(.con-sync) [data-tg], body.con-aviso #hArch { display: none !important; }

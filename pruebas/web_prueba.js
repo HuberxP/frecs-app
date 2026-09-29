@@ -39,8 +39,7 @@ let llamadasSb = 0, sinRed = false;
   console.log(`ingreso + inicio: ${Date.now() - t0} ms (servidor simulado)`);
   await page.screenshot({ path: "/tmp/w_inicio.png" });
   const vistas = await page.evaluate(() => NAV.flatMap(g => g.items.map(i => i.id)));
-  if (vistas.some(v => ["conciliacion", "preconciliacion", "hval", "usuarios", "reportes"].includes(v))) errores.push("siguen vistas de la fase 4c: " + vistas);
-  if (!["validacion", "entrega", "consumo"].every(v => vistas.includes(v))) errores.push("faltan vistas de turno: " + vistas);
+  if (!["validacion", "entrega", "consumo", "conciliacion", "preconciliacion", "hval", "hent", "hconc", "usuarios", "reportes"].every(v => vistas.includes(v))) errores.push("faltan vistas: " + vistas);
   for (const v of vistas) {
     await page.evaluate(v2 => ir(v2), v); await page.waitForTimeout(250);
     const t = await page.$eval("#view", el => el.innerText.slice(0, 120).replace(/\n/g, " "));
@@ -52,8 +51,8 @@ let llamadasSb = 0, sinRed = false;
   const campo = await page.$("#view input[type=search], #view input[type=text]");
   if (campo) { await campo.fill("2222"); await campo.press("Enter"); await page.waitForTimeout(500); await page.screenshot({ path: "/tmp/w_stock2.png" }); }
   // Algo que escribe: avisa y no rompe
-  const aviso = await page.evaluate(async () => { try { await api("webConcAbrir", { numero: 2 }); return "sin error"; } catch (e) { return e.message; } });
-  if (!/dashboard actual/.test(aviso)) errores.push("escritura no bloqueada: " + aviso);
+  const aviso = await page.evaluate(async () => { try { await api("webMantPrevia", 30); return "sin error"; } catch (e) { return e.message; } });
+  if (!/no hace falta archivar/.test(aviso)) errores.push("archivar debería avisar que no hace falta: " + aviso);
   const sync = await page.evaluate(async () => { try { await api("webSincronizar"); return "sin error"; } catch (e) { return e.message; } });
   if (!/sincronizar|NetworkError/.test(sync)) errores.push("⟳ sin aviso: " + sync); // sin Apps Script simulado en este contexto
   // Recargar: arranque instantáneo desde lo guardado
@@ -230,7 +229,6 @@ let llamadasSb = 0, sinRed = false;
   const nProd = q(`select count(*) from val_productos where turno_id='${T}'`), nReg = q(`select count(*) from val_registros where turno_id='${T}'`);
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(600);
   await P.click('[data-t="cerrar"]'); await P.waitForSelector("#ctOk", { timeout: 10000 });
-  if (/PDF/.test(await P.$eval("#ctOk", e => e.innerText))) errores.push("el botón de cerrar habla de PDF");
   await P.screenshot({ path: "/tmp/w_cerrar.png" });
   await P.fill("#ctN", "cierre desde la web"); await P.waitForTimeout(450); await P.click("#ctOk"); await P.waitForTimeout(1500);
   if (q(`select estado || '|' || cerrado_por || '|' || nota || '|' || (cierre is not null) from turnos where id='${T}'`) !== "CERRADO|Huber|cierre desde la web|true") errores.push("cerrar turno falló: " + q(`select to_jsonb(t) from turnos t where id='${T}'`));
@@ -251,6 +249,81 @@ let llamadasSb = 0, sinRed = false;
   let carrera = "sin error";
   try { psql(`select guardar_filas('${tkA}', ${lit([{ tabla: "turnos", poner: [{ id: "TCARRERA", numero: 1, estado: "ABIERTO", inicio: "2026-09-28T10:00:00-05:00" }] }])}::jsonb);`); } catch (e) { carrera = String(e.stderr || e.message); }
   if (!/Alguien más acaba de abrir/.test(carrera)) errores.push("dos turnos abiertos a la vez: " + carrera.slice(0, 150));
+  // --- Fase 4c: conciliación, pre-conciliación, historiales, PDF y usuarios ---
+  const cAb = q("select id from conciliaciones where estado='ABIERTA'");
+  let cst = await P.evaluate(() => api("webConc"));
+  if (!cst.conc || cst.conc.id !== cAb) errores.push("webConc no trae la conciliación abierta: " + JSON.stringify(cst.conc && cst.conc.id));
+  const skC2 = cst.items.some(x => x.sku === "2222") ? "3617" : "2222";
+  await P.evaluate(s2 => api("webConcAgregar", [{ sku: s2 }]), skC2);
+  if (q(`select count(*) from conc_items where conc_id='${cAb}' and sku='${skC2}'`) !== "1") errores.push("agregar a la conciliación no llegó");
+  await P.evaluate(s2 => api("webConcGuardar", s2, { bodega: 10, ka: 2, pk: "", fact: 20, bloqueo: true }), skC2);
+  const fc = q(`select bodega || '|' || ka || '|' || coalesce(pk::text,'vacío') || '|' || facturacion || '|' || bloqueo || '|' || usuario from conc_items where conc_id='${cAb}' and sku='${skC2}'`);
+  if (fc !== "10|2|vacío|20|true|Huber") errores.push("guardar en la conciliación: " + fc);
+  await P.evaluate(s2 => api("webConcQuitar", s2), skC2);
+  if (q(`select count(*) from conc_items where conc_id='${cAb}' and sku='${skC2}'`) !== "0") errores.push("quitar de la conciliación falló");
+  await val.page.evaluate(() => api("webPreAgregar", "3617", "Costeñita", "revisar desde la web"));
+  const idPre = q("select id from preconciliacion where motivo='revisar desde la web'");
+  if (!idPre || q(`select usuario || '|' || estado from preconciliacion where id='${idPre}'`) !== "Ana María|PENDIENTE") errores.push("pre-conciliación no llegó");
+  const dupPre = await P.evaluate(() => api("webPreAgregar", "3617", "x", "").then(() => "sin error", e => e.message));
+  if (!/ya está anotado/.test(dupPre)) errores.push("pre-conciliación repetida no avisa: " + dupPre);
+  await P.evaluate(i => api("webPreQuitar", i), idPre);
+  if (q(`select count(*) from preconciliacion where id='${idPre}'`) !== "0") errores.push("quitar pre-conciliación falló");
+  const cc = await P.evaluate(() => api("webConcCerrar", { nota: "cierre web", telegram: false }));
+  if (q(`select estado || '|' || cerrado_por || '|' || nota from conciliaciones where id='${cAb}'`) !== "CERRADA|Huber|cierre web") errores.push("cerrar conciliación falló");
+  if (!cc.pdf || !Buffer.from(cc.pdf.b64, "base64").toString("latin1").startsWith("%PDF")) errores.push("al cerrar la conciliación no salió el PDF");
+  const cn = await P.evaluate(() => api("webConcAbrir", { numero: 3, pocos: false, entrega: false, pre: [] }));
+  const cAb2 = q("select id from conciliaciones where estado='ABIERTA'");
+  if (!cAb2 || cAb2 !== cn.resultado.id) errores.push("abrir conciliación falló");
+  // Historial: resumen, abrir un turno cerrado viejo, editarlo, eliminar y restaurar
+  const hl = await P.evaluate(() => api("webHistorial", { tipo: "VALIDACION" }));
+  const hT = hl.find(x => x.id === T);
+  const esperado = q(`select count(*) || '|' || (select count(*) from val_registros where turno_id='${T}' and estado='ACTIVO') from val_productos where turno_id='${T}'`);
+  if (!hT || `${hT.resumen[0][1]}|${hT.resumen[1][1]}` !== esperado) errores.push(`resumen del historial: ${hT && JSON.stringify(hT.resumen)} (esperado ${esperado})`);
+  const viejo = q("select id from turnos where estado='CERRADO' order by inicio limit 1");
+  const vv = await P.evaluate(i => api("webVal", i), viejo);
+  if (!vv.historial || !vv.cerrado || vv.turno.id !== viejo) errores.push("abrir un turno viejo del historial falló");
+  const pV = vv.productos.find(x => x.disponible > 0);
+  if (pV) {
+    await P.evaluate(a2 => api("webValRegistrar", { sku: a2[1], destino: "KA", cantidad: 1, nota: "olvidada", hora: "2026-09-27T02:00" }, a2[0]), [viejo, pV.sku]);
+    if (q(`select count(*) from val_registros where turno_id='${viejo}' and nota='olvidada' and modificado_por like 'Agregado después del cierre por Huber%'`) !== "1") errores.push("validación olvidada en turno viejo no llegó");
+    if (!/^Huber · /.test(q(`select coalesce(editado_por,'') from turnos where id='${viejo}'`))) errores.push("turno viejo no quedó como editado");
+  }
+  await P.evaluate(i => api("webTurnoEliminar", i), viejo);
+  if (q(`select estado || '|' || (eliminado_por like 'Huber · %') from turnos where id='${viejo}'`) !== "ELIMINADO|true") errores.push("eliminar turno falló");
+  await P.evaluate(i => api("webTurnoRestaurar", i), viejo);
+  if (q(`select estado || '|' || coalesce(eliminado_por,'') from turnos where id='${viejo}'`) !== "CERRADO|") errores.push("restaurar turno falló");
+  await P.evaluate(() => ir("hval")); await P.waitForTimeout(1200); await P.screenshot({ path: "/tmp/w_hval.png" });
+  // PDF en el navegador
+  const pdfV = await P.evaluate(i => api("webPDF", "VALIDACION", i), viejo);
+  const binV = Buffer.from(pdfV.b64, "base64");
+  if (!binV.toString("latin1").startsWith("%PDF")) errores.push("PDF de validación inválido");
+  require("fs").writeFileSync("/tmp/w_validacion.pdf", binV);
+  const pdfR = await P.evaluate(() => api("webPDF", "RESUMEN"));
+  require("fs").writeFileSync("/tmp/w_resumen.pdf", Buffer.from(pdfR.b64, "base64"));
+  const pdfE = await P.evaluate(i => api("webPDF", "ENTREGA", i), T);
+  require("fs").writeFileSync("/tmp/w_entrega.pdf", Buffer.from(pdfE.b64, "base64"));
+  const pdfC = await P.evaluate(() => api("webPDF", "CONSUMO"));
+  require("fs").writeFileSync("/tmp/w_consumo.pdf", Buffer.from(pdfC.b64, "base64"));
+  pedidos.length = 0; respSync = { ok: true };
+  await P.evaluate(() => api("webPDFTelegram", "POCOS"));
+  const pt = pedidos.find(x => x.accion === "pdf_telegram");
+  if (!pt || !Buffer.from(pt.b64, "base64").toString("latin1").startsWith("%PDF") || !/Pocos|POCOS|pocos/.test(pt.caption + pt.nombre)) errores.push("PDF a Telegram mal enviado: " + JSON.stringify(pt && { nombre: pt.nombre, caption: pt.caption }));
+  // Usuarios y PIN
+  let us = await P.evaluate(() => api("webUsuarios"));
+  if (!us.some(u => u.nombre === "Ana María")) errores.push("lista de usuarios: " + JSON.stringify(us));
+  us = await P.evaluate(() => api("webUsuarioGuardar", { nombreOriginal: "", nombre: "Prueba Web", rol: "validador", pin: "4321", activo: true }));
+  if (!us.some(u => u.nombre === "Prueba Web") || !JSON.parse(psql("select ingresar('Prueba Web','4321')::text;")).ok) errores.push("usuario nuevo no puede entrar");
+  const pinMal = await P.evaluate(() => api("webUsuarioGuardar", { nombreOriginal: "", nombre: "Otro", rol: "lector", pin: "12", activo: true }).then(() => "sin error", e => e.message));
+  if (!/PIN/.test(pinMal)) errores.push("PIN corto no avisa: " + pinMal);
+  us = await P.evaluate(() => api("webUsuarioEliminar", "Prueba Web"));
+  if (us.some(u => u.nombre === "Prueba Web")) errores.push("borrar usuario falló");
+  const valNo = await val.page.evaluate(() => api("webUsuarios").then(() => "sin error", e => e.message));
+  if (!/permiso|administrador/i.test(valNo)) errores.push("un validador ve los usuarios: " + valNo);
+  await P.evaluate(() => api("webCambiarPin", "1234", "9876"));
+  if (!JSON.parse(psql("select ingresar('Huber','9876')::text;")).ok) errores.push("cambiar PIN falló");
+  await P.evaluate(() => api("webCambiarPin", "9876", "1234"));
+  await P.evaluate(() => ir("conciliacion")); await P.waitForTimeout(1000); await P.screenshot({ path: "/tmp/w_conciliacion.png" });
+  await P.evaluate(() => ir("usuarios")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_usuarios.png" });
   await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_validacion.png" });
   await P.evaluate(() => ir("entrega")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_entrega.png" });
   await cel.page.evaluate(() => ir("validacion")); await cel.page.waitForTimeout(1500); await cel.page.screenshot({ path: "/tmp/m_w_validacion.png" });

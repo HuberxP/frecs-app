@@ -470,3 +470,5 @@ body.con-aviso .layout { padding-top: 0; }
 /* Fase 3 (solo consultas): se ocultan los botones que todavía viven en el dashboard actual */
 body.con-aviso .turno .acciones, body.con-aviso [data-pdf], body.con-aviso [data-tg], body.con-aviso #syncBtn,
 body.con-aviso #vs, body.con-aviso #view h2:has(+ #vs) { display: none !important; }
+/* El turno llega a Supabase solo al importar: mientras tanto no se muestra para no confundir */
+body.con-aviso #view #tb { display: none !important; }

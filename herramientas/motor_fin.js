@@ -72,7 +72,7 @@ return {
   exportadas: () => Object.keys(__EXPORTAR),
   // HTML de un PDF del sistema (tipo como en construirPDFPorTipo_)
   pdf(tipo, id) {
-    if (tipo === "INFORME" || tipo === "INSTRUCTIVO") throw new Error("Este PDF todavía se saca del dashboard actual.");
+    if (tipo === "INSTRUCTIVO") throw new Error("El instructivo se descarga desde el bot (/instructivo).");
     const r = construirPDFPorTipo_(tipo, id || "");
     return { nombre: r.blob.getName(), html: r.blob.__html, caption: r.caption || "" };
   },

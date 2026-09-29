@@ -530,7 +530,29 @@
   body.con-aviso .layout { padding-top: 0; }
   @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }
   body.turnos-fuera .turno .acciones, body.turnos-fuera [data-a="agregar"], body.turnos-fuera [data-a="precargar"], body.turnos-fuera .vc-acc,
-  body.turnos-fuera .sec-acc, body.turnos-fuera .ent-acc { display: none !important; }/* ============ Versión web (Supabase) ============ */
+  body.turnos-fuera .sec-acc, body.turnos-fuera .ent-acc { display: none !important; }
+  /* Conciliación: tarjetas desplegables con el color del resultado */
+  .clista { display: flex; flex-direction: column; gap: 10px; }
+  .conc-card { border: 2px solid var(--line2); border-left-width: 6px; padding: 12px 14px; }
+  .conc-card.mal { border-color: var(--bad); background: linear-gradient(0deg, var(--bad-soft), var(--bad-soft)), var(--card); }
+  .conc-card.ok { border-color: var(--ok); background: linear-gradient(0deg, var(--ok-soft), var(--ok-soft)), var(--card); }
+  .conc-card.sobra { border-color: #4d8dff; background: linear-gradient(0deg, rgba(77,141,255,.16), rgba(77,141,255,.16)), var(--card); }
+  .conc-card .prod { font-weight: 700; font-size: 15.5px; }
+  .cc-tit { min-width: 0; }
+  .cc-res { font-size: 13.5px; color: var(--muted); margin-top: 3px; }
+  .cc-res b { color: var(--ink); }
+  .cc-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 520px) { .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .cc-campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .cc-campo input { text-align: center; font-size: 17px; font-weight: 800; }
+  .chk-sobra { color: #7fb0ff; font-weight: 900; }
+  .conc-resumen { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .chip.c-mal { border-color: var(--bad); color: var(--bad); } .chip.c-ok { border-color: var(--ok); color: var(--ok); } .chip.c-sobra { border-color: #4d8dff; color: #7fb0ff; }
+  .btn-neon.sm > span { padding: 6px 12px; font-size: 13.5px; }
+  .fefo-est { border-radius: 8px; padding: 6px 9px; margin: 4px 0; font-size: 13.5px; }
+  .fefo-est.bien { background: var(--ok-soft); color: var(--ok); }
+  .fefo-est.mal { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(255,210,63,.4); }
+  .fefo-est .small { color: var(--ink); margin-top: 3px; font-weight: 500; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

@@ -1786,7 +1786,7 @@ function calcularOrganizar() {
     modKeys.forEach(k => {
       const obj = porMod[k];
       const o = capacidadModulo_(k, occ[k], cap, sku, data.fam);
-      if (o && o.libres > 0) receptores.push({ mod: k, libres: o.libres, tMin: obj.tMin });
+      if (o && o.libres > 0) receptores.push({ mod: k, libres: o.libres, tMin: obj.tMin, v: obj.v, d: obj.d });
       emisores.push(Object.assign({ mod: k }, obj));
     });
     receptores.sort((a, b) => b.libres - a.libres);
@@ -1796,13 +1796,26 @@ function calcularOrganizar() {
       if (handled.has(emi.mod)) return;
       const rec = receptores.find(r => r.mod !== emi.mod && r.libres >= emi.est && !handled.has(r.mod));
       if (!rec) return;
-      sugerencias.push({ p: data.prod, sku: sku, e: emi.e, c: emi.c, u: emi.u, est: emi.est, v: emi.v, d: emi.d, act: emi.act, from: emi.mod, to: rec.mod, fefo: Math.abs(emi.tMin - rec.tMin) <= 86400000 * 5 ? "✅ FEFO correcto" : "⚠️ Ojo con el FEFO", score: emi.est });
+      const f = fefoMovimiento_(emi, rec);
+      sugerencias.push({ p: data.prod, sku: sku, e: emi.e, c: emi.c, u: emi.u, est: emi.est, v: emi.v, d: emi.d, act: emi.act, from: emi.mod, to: rec.mod, fefo: f.titulo, fefoDet: f.detalle, fefoOk: f.ok, score: emi.est });
       rec.libres -= emi.est;
       handled.add(emi.mod);
     });
   });
   sugerencias.sort((a, b) => a.score - b.score);
   return sugerencias;
+}
+
+// FEFO al juntar: lo que se mueve suele quedar adelante en el módulo que lo recibe.
+// Si lo que se mueve vence DESPUÉS que lo que ya está allá, el producto más viejo queda detrás.
+function fefoMovimiento_(emi, rec) {
+  const fd = v => formatearFecha(v) || "sin fecha", dd = d => d === 9999 ? "" : ` (${d} días)`;
+  const dif = emi.tMin - rec.tMin, cinco = 86400000 * 5;
+  if (Math.abs(dif) <= cinco) return { ok: true, titulo: "✅ FEFO correcto", detalle: `Mismas fechas o casi: lo que mueves vence ${fd(emi.v)} y en ${rec.mod} vence ${fd(rec.v)}.` };
+  if (dif > 0) return { ok: false, titulo: "⚠️ FEFO se incumple",
+    detalle: `Lo que mueves de ${emi.mod} vence ${fd(emi.v)}${dd(emi.d)}, pero en ${rec.mod} hay producto que vence antes: ${fd(rec.v)}${dd(rec.d)}. Si lo pones adelante, lo de ${fd(rec.v)} queda detrás y sale después. Ponlo detrás o saca primero lo de ${rec.mod}.` };
+  return { ok: false, titulo: "⚠️ Cuidado con el FEFO",
+    detalle: `Lo que mueves de ${emi.mod} vence antes (${fd(emi.v)}${dd(emi.d)}) que lo que hay en ${rec.mod} (${fd(rec.v)}${dd(rec.d)}). Ponlo adelante para que salga primero; si queda detrás, se incumple el FEFO.` };
 }
 
 function obtenerOrganizar(pagina) {
@@ -1813,7 +1826,7 @@ function obtenerOrganizar(pagina) {
   const lim = 6, ini = (pagina - 1) * lim;
   let msj = `🧩 *SLOTTING: ORGANIZAR BODEGA* (Pág ${pagina})\n${obtenerEstadoSync()}\n_Sugerencias para vaciar módulos_\n${SEP_}`;
   s.slice(ini, ini + lim).forEach((x, idx) => {
-    msj += `*${ini + idx + 1}.* ${skuProdMd_(x.sku, x.p)}\nCondición: ${x.fefo}\n👉 *Mover de ${x.from} a ${x.to}:*\n${formatoCantidades(x.e, x.c, x.u, x.p)}\nVence: ${fVD(x.v, x.d)}\nAct: ${formatoActualizacion(x.act)}\n_Beneficio: ${x.from} queda libre._\n${SEP_}`;
+    msj += `*${ini + idx + 1}.* ${skuProdMd_(x.sku, x.p)}\nCondición: ${x.fefo}\n${x.fefoOk ? "" : "_" + escapeMd(x.fefoDet) + "_\n"}👉 *Mover de ${x.from} a ${x.to}:*\n${formatoCantidades(x.e, x.c, x.u, x.p)}\nVence: ${fVD(x.v, x.d)}\nAct: ${formatoActualizacion(x.act)}\n_Beneficio: ${x.from} queda libre._\n${SEP_}`;
   });
   return { text: msj, markup: generarBotoneraPaginacion("ORG", pagina, s.length, lim) };
 }
@@ -2137,8 +2150,9 @@ function construirPDFBarriles() {
 // =========================================================
 // 13 · CONSUMO INTERNO / PONY GASTO
 // ---------------------------------------------------------
-// Criterio del módulo a consumir (solo lotes DISPONIBLES de la bodega general;
-// si no hay, se usa la zona operativa KA/PREV):
+// Criterio del módulo a consumir (solo lotes DISPONIBLES de la bodega general).
+// KA y PREV NO se usan: se surten desde los módulos de bodega y lo que hay allá ya
+// está listo para despachar (se muestran aparte, solo como información):
 //   1) marcado como prioridad
 //   2) fecha más corta y módulo incompleto
 //   3) fecha
@@ -2184,19 +2198,18 @@ function calcularConsumo() {
   return lista.map(x => {
     const locs = ag[x.sku] || [];
     const general = locs.filter(l => l.disp && !l.esOp).sort(cmpConsumo_);
-    const operativa = locs.filter(l => l.disp && l.esOp).sort(cmpConsumo_);
-    const auto = general.length ? general[0].m : (operativa.length ? operativa[0].m : null);
-    const manualValido = x.elegido && locs.some(l => l.m === x.elegido && l.disp);
+    const operativa = locs.filter(l => l.esOp).sort(cmpConsumo_);   // KA / PREV: solo información
+    const auto = general.length ? general[0].m : null;
+    const manualValido = x.elegido && general.some(l => l.m === x.elegido);
     const elegido = manualValido ? x.elegido : auto;
-    // Orden de la lista: el elegido primero, luego disponibles (criterios), operativos y bloqueados al final
-    const bloq = locs.filter(l => !l.disp).sort(cmpConsumo_);
-    let orden = general.concat(operativa, bloq);
-    orden.forEach(l => { l.sel = l.m === elegido && l.disp; });
+    // Orden: el elegido primero, luego los disponibles (criterios), los bloqueados y al final KA / PREV
+    const bloq = locs.filter(l => !l.disp && !l.esOp).sort(cmpConsumo_);
+    let orden = general.concat(bloq, operativa);
+    orden.forEach(l => { l.sel = l.m === elegido && l.disp && !l.esOp; });
     orden.sort((a, b) => (b.sel ? 1 : 0) - (a.sel ? 1 : 0));
     let estado = "ok";
     if (!locs.length) estado = "sin_fisico";
-    else if (!general.length && !operativa.length) estado = "solo_bloqueado";
-    else if (!general.length) estado = "solo_operativa";
+    else if (!general.length) estado = bloq.length ? "solo_bloqueado" : "solo_operativa";
     return {
       sku: x.sku, nom: x.nom || (skuInfo_(x.sku) || {}).prod || "Desconocido", locs: orden, elegido: elegido, auto: auto,
       modo: manualValido ? "manual" : "auto", elegidoPor: manualValido ? x.por : "", elegidoEn: manualValido ? x.en : "",
@@ -2226,15 +2239,16 @@ function obtenerConsumo(pagina) {
     msj += `📦 ${skuProdMd_(x.sku, x.nom)}\n`;
     if (x.estado === "sin_fisico") { msj += `❌ Sin existencias físicas en bodega.\n${SEP_}`; return; }
     if (x.estado === "solo_bloqueado") msj += `❌ Todos los módulos están bloqueados.\n`;
-    if (x.estado === "solo_operativa") msj += `⚠️ Sin stock en bodega general: se sugiere la zona operativa.\n`;
+    if (x.estado === "solo_operativa") msj += `⚠️ Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.\n`;
     if (x.modo === "manual") msj += `✋ Elegido a mano por ${escapeMd(x.elegidoPor)} (${fechaCorta_(x.elegidoEn)})\n`;
     msj += "\n";
-    x.locs.slice(0, 5).forEach(l => {
+    const lb = x.locs.filter(l => !l.esOp);
+    lb.slice(0, 5).forEach(l => {
       const ic = l.sel ? "🎯 *CONSUMIR AQUÍ*\n" : "";
       const marca = !l.disp ? "🔴" : (l.esOp ? "🔹" : "▫️");
       msj += `${ic}${marca} *${escapeMd(l.m)}*${l.prio ? " 🚨" : ""}${l.lleno === false ? " (incompleto)" : ""}\n   ${cantLinea_(l.e, l.c, l.u, l.p)}\n   Vence: ${fVD(l.v, l.d)}${l.disp ? "" : ` · ❌ ${escapeMd(l.est)}`}\n`;
     });
-    if (x.locs.length > 5) msj += `   _+${x.locs.length - 5} ubicaciones más en el dashboard_\n`;
+    if (lb.length > 5) msj += `   _+${lb.length - 5} ubicaciones más en el dashboard_\n`;
     msj += `\n🗑️ _Eliminar:_ /consumo del ${x.sku}\n${SEP_}`;
   });
   let mk = generarBotoneraPaginacion("CONSO", pagina, datos.length, lim) || { inline_keyboard: [] };
@@ -2287,8 +2301,9 @@ function elegirModuloConsumoCore_(sku, modulo, usuario) {
     const it = (listaConsumo_() || []).find(x => x.sku === sku);
     if (!it) throw new Error(`El SKU ${sku} no está en la lista de consumo.`);
     if (modulo) {
-      const ok = obtenerInventarioLocal().some(i => i.s === sku && i.m === modulo && i.tieneFisico && i.est === "DISPONIBLE");
-      if (!ok) throw new Error(`En ${modulo} no hay producto disponible del SKU ${sku}. Solo se puede elegir un módulo disponible.`);
+      const lotes = obtenerInventarioLocal().filter(i => i.s === sku && i.m === modulo && i.tieneFisico && i.est === "DISPONIBLE");
+      if (lotes.length && lotes.every(i => esZonaOperativa(i))) throw new Error(`${modulo} es KA / PREV: de ahí no se consume (ya está surtido para despacho).`);
+      if (!lotes.length) throw new Error(`En ${modulo} no hay producto disponible del SKU ${sku}. Solo se puede elegir un módulo disponible.`);
     }
     tEscribir_(CONSUMO_DEF, it.fila, 3, modulo ? [modulo, usuario, ahora_()] : ["", "", ""]);
     sbEspejo_("consumo");
@@ -2306,16 +2321,17 @@ function construirPDFConsumo() {
   let cuerpo = "";
   datos.forEach(x => {
     cuerpo += `<div class="bloque"><div class="bloque-t">${escHtml_(x.sku)} · ${escHtml_(x.nom)}${x.modo === "manual" ? ` <span class="sm">(elegido a mano por ${escHtml_(x.elegidoPor)})</span>` : ""}</div>`;
-    if (!x.locs.length) { cuerpo += `<div class="vacio caja">Sin existencias físicas en bodega.</div></div>`; return; }
+    const lb = x.locs.filter(l => !l.esOp);
+    if (!lb.length) { cuerpo += `<div class="vacio caja">${x.locs.length ? "Solo hay en KA / PREV (ya surtido para despacho)." : "Sin existencias físicas en bodega."}</div></div>`; return; }
     cuerpo += `<table class="t"><thead><tr><th>Módulo</th><th>Estado</th><th>Vence</th><th>Estibas</th><th>Cajas</th><th>Unidades</th><th>Módulo lleno</th><th>Acción</th></tr></thead><tbody>`;
-    x.locs.forEach(l => {
+    lb.forEach(l => {
       const cls = l.sel ? "sel" : (!l.disp ? "bloq" : "");
       const accion = l.sel ? "<b>CONSUMIR AQUÍ</b>" : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
       cuerpo += `<tr class="${cls}"><td><b>${escHtml_(l.m)}</b>${l.prio ? " [PRIORIDAD]" : ""}</td><td>${l.disp ? "Disponible" : escHtml_(l.est)}</td><td>${fVD(l.v, l.d)}</td><td>${fM(l.e)}</td><td>${fM(l.c)}</td><td>${fM(l.u)}</td><td>${l.lleno === null ? "—" : (l.lleno ? "Lleno" : `Incompleto (${fM(l.usadas)}/${fM(l.capTot)})`)}</td><td>${accion}</td></tr>`;
     });
     cuerpo += `</tbody></table></div>`;
   });
-  const html = pdfDoc_("CONSUMO / PONY GASTO · COMPLETO", `<p class="sm">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el módulo más incompleto. <span class="chip sel">Consumir aquí</span> <span class="chip bloq">Bloqueado</span></p>${cuerpo}`, { css: `.bloque{page-break-inside:avoid;margin-bottom:12px}.bloque-t{font-weight:bold;color:#003399;font-size:11.5px;padding:5px 0}.caja{border:1px solid #999;padding:6px}tr.sel td{background:#dbe8ff !important;font-weight:bold}tr.bloq td{background:#ffcccc !important;color:#8e1f19}.chip{padding:1px 6px;border:1px solid #999}.chip.sel{background:#dbe8ff}.chip.bloq{background:#ffcccc}` });
+  const html = pdfDoc_("CONSUMO / PONY GASTO · COMPLETO", `<p class="sm">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el módulo más incompleto. Sin KA ni PREV (se surten desde bodega). <span class="chip sel">Consumir aquí</span> <span class="chip bloq">Bloqueado</span></p>${cuerpo}`, { css: `.bloque{page-break-inside:avoid;margin-bottom:12px}.bloque-t{font-weight:bold;color:#003399;font-size:11.5px;padding:5px 0}.caja{border:1px solid #999;padding:6px}tr.sel td{background:#dbe8ff !important;font-weight:bold}tr.bloq td{background:#ffcccc !important;color:#8e1f19}.chip{padding:1px 6px;border:1px solid #999}.chip.sel{background:#dbe8ff}.chip.bloq{background:#ffcccc}` });
   return { blob: htmlAPdf_(html, `Consumo_Completo_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "📄 *Consumo (Pony gasto) · completo*" };
 }
 
@@ -2325,7 +2341,7 @@ function construirPDFConsumoSolo() {
   if (datos === null) return { error: "Falta la pestaña 'Consumo'." };
   let filas = datos.map(x => {
     const t = totalesElegido_(x);
-    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : "Sin módulo disponible (bloqueado)"}</td><td></td></tr>`;
+    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : (x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "Sin módulo disponible (bloqueado)")}</td><td></td></tr>`;
     return `<tr><td>${escHtml_(x.sku)}</td><td class="izq"><b>${escHtml_(x.nom)}</b></td><td class="mod">${escHtml_(t.m)}</td><td>${cantHtml_(t)}</td><td>${fVD(t.v, t.d)}</td><td>${t.prio ? "PRIORIDAD" : ""}</td><td>${x.modo === "manual" ? "A mano" : "Automático"}</td></tr>`;
   }).join("");
   const html = pdfDoc_("CONSUMO · SOLO MÓDULOS A CONSUMIR", `<table class="t grande"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Módulo</th><th>Cantidades</th><th>Vence</th><th>Marca</th><th>Selección</th></tr></thead><tbody>${filas}</tbody></table>`, { css: `.grande td{font-size:12px;padding:8px}.mod{font-size:16px;font-weight:bold;color:#003399}tr.bloq td{background:#ffcccc !important}` });
@@ -3711,10 +3727,20 @@ function concItems_(concId) {
     .map(x => {
       x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0);
       x.check = x.fact === "" ? null : x.total >= x.fact;
+      x.nivel = nivelConc_(x.total, x.fact);
       x.diferencia = x.fact === "" ? null : x.total - x.fact;
       return x;
     })
     .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+}
+
+// Color de cada producto: mal (facturación tiene de más) · ok (el conteo cubre) ·
+// sobra (tenemos más del 50 % por encima de lo facturado: diferencia grande que revisar)
+function nivelConc_(total, fact) {
+  if (fact === "" || fact === null || fact === undefined) return "";
+  if (total < fact) return "mal";
+  if (fact > 0 && total > fact * 1.5) return "sobra";
+  return "ok";
 }
 
 function turnoAnterior_(n) { return { 1: 3, 2: 1, 3: 2 }[Number(n)] || 2; }
@@ -3900,13 +3926,13 @@ function construirPDFConciliacion(concId) {
   if (!c) throw new Error("No hay conciliaciones.");
   const items = concItems_(c.id);
   const v = x => x === "" ? "—" : fM(x);
-  const filas = items.map(x => `<tr class="${x.check === false ? "mal" : ""}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.check === null ? "" : (x.check ? "✓" : "✗")}</td></tr>`).join("") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
+  const filas = items.map(x => `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
   const cuerpo = `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
-    <p class="sm">Todo en cajas. Check: ✓ el conteo cubre la facturación · ✗ facturación tiene de más (revisar bloqueo del excedente).</p>
+    <p class="sm">Todo en cajas. <span style="background:#ffcccc;padding:1px 5px">✗ facturación tiene de más</span> (revisar bloqueo del excedente) · <span style="background:#e2efda;padding:1px 5px">✓ el conteo cubre la facturación</span> · <span style="background:#dbe8ff;padding:1px 5px">✓ +50 % o más: diferencia grande, revisar</span></p>
     <table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Bodega</th><th>KA</th><th>PK</th><th>Total</th><th>Facturación</th><th>Bloqueo</th><th>Check</th></tr></thead><tbody>${filas}</tbody></table>
     <table class="firmas"><tr><td><div class="linea">Bodega</div></td><td><div class="linea">Facturación</div></td></tr></table>`;
-  const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpo, { vertical: true, css: "tr.mal td{background:#ffcccc !important}.chk{font-size:14px;font-weight:bold}" });
+  const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpo, { vertical: true, css: "tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}" });
   return { blob: htmlAPdf_(html, `Conciliacion_${c.id}.pdf`), caption: `⚖️ *Conciliación* · turno ${c.numero} · ${formatearFecha(c.fecha)}` };
 }
 
@@ -3952,7 +3978,7 @@ function obtenerConciliacionBot() {
   teclado[0].push({ text: "📄 PDF", callback_data: "CONCPDF" });
   let msj = `⚖️ *CONCILIACIÓN TURNO ${e.conc.numero}* · ${formatearFecha(e.conc.fecha)}\nAbierta por ${escapeMd(e.conc.abiertoPor)}\n${e.faltantes ? `❌ *${e.faltantes} con facturación de más*` : "✅ Sin faltantes"}\n${SEP_}`;
   e.items.forEach(x => {
-    msj += `${x.check === null ? "▫️" : (x.check ? "✅" : "❌")} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}\n`;
+    msj += `${x.nivel === "mal" ? "❌" : x.nivel === "sobra" ? "🔵" : x.nivel === "ok" ? "✅" : "▫️"} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}\n`;
   });
   return { text: msj, markup: { inline_keyboard: teclado } };
 }
@@ -5230,13 +5256,18 @@ function enviarInstructivoPDF(chatId) {
 ;
 // ===== 42_Informe_Prioridad.gs =====
 // =========================================================
-// 42 · INFORME PDF: PRIORIDAD DE CONSUMO (plantilla Plantilla_Prioridad.html)
+// 42 · INFORME PDF: PRIORIDAD DE CONSUMO (índice de frescura)
+// Todos los productos de la bodega, del que vence primero al último, con el color de
+// su vida útil y la acción según el vencimiento (hacia dónde moverlo).
 // Escala: <0 gris | 0-29 rojo | 30-45 amarillo | 46-90 verde claro | >90 verde oscuro
+// El HTML se arma aquí (sin plantilla aparte) para que sirva igual en Apps Script y en la versión nueva.
 // =========================================================
+const LOGO_EMPRESA = "data:image/jpeg;base64,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";
+
 function construirInformePrioridades() {
   const inv = obtenerInventarioLocal();
   if (inv.length === 0) return { error: "No hay datos en 'WMS_Base'. Sincroniza primero." };
-  let inventario = [];
+  let datos = [];
   inv.forEach(r => {
     if (!r.tieneFisico) return;
     const dias = r.d;
@@ -5246,15 +5277,172 @@ function construirInformePrioridades() {
     const cantStr = r.e > 0 ? r.e + (r.e === 1 ? " Estiba" : " Estibas") : (r.c > 0 ? r.c + (r.c === 1 ? " Caja" : " Cajas") : r.u + " Unidades");
     let fFormat = formatearFecha(r.v);
     if (!fFormat || fFormat === "N/A") fFormat = "Sin fecha";
-    inventario.push({ ubi: r.m, sku: r.s, desc: r.p, cant: cantStr, vence: fFormat, dias: dias, diasTxt: dias === 9999 ? "—" : String(dias), accion: accion, obs: obs, color: vu.color });
+    datos.push({ ubi: r.m, sku: r.s, desc: r.p, cant: cantStr, vence: fFormat, dias: dias, diasTxt: dias === 9999 ? "—" : String(dias), accion: accion, obs: obs, color: vu.color });
   });
-  inventario.sort((a, b) => a.dias - b.dias);
-  const plantilla = HtmlService.createTemplateFromFile("Plantilla_Prioridad");
-  plantilla.datos = inventario;
-  plantilla.fechaSync = Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy");
-  const blobHtml = Utilities.newBlob(plantilla.evaluate().getContent(), "text/html", "temp.html");
-  const pdfBlob = blobHtml.getAs("application/pdf").setName(`Prioridad_Consumo_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`);
-  return { blob: pdfBlob, caption: "📊 *Informe: prioridad de consumo*" };
+  datos.sort((a, b) => a.dias - b.dias);
+  const fechaSync = Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy");
+  const filas = datos.map(x => `<tr style="background-color: ${x.color} !important; -webkit-print-color-adjust: exact;">
+          <td class="col-center"><b>${escHtml_(x.ubi)}</b></td><td class="col-center">${escHtml_(x.sku)}</td><td><b>${escHtml_(x.desc)}</b></td>
+          <td class="col-center"><b>${escHtml_(x.cant)}</b></td><td class="col-center">${escHtml_(x.vence)}</td><td class="col-center"><b>${x.diasTxt}</b></td>
+          <td>${escHtml_(x.accion)}</td><td class="col-center" style="white-space: nowrap;">${x.obs}</td></tr>`).join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+    @page { 
+      size: letter landscape; 
+      margin: 10mm;
+    }
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      color: #000;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    
+    .frecs-watermark {
+      text-align: right;
+      color: #28a745;
+      font-size: 13px;
+      font-style: italic;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid black;
+      margin-bottom: 15px;
+    }
+    .header-table td {
+      border: 1px solid black;
+      text-align: center;
+      vertical-align: middle;
+      background-color: #ffffff;
+    }
+    .title-box {
+      font-size: 22px;
+      font-weight: bold;
+      padding: 8px;
+    }
+    .subtitle-box {
+      font-size: 20px;
+      font-weight: bold;
+      padding: 6px;
+      border-top: 1px solid black;
+    }
+    
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+      height: 100%;
+      font-size: 11px;
+    }
+    .rules-table td {
+      border: 1px solid black;
+      padding: 6px;
+      font-weight: bold;
+    }
+    
+    /* Logo de la empresa */
+    .brand-box {
+      padding: 8px;
+      background-color: #ffffff !important;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .brand-title {
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      color: #111;
+      margin-bottom: 4px;
+    }
+    .brand-subtitle {
+      font-size: 8.5px;
+      font-weight: bold;
+      color: #444;
+      margin-bottom: 3px;
+    }
+    .brand-slogan {
+      font-size: 6.5px;
+      color: #666;
+      line-height: 1.1;
+    }
+    
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid black;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid black;
+      padding: 6px;
+      text-align: left;
+    }
+    .data-table th {
+      background-color: #f2f2f2 !important;
+      color: #003399; /* AZUL FUERTE */
+      font-weight: bold;
+      font-size: 11px;
+      text-align: center;
+    }
+    
+    tr { page-break-inside: avoid; }
+    .col-center { text-align: center !important; }
+      .brand-box img { max-width: 100%; max-height: 118px; display: block; margin: 0 auto; }
+</style></head><body>
+
+  <div class="frecs-watermark">𝐹𝓇𝑒𝒸𝓈! ツ</div>
+
+  <table class="header-table">
+    <tr>
+      <!-- Títulos sin fondo -->
+      <td rowspan="2" style="width: 50%; padding: 0;">
+         <div class="title-box">PRIORIDADES DE CONSUMO / ITAGUI</div>
+         <div class="subtitle-box">Indice de Frescura</div>
+      </td>
+      <td rowspan="2" style="width: 35%; padding: 0;">
+         <table class="rules-table">
+           <tr>
+             <td style="background-color: #a9d08e !important; -webkit-print-color-adjust: exact;">VERDE OSCURO</td>
+             <td style="background-color: #ffffff !important;">Más de 90 días</td>
+           </tr>
+           <tr>
+             <td style="background-color: #e2efda !important; -webkit-print-color-adjust: exact;">VERDE CLARO</td>
+             <td style="background-color: #ffffff !important;">Entre 46 y 90 días</td>
+           </tr>
+           <tr>
+             <td style="background-color: #fff2cc !important; -webkit-print-color-adjust: exact;">AMARILLO</td>
+             <td style="background-color: #ffffff !important;">Entre 30 y 45 días</td>
+           </tr>
+           <tr>
+             <td style="background-color: #ffcccc !important; -webkit-print-color-adjust: exact;">ROJO</td>
+             <td style="background-color: #ffffff !important;">Menos de 30 días</td>
+           </tr>
+           <tr>
+             <td style="background-color: #d9d9d9 !important; -webkit-print-color-adjust: exact;">GRIS</td>
+             <td style="background-color: #ffffff !important;">Vencido</td>
+           </tr>
+           <tr>
+             <td style="background-color: #ffffff !important;">Fecha:</td>
+             <td style="background-color: #ffffff !important; font-weight: normal;">${fechaSync}</td>
+           </tr>
+         </table>
+      </td>
+      <!-- Logo de la empresa -->
+      <td rowspan="2" style="width: 15%;" class="brand-box"><img src="${LOGO_EMPRESA}" alt="Logo"></td>
+    </tr>
+  </table>
+
+  
+  <table class="data-table">
+    <thead><tr><th width="8%">Ubicación</th><th width="8%">SKU</th><th width="23%">Descripción</th><th width="10%">Cantidad</th><th width="10%">F. Vencimiento</th><th width="6%">Vida Útil</th><th width="25%">Acción Requerida</th><th width="10%">Obs.</th></tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+</body></html>`;
+  return { blob: htmlAPdf_(html, `Prioridad_Consumo_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "📊 *Informe: prioridad de consumo*" };
 }
 
 ;
@@ -5333,7 +5521,7 @@ return {
   exportadas: () => Object.keys(__EXPORTAR),
   // HTML de un PDF del sistema (tipo como en construirPDFPorTipo_)
   pdf(tipo, id) {
-    if (tipo === "INFORME" || tipo === "INSTRUCTIVO") throw new Error("Este PDF todavía se saca del dashboard actual.");
+    if (tipo === "INSTRUCTIVO") throw new Error("El instructivo se descarga desde el bot (/instructivo).");
     const r = construirPDFPorTipo_(tipo, id || "");
     return { nombre: r.blob.getName(), html: r.blob.__html, caption: r.caption || "" };
   },

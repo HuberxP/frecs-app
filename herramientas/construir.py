@@ -44,10 +44,7 @@ js = "\n".join(leer(p) for p in sorted(glob.glob(os.path.join(GAS, "js", "*.js")
 marca = "(function inicio() {"
 assert marca in js, "no se encontró el arranque de la página"
 js = js.replace(marca, "// Ajustes de la versión web (Supabase)\nif (window.FRECS_WEB) FRECS_WEB.ajustar();\n\n" + marca, 1)
-# Lo que en la versión web no aplica (el informe de prioridad usa una plantilla de Apps Script)
-for viejo, nuevo in [('    ["INFORME", "📊 Prioridad de consumo", "Índice de frescura de toda la bodega, coloreado por vida útil"],\n', "")]:
-    assert viejo in js, viejo
-    js = js.replace(viejo, nuevo)
+
 v_app = escribir("app.js", "// GENERADO por herramientas/construir.py: no editar a mano.\n" + js)
 
 # ---------- app.css ----------

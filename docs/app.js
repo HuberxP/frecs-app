@@ -1010,7 +1010,7 @@ VISTAS.resumen = async (el, p, vigente) => {
   if (!vigente()) return;
   const bloq = inv.filter(i => i.fis && !i.disp).sort(cmpMod);
   const fila = (l, n, v) => `<tr><td data-l="Indicador">${l}</td><td data-l="Valor" class="num"><b>${fm(n)}</b></td><td class="acc">${v ? `<button class="btn sm" data-go="${v}">Ver</button>` : ""}</td></tr>`;
-  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", botonesPDF("RESUMEN", "PDF resumen (5 págs)")) +
+  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", botonesPDF("INFORME", "Informe de prioridad (todos los productos)") + botonesPDF("RESUMEN", "PDF resumen (5 págs)")) +
     `<table class="tabla resp"><thead><tr><th>Indicador</th><th class="num">Valor</th><th></th></tr></thead><tbody>
       ${fila("🧯 SKUs bajo su mínimo", r.cPocos, "pocos")}${fila("📦 SKUs críticos (&lt; 3 estibas)", r.c3, "pocos")}${fila("🔀 Módulos con 2+ SKUs", r.cMezcla, "mezclados")}
       ${fila("🌫️ Mercancía en limbo", r.mLimbo, "limbo")}${fila("🥤 SKUs de consumo interno", r.mConsumo, "consumo")}
@@ -1083,7 +1083,7 @@ VISTAS.organizar = async (el, p, vigente) => {
     const it = q.length ? lis.filter(s2 => coincide(norm(`${s2.sku} ${s2.p} ${s2.from} ${s2.to}`), q) > 0) : lis;
     $("#oc", el).textContent = `${it.length} movimientos`;
     $("#or", el).innerHTML = it.length ? `<div class="grid">${it.map(s2 => `<article class="card inv v-${h(s2.vida)}">
-    <div class="prod">${skuTxt(s2.sku, s2.p)}</div><div class="sub">${h(s2.fefo)}</div>
+    <div class="prod">${skuTxt(s2.sku, s2.p)}</div><div class="fefo-est ${s2.fefoOk === false ? "mal" : "bien"}"><b>${h(s2.fefo)}</b>${s2.fefoDet ? `<div class="small">${h(s2.fefoDet)}</div>` : ""}</div>
     <div style="font-size:16px;margin:6px 0">👉 Mover ${modChip(s2.from)} → ${modChip(s2.to)}</div>
     ${qty(s2.e, s2.c, s2.u)}
     <div class="vence">Vence <b>${h(s2.vf)}</b> · ${s2.d === 9999 ? "sin fecha" : s2.d + " días"}</div>
@@ -1159,6 +1159,7 @@ VISTAS.envasado = async el => {
 // =====================================================================
 VISTAS.reportes = async el => {
   const pdfs = [
+    ["INFORME", "📊 Informe de prioridad de consumo", "Todos los productos, del que vence primero al último, con su color y hacia dónde moverlo según el vencimiento"],
     ["RESUMEN", "📋 Resumen gerencial (5 páginas)", "Riesgo, mal ubicados, bloqueados, etiquetas, limbo y vencidos"],
     ["POCOS", "🧯 Formato de pocos", "Hoja de auditoría física de los SKUs bajo su mínimo"],
     ["CONSUMO", "🥤 Consumo · completo", "Todos los módulos de cada SKU con el de consumo resaltado"],
@@ -1634,7 +1635,7 @@ function pintarEnt(el) {
     return `<section class="card sec-card plegable sec-${s.toLowerCase()} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="ent|${s}" role="button" tabindex="0" aria-expanded="${ab}"><h3><span>${SECC[s].t} <span class="sec-n">${it.length}</span></span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
-      ${esc ? `<div class="sec-acc"><button class="btn sm" data-a="add" data-s="${s}">＋ Agregar</button>${it.length ? `<button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button>` : ""}</div>` : ""}
+      ${esc ? `<div class="sec-acc"><button class="btn btn-neon sm" data-a="add" data-s="${s}"><span>＋ Agregar</span></button>${it.length ? `<button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button>` : ""}</div>` : ""}
       ${it.length ? `<div class="ent-list">${it.map(x => `<div class="ent-row"><div class="ent-main"><div>${skuTxt(x.sku, x.producto)}${x.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</div><div class="cants">${cantChips(x.cant)}</div><div class="sub">${h(x.origen || "")}${x.usuario ? " · " + h(x.usuario) : ""}${x.actualizado ? " · " + h(fechaCorta(x.actualizado)) : ""}</div></div>
         ${esc ? `<div class="ent-acc"><button class="btn sm icon" data-a="edit" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Editar">✎</button><button class="btn sm icon" data-a="del" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Quitar">🗑</button></div>` : ""}</div>`).join("")}</div>` : `<p class="muted small">Sin productos.</p>`}
       </div></section>`;
@@ -1762,7 +1763,7 @@ function pintarConc(el) {
   el = el || $("#view");
   const k = S.conc, esc = puede("validador"), hist = !!S.concId;
   const pend = k.pre.filter(x => x.estado === "PENDIENTE");
-  let html = cab("⚖️ Conciliación con facturación", "Todo en cajas · ✓ el conteo cubre la facturación · ✗ facturación tiene de más");
+  let html = cab("⚖️ Conciliación con facturación", "Todo en cajas. Rojo: facturación tiene de más (revisar el bloqueo del excedente) · Verde: el conteo cubre la facturación · Azul: tenemos más del 50 % por encima de lo facturado, diferencia grande que hay que revisar.");
   if (!k.conc) {
     html += `<div class="card" style="margin-bottom:14px"><p style="margin-top:0">No hay conciliación abierta.</p>
       <p class="muted small">Al abrirla escoges el turno (normalmente el 3) y se precargan los pocos, lo que escojas de la pre-conciliación (${pend.length} pendientes) y los conteos de la entrega del turno anterior.</p>
@@ -1775,28 +1776,39 @@ function pintarConc(el) {
       <div><div class="k">Abierta por</div><div class="v">${h(k.conc.abiertoPor)} · ${h(soloHora(k.conc.inicio))}</div></div>
       <div><div class="k">Resultado</div><div class="v">${k.faltantes ? `<span class="pill bad">✗ ${k.faltantes} con facturación de más</span>` : `<span class="pill ok">✓ Sin faltantes</span>`}</div></div></div>
       <div class="acciones">${botonesPDF("CONCILIACION", "PDF", k.conc.id)}${esc ? `<button class="btn warn sm" data-a="cerrar">Cerrar conciliación</button>` : ""}</div></section>`;
-  html += `${esc ? `<div class="form-row"><div style="flex:1 1 280px;max-width:520px">${campoAuto("cAdd", "Agregar producto: nombre o SKU")}</div>${pend.length && !hist ? `<button class="btn sm" data-a="pasarpre">📌 Pasar de pre-conciliación (${pend.length})</button>` : ""}</div>` : ""}
-    <table class="tabla resp conc-tabla" id="cTab"><thead><tr><th>SKU</th><th>Producto</th><th>Bodega</th><th>KA</th><th>PK</th><th>Total</th><th>Facturación</th><th>Bloqueo</th><th>Check</th><th></th></tr></thead><tbody>
-    ${k.items.map(x => filaConc(x, esc)).join("") || `<tr><td colspan="10" class="muted">Sin productos. Agrégalos arriba.</td></tr>`}
-    </tbody></table>`;
+  const cuenta = n => k.items.filter(x => x.nivel === n).length;
+  html += `${esc ? `<div class="lista-tools"><button class="btn btn-neon" data-a="agregarc"><span>＋ Agregar producto</span></button>${pend.length && !hist ? `<button class="btn sm" data-a="pasarpre">📌 Pasar de pre-conciliación (${pend.length})</button>` : ""}</div>` : ""}
+    ${k.items.length ? `<div class="lista-tools"><input type="search" id="cq" placeholder="Buscar producto (nombre o SKU)…" value="${h(S.concQ || "")}"><button class="btn sm" data-a="cabrir">Abrir todas</button><button class="btn sm" data-a="ccerrar">Cerrar todas</button><span class="count" id="cqc"></span></div>
+      <div class="conc-resumen"><span class="chip c-mal">✗ ${cuenta("mal")}</span><span class="chip c-ok">✓ ${cuenta("ok")}</span><span class="chip c-sobra">+50 % ${cuenta("sobra")}</span><span class="chip">Sin facturación ${k.items.filter(x => !x.nivel).length}</span></div>` : ""}
+    <div class="clista" id="cTab">${k.items.map(x => tarjetaConc(x, esc)).join("") || `<div class="card muted">Sin productos. Agrégalos con el botón de arriba.</div>`}</div>`;
   el.innerHTML = html;
   el.onclick = e => { if (hist && onBanner(e, k.conc, "CONCILIACION")) return; onConcClick(e); };
-  const inp = $("#cAdd", el);
-  if (inp) autoSku(inp, async c => {
-    try { const r = await api("webConcAgregar", [{ sku: c.sku, producto: c.prod }], S.concId || ""); S.conc = r.estado; toast(r.resultado.agregados ? "Producto agregado" : "Ya estaba en la conciliación", r.resultado.agregados ? "ok" : "warn"); pintarConc(); }
-    catch (e) { toast(e.message, "bad", 6000); }
-  }, { limpiar: true });
   const tab = $("#cTab", el);
   if (tab) tab.addEventListener("change", onConcCampo);
+  const cq = $("#cq", el);
+  if (cq) { cq.oninput = () => { S.concQ = cq.value; filtrarConc(el); }; filtrarConc(el); }
 }
-function filaConc(x, esc) {
-  const inp = (f, v) => esc ? `<input type="text" inputmode="numeric" data-f="${f}" data-sku="${h(x.sku)}" value="${h(vNum(v))}" placeholder="—">` : (v === "" ? "—" : fm(v));
-  const chk = x.check === null ? "" : (x.check ? `<span class="chk-ok">✓</span>` : `<span class="chk-no">✗</span>`);
-  return `<tr class="${x.check === false ? "mal" : ""}" data-row="${h(x.sku)}"><td data-l="SKU" class="sku">${h(x.sku)}</td><td data-l="Producto">${h(x.producto)}<div class="sub">${h(x.origen || "")}</div></td>
-    <td data-l="Bodega">${inp("bodega", x.bodega)}</td><td data-l="KA">${inp("ka", x.ka)}</td><td data-l="PK">${inp("pk", x.pk)}</td>
-    <td data-l="Total"><b data-tot>${fm(x.total)}</b></td><td data-l="Facturación">${inp("fact", x.fact)}</td>
-    <td data-l="Bloqueo"><input type="checkbox" class="chk-grande" data-f="bloqueo" data-sku="${h(x.sku)}" ${x.bloqueo ? "checked" : ""} ${esc ? "" : "disabled"}></td>
-    <td data-l="Check" data-chk>${chk}</td><td class="acc">${esc ? `<button class="btn sm icon" data-a="qconc" data-sku="${h(x.sku)}" aria-label="Quitar">🗑</button>` : ""}</td></tr>`;
+function filtrarConc(el) {
+  const q = norm(S.concQ || "").split(/\s+/).filter(x => x);
+  let n = 0;
+  $$(".clista .conc-card", el).forEach(c => { const ok = !q.length || coincide(norm(c.dataset.q), q) > 0; c.classList.toggle("hidden", !ok); if (ok) n++; });
+  const c = $("#cqc", el); if (c) c.textContent = q.length ? `${n} de ${$$(".clista .conc-card", el).length}` : `${$$(".clista .conc-card", el).length} productos`;
+}
+const nivelConc = (tot, fact) => fact === null || fact === "" ? "" : (tot < fact ? "mal" : (fact > 0 && tot > fact * 1.5 ? "sobra" : "ok"));
+const chkConc = (nivel, tot, fact) => nivel === "mal" ? `<span class="chk-no">✗ faltan ${fm(fact - tot)}</span>` : nivel === "sobra" ? `<span class="chk-sobra">✓ +${Math.round((tot / fact - 1) * 100)} %</span>` : nivel === "ok" ? `<span class="chk-ok">✓</span>` : "";
+// Cada producto es una tarjeta: cerrada muestra SKU, nombre, total y facturación con su color
+function tarjetaConc(x, esc) {
+  const inp = (f, v, l) => `<label class="cc-campo"><span>${l}</span>${esc ? `<input type="text" inputmode="numeric" data-f="${f}" data-sku="${h(x.sku)}" value="${h(vNum(v))}" placeholder="—">` : `<b>${v === "" ? "—" : fm(v)}</b>`}</label>`;
+  const ab = abierto("conc", x.sku);
+  return `<article class="card conc-card plegable ${x.nivel || "sin"} ${ab ? "abierto" : ""}" data-row="${h(x.sku)}" data-q="${h(x.sku + " " + x.producto)}">
+    <div class="pl-cab" data-plegar="conc|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
+      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${x.fact === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}</div></div>
+      <span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo">
+      <div class="cc-grid">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}${inp("fact", x.fact, "Facturación")}</div>
+      <label class="check"><input type="checkbox" class="chk-grande" data-f="bloqueo" data-sku="${h(x.sku)}" ${x.bloqueo ? "checked" : ""} ${esc ? "" : "disabled"}><span>Bloqueo del excedente</span></label>
+      <div class="row sb"><span class="sub">${h(x.origen || "")}</span>${esc ? `<button class="btn sm icon" data-a="qconc" data-sku="${h(x.sku)}" aria-label="Quitar de la conciliación">🗑</button>` : ""}</div>
+    </div></article>`;
 }
 function onConcCampo(e) {
   const i = e.target.closest("[data-f]"); if (!i) return;
@@ -1804,12 +1816,13 @@ function onConcCampo(e) {
   const valor = f === "bloqueo" ? i.checked : i.value.replace(/\D/g, "");
   if (f !== "bloqueo") i.value = valor;
   // Se recalcula la fila de inmediato; el servidor guarda por detrás
-  const tr = i.closest("tr");
+  const tr = i.closest(".conc-card");
   const val = n => { const x = tr.querySelector(`[data-f="${n}"]`); return x && x.value !== "" ? Number(x.value) : null; };
-  const tot = (val("bodega") || 0) + (val("ka") || 0) + (val("pk") || 0), fact = val("fact");
+  const tot = (val("bodega") || 0) + (val("ka") || 0) + (val("pk") || 0), fact = val("fact"), nivel = nivelConc(tot, fact);
   tr.querySelector("[data-tot]").textContent = fm(tot);
-  tr.querySelector("[data-chk]").innerHTML = fact === null ? "" : (tot >= fact ? `<span class="chk-ok">✓</span>` : `<span class="chk-no">✗</span>`);
-  tr.classList.toggle("mal", fact !== null && tot < fact);
+  tr.querySelector("[data-fact]").textContent = fact === null ? "—" : fm(fact);
+  tr.querySelector("[data-chk]").innerHTML = chkConc(nivel, tot, fact);
+  ["mal", "ok", "sobra", "sin"].forEach(c => tr.classList.toggle(c, (nivel || "sin") === c));
   const campos = {}; campos[f] = valor;
   enviarOptimista("webConcGuardar", [sku, campos, S.concId || ""], `Conciliación ${sku}: ${f}`, r => { if (r && r.estado) { S.conc = r.estado; if (!S.concId) ls.setJ("conc", S.conc); } });
 }
@@ -1837,6 +1850,23 @@ async function onConcClick(e) {
         toast(`Conciliación del turno ${r.resultado.numero} abierta con ${r.resultado.productos} productos${r.resultado.conteoDe ? ` (conteos de ${r.resultado.conteoDe})` : ""}`, "ok", 6000); pintarConc();
       } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
     };
+    return;
+  }
+  if (a === "cabrir" || a === "ccerrar") {
+    S.abiertos.conc = {}; k.items.forEach(x => { S.abiertos.conc[x.sku] = a === "cabrir"; });
+    $$(".conc-card").forEach(c => c.classList.toggle("abierto", a === "cabrir"));
+    return;
+  }
+  if (a === "agregarc") {
+    const c = abrirModal(`<h3>Agregar a la conciliación</h3>${campoAuto("cAdd", "Nombre o SKU")}<p class="muted small">Escoge el producto de la lista. Si la entrega del turno anterior lo contó, se trae ese conteo.</p><div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`);
+    autoSku($("#cAdd", c), async p => {
+      try {
+        const r = await api("webConcAgregar", [{ sku: p.sku, producto: p.prod }], S.concId || "");
+        S.conc = r.estado; S.abiertos.conc = S.abiertos.conc || {}; S.abiertos.conc[p.sku] = true;
+        toast(r.resultado.agregados ? `${p.prod} agregado` : "Ya estaba en la conciliación", r.resultado.agregados ? "ok" : "warn");
+        cerrarModal(true); pintarConc();
+      } catch (e) { toast(e.message, "bad", 6000); }
+    }, { limpiar: true });
     return;
   }
   if (a === "pasarpre") {
@@ -1934,21 +1964,24 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
-      ${esc && l.disp && !l.sel ? `<button class="btn sm" data-el="${h(l.m)}" data-sku="${h(x.sku)}">Elegir</button>` : ""}</div>`;
-  el.innerHTML = cab("🥤 Consumo / Pony gasto", "Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo.",
+      ${esc && l.disp && !l.sel && !l.esOp ? `<button class="btn sm" data-el="${h(l.m)}" data-sku="${h(x.sku)}">Elegir</button>` : ""}</div>`;
+  // KA y PREV se surten desde bodega (ya están listos para despachar): se ocultan salvo que se pidan
+  const verOp = ls.get("consVerOp", "") === "1";
+  const visibles = x => x.locs.filter(l => verOp || !l.esOp);
+  el.innerHTML = cab("🥤 Consumo / Pony gasto", "Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.",
       botonesPDF("CONSUMO", "PDF completo") + botonesPDF("CONSUMO_SOLO", "Solo módulos a consumir")) +
     (esc ? `<div class="card" style="margin-bottom:14px"><div style="max-width:520px">${campoAuto("ca", "Agregar a la lista: nombre o SKU")}</div></div>` : "") +
-    (lis.length ? `<div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><span class="count">${lis.length} productos</span></div><div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${ab ? "abierto" : ""}">
-      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div><div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : (x.estado === "sin_fisico" ? "❌ Sin existencias" : "Sin módulo disponible")}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    (lis.length ? `<div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${lis.length} productos</span></div><div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${ab ? "abierto" : ""}">
+      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div><div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : (x.estado === "sin_fisico" ? "❌ Sin existencias" : x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "❌ Sin módulo disponible")}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
       ${esc ? `<div class="row" style="justify-content:flex-end"><button class="btn sm icon" data-del="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar de la lista">🗑</button></div>` : ""}
       <div class="sub" style="margin:4px 0 8px">${x.modo === "manual" ? `✋ Elegido a mano por <b>${h(x.elegidoPor)}</b> · ${h(fechaCorta(x.elegidoEn))} ${esc ? `<button class="link" data-auto="${h(x.sku)}">volver a automático</button>` : ""}` : "⚙️ Automático (criterios)"}${x.manualVencido ? ` · <span style="color:var(--warn)">el módulo elegido a mano se vació</span>` : ""}</div>
       ${x.estado === "sin_fisico" ? `<div class="mini">❌ Sin existencias físicas en bodega.</div>` : ""}
       ${x.estado === "solo_bloqueado" ? `<div class="note warn">Todos los módulos están bloqueados.</div>` : ""}
-      ${x.estado === "solo_operativa" ? `<div class="note warn">Sin stock en bodega general: se sugiere la zona operativa.</div>` : ""}
-      <div class="mini-list">${x.locs.map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>` : vacio("La lista de consumo está vacía.", "🛒"));
+      ${x.estado === "solo_operativa" ? `<div class="note warn">Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.</div>` : ""}
+      <div class="mini-list">${visibles(x).map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>` : vacio("La lista de consumo está vacía.", "🛒"));
   const todas = abrir => { S.abiertos.cons = {}; lis.forEach(x => { S.abiertos.cons[x.sku] = abrir; }); $$(".cons-card", el).forEach(c => c.classList.toggle("abierto", abrir)); };
-  if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); }
+  if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); $("#cOp", el).onchange = e => { ls.set("consVerOp", e.target.checked ? "1" : ""); ir("consumo"); }; }
   const ca = $("#ca", el);
   if (ca) autoSku(ca, async c => {
     try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista`, "ok"); ir("consumo"); } catch (e) { toast(e.message, "bad", 6000); }

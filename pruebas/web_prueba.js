@@ -43,7 +43,7 @@ let llamadasSb = 0, sinRed = false;
   for (const v of vistas) {
     await page.evaluate(v2 => ir(v2), v); await page.waitForTimeout(250);
     const t = await page.$eval("#view", el => el.innerText.slice(0, 120).replace(/\n/g, " "));
-    if (/⚠️/.test(t) && !/⚠️ (Mal|Ojo)/.test(t)) errores.push(`vista ${v}: ${t}`);
+    if (/⚠️/.test(t) && !/⚠️ (Mal|Ojo|Cui|FE)/.test(t)) errores.push(`vista ${v}: ${t}`);
     if (["stock", "pocos", "carpa", "consumo", "resumen"].includes(v)) await page.screenshot({ path: `/tmp/w_${v}.png` });
   }
   // Stock de un SKU

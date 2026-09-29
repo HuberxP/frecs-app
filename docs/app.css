@@ -672,3 +672,5 @@ body.con-aviso .layout { padding-top: 0; }
 body.con-aviso:not(.con-sync) #syncBtn, body.con-aviso:not(.con-sync) [data-tg], body.con-aviso #hArch { display: none !important; }
 /* En GitHub Pages el botón atrás del celular ya funciona: no hace falta el de la barra */
 #backBtn { display: none !important; }
+/* Aviso de versión nueva (arriba, para no chocar con el de «Hay cambios») */
+.nuevo-chip.ver-chip { z-index: 96; white-space: nowrap; bottom: auto; top: calc(var(--top-h) + 10px); background: var(--neon, #39ff88); color: #03140a; }

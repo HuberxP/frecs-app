@@ -478,6 +478,30 @@
     }
   };
 
+  // ---------- versión nueva publicada ----------
+  // El celular deja la página abierta por días: al volver a ella se revisa si hay una versión nueva y se ofrece recargar
+  let revisando = false;
+  async function revisarVersion() {
+    // Huella = las versiones de estilos y scripts que cargó esta página vs. las que tiene publicadas el servidor
+    const huella = html => (html.match(/(?:app\.css|config\.js|motor\.js|puente\.js|app\.js)\?v=[\w]+/g) || []).sort().join("|");
+    const mia = huella(document.documentElement.outerHTML);
+    if (revisando || !mia || !navigator.onLine) return;
+    revisando = true;
+    try {
+      const t = await (await fetch("index.html", { cache: "no-store" })).text();
+      const nueva = huella(t);
+      if (nueva && nueva !== mia && !document.getElementById("verChip")) {
+        const b = document.createElement("button");
+        b.id = "verChip"; b.className = "nuevo-chip ver-chip"; b.type = "button";
+        b.textContent = "🔄 Hay una versión nueva · Actualizar";
+        b.onclick = () => location.reload();
+        document.body.appendChild(b);
+      }
+    } catch (e) {} finally { revisando = false; }
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) revisarVersion(); });
+  setInterval(() => { if (!document.hidden) revisarVersion(); }, 10 * 60 * 1000);
+
   // ---------- ajustes de la versión web (se llaman antes de arrancar la página) ----------
   window.FRECS_WEB = {
     ajustar() {

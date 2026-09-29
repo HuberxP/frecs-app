@@ -3872,10 +3872,10 @@ function construirPDFEntrega(turnoId) {
   const notas = d.notas.length ? `<ol class="notas">${d.notas.map(n => `<li><span class="sm">${soloHora_(n.hora)} · ${escHtml_(n.usuario)}</span><br>${escHtml_(n.texto)}</li>`).join("")}</ol>` : `<p class="vacio">Sin novedades registradas.</p>`;
   const cuerpo = infoTurnoHtml_(t) +
     `<table class="cols"><tr><td>${tablaSec("BODEGA")}${tablaSec("TPC")}</td><td>${tablaSec("PK")}${tablaSec("KA")}</td></tr></table>
-    <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>
-    <div style="page-break-before:always"></div>${cabeceraPDF_("ENTREGA DE TURNO · NOTAS", fechaCorte_(), "#003399")}
-    <p><b>${escHtml_(turnoTexto_(t))}</b> · ${escHtml_(t.abiertoPor)}</p>${notas}`;
-  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 5px;border:none}.sec{margin-bottom:10px;page-break-inside:avoid}.sec-t{font-weight:bold;color:#003399;font-size:11.5px;margin:4px 0}table.t td,table.t th{font-size:9px;padding:3px 4px}.notas li{margin-bottom:8px;font-size:11px}.cm{border-top:1px dotted #aaa;margin-top:2px;padding-top:2px}` });
+    <div class="notas-b"><div class="sec-t">🗒️ Notas del turno (${d.notas.length})</div>${notas}</div>
+    <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
+  // Las notas van debajo, en la misma hoja; si no caben, siguen solas en la página siguiente (sin partir una nota)
+  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 5px;border:none}.sec{margin-bottom:10px;page-break-inside:avoid}.sec-t{font-weight:bold;color:#003399;font-size:11.5px;margin:4px 0}table.t td,table.t th{font-size:9px;padding:3px 4px}.notas{margin:4px 0 0;padding-left:20px}.notas li{margin-bottom:6px;font-size:10.5px;page-break-inside:avoid;break-inside:avoid}.notas-b{margin-top:8px;border:1px solid #f0b36a;background:#fff4e6;border-radius:4px;padding:6px 10px}.notas-b .sec-t{page-break-after:avoid;break-after:avoid;color:#b35c00}.notas-b .vacio{margin:4px 0;font-size:10px}.cm{border-top:1px dotted #aaa;margin-top:2px;padding-top:2px}` });
   return { blob: htmlAPdf_(html, `Entrega_${t.id}.pdf`), caption: `📋 *Entrega de turno* · ${turnoTexto_(t)}` };
 }
 

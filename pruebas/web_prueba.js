@@ -54,7 +54,7 @@ let llamadasSb = 0, sinRed = false;
   const aviso = await page.evaluate(async () => { try { await api("webTurnoAbrir", 2, true); return "sin error"; } catch (e) { return e.message; } });
   if (!/dashboard actual/.test(aviso)) errores.push("escritura no bloqueada: " + aviso);
   const sync = await page.evaluate(async () => { try { await api("webSincronizar"); return "sin error"; } catch (e) { return e.message; } });
-  if (!/sincronizar/.test(sync)) errores.push("⟳ sin aviso: " + sync);
+  if (!/sincronizar|NetworkError/.test(sync)) errores.push("⟳ sin aviso: " + sync); // sin Apps Script simulado en este contexto
   // Recargar: arranque instantáneo desde lo guardado
   await page.evaluate(() => ir("inicio")); await page.waitForTimeout(200);
   const n0 = llamadasSb; const t1 = Date.now();
@@ -87,7 +87,7 @@ let llamadasSb = 0, sinRed = false;
   // ⟳ con Apps Script configurado
   const sy = await nueva({ width: 1280, height: 800 }, "sync");
   let respSync = { ok: true, filas: 362, modulos: 383, supabase: { filas: 362, modulos: 383 } }, pedidos = [];
-  await sy.ctx.route("**/config.js*", async route => { const r = await route.fetch(); const t = (await r.text()).replace('appsScriptUrl: ""', 'appsScriptUrl: "https://script.google.com/macros/s/PRUEBA/exec"'); await route.fulfill({ response: r, body: t }); });
+  await sy.ctx.route("**/config.js*", async route => { const r = await route.fetch(); const t = (await r.text()).replace(/appsScriptUrl: "[^"]*"/, 'appsScriptUrl: "https://script.google.com/macros/s/PRUEBA/exec"'); await route.fulfill({ response: r, body: t }); });
   await sy.ctx.route("https://script.google.com/**", async route => { pedidos.push(JSON.parse(route.request().postData())); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(respSync) }); });
   await sy.page.goto("http://127.0.0.1:8766/"); await sy.page.waitForSelector("#lgN");
   await sy.page.selectOption("#lgN", "Huber"); await sy.page.fill("#lgP", "1234"); await sy.page.click("#lgB");

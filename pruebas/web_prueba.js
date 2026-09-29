@@ -254,9 +254,12 @@ let llamadasSb = 0, sinRed = false;
   // Cerrar el turno desde la pantalla
   const nProd = q(`select count(*) from val_productos where turno_id='${T}'`), nReg = q(`select count(*) from val_registros where turno_id='${T}'`);
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(600);
-  await P.click('[data-t="cerrar"]'); await P.waitForSelector("#ctOk", { timeout: 10000 });
+  await P.click('[data-t="cerrar"]'); await P.waitForSelector("#ctS", { timeout: 10000 });
+  if (!(await P.$("#ctP"))) errores.push("cerrar turno: falta la opción «Cerrar y descargar PDF»");
   await P.screenshot({ path: "/tmp/w_cerrar.png" });
-  await P.fill("#ctN", "cierre desde la web"); await P.waitForTimeout(450); await P.click("#ctOk"); await P.waitForTimeout(1500);
+  let bajados = 0; P.on("download", () => { bajados++; });
+  await P.fill("#ctN", "cierre desde la web"); await P.waitForTimeout(450); await P.click("#ctS"); await P.waitForTimeout(1500);
+  if (bajados) errores.push("«Solo cerrar» descargó PDF");
   if (q(`select estado || '|' || cerrado_por || '|' || nota || '|' || (cierre is not null) from turnos where id='${T}'`) !== "CERRADO|Huber|cierre desde la web|true") errores.push("cerrar turno falló: " + q(`select to_jsonb(t) from turnos t where id='${T}'`));
   if (q(`select count(*) from val_productos where turno_id='${T}'`) !== nProd || q(`select count(*) from val_registros where turno_id='${T}'`) !== nReg) errores.push("al cerrar se perdieron filas de la validación");
   const cerr = await P.evaluate(() => api("webValRegistrar", { sku: "2222", destino: "KA", cantidad: 1 }).then(() => "sin error", e => e.message));

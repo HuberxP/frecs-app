@@ -444,6 +444,9 @@
     .turno .acciones { width: 100%; }
     .turno .acciones .btn { flex: 1; }
     .turno .acciones .btn.warn { flex-basis: 100%; }
+    .turno .barra-acc .btn, .turno .barra-acc .btn.warn { flex: 1 1 auto; }
+    .turno .barra-acc .btn.solo-ic { flex: 1 1 auto; }
+    .turno .barra-acc { width: 100%; }
     /* Validación compacta */
     .vgrid { gap: 10px; }
     .vcard { padding: 11px 12px; gap: 6px; border-top-width: 3px; }
@@ -571,7 +574,70 @@
   .cap-no { color: #ffb4b4; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
   .cap-faltan { margin-top: 12px; }
   .cap-faltan summary { cursor: pointer; font-weight: 800; }
-  .cap-faltan-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }/* ============ Versión web (Supabase) ============ */
+  .cap-faltan-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  /* ---- 29/09 tarde: barras de botones, borrar en rojo, validación por producto, conciliación, entrega ---- */
+  /* Barras de botones en una fila; si no caben con texto, quedan solo los íconos (ajustarBarras) */
+  .barra-acc { display: flex; flex-wrap: nowrap; gap: 8px; align-items: stretch; margin-bottom: 10px; min-width: 0; }
+  .barra-acc > .btn { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .turno .barra-acc, .hist-banner .barra-acc { margin-bottom: 0; flex-wrap: nowrap; }
+  .barra-acc .ic { flex: none; }
+  .barra-acc > .btn:not(.btn-neon) { padding: 0 10px; }
+  .barra-acc > .btn.solo-ic { flex: 1 1 auto; min-width: 48px; }
+  .barra-acc.midiendo > .btn { flex: 0 0 auto !important; }
+  .barra-acc .btn.solo-ic .txt { display: none; }
+  .barra-acc .btn-neon.solo-ic > span { padding: 9px 14px; }
+  .barra-acc .btn-neon { flex: 1.4 1 auto; }
+  .barra-acc .btn-neon > span { width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  /* Borrar: siempre en rojo */
+  .ico-del { display: inline-block; vertical-align: -3px; color: var(--bad); }
+  .btn.del { color: var(--bad); border-color: rgba(255,77,109,.55); }
+  .btn.del:hover { background: var(--bad-soft); }
+  .btn.del .ico-del { color: var(--bad); }
+  /* Cerrar turno / conciliación: tres opciones */
+  .cierre-acc .btn { flex: 1 1 auto; }
+  @media (max-width: 560px) { .cierre-acc { flex-direction: column-reverse; align-items: stretch; } }
+  /* Validación: color por producto (tarjeta y registro) con su número */
+  .rc-tit { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .rc-n { flex: none; min-width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: #06101f; background: var(--pc, #7df9ff); padding: 0 8px; }
+  .vcard[style*="--pc"] { border-left: 6px solid var(--pc); background: linear-gradient(0deg, var(--pcs), var(--pcs)), var(--card); }
+  .rlista { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+  .rcard { border: 1px solid var(--line2); border-left: 6px solid var(--pc); background: linear-gradient(0deg, var(--pcs), var(--pcs)), var(--card); padding: 12px 14px; }
+  .rcard .prod { font-weight: 700; font-size: 15.5px; }
+  .rcard .sub b { color: var(--ink); }
+  .rreg { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 10px; background: rgba(4,7,15,.35); border: 1px solid var(--line); }
+  .rr-num { flex: none; width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; color: #06101f; background: var(--pc); }
+  .rr-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .rr-l { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .rr-saldo { font-size: 13px; color: var(--muted); } .rr-saldo b { color: var(--ok); font-size: 15px; }
+  .rr-acc { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .rreg.anulado .rr-main { opacity: .55; text-decoration: line-through; }
+  .rreg.conflicto { border-color: var(--bad); background: var(--bad-soft); }
+  .rreg.pendiente { border-style: dashed; }
+  @media (max-width: 560px) { .rreg { flex-wrap: wrap; } .rr-acc { width: 100%; } .rr-acc .btn { flex: 1; } }
+  /* Conciliación: en PC y tableta todo en una fila (Bodega · KA · PK · Facturación · Bloqueo · borrar) */
+  .cc-grid { align-items: end; }
+  .cc-fact input { background: #d6ecff !important; color: #06284d !important; border-color: #7cc0ff !important; }
+  .cc-fact input::placeholder { color: #4a6e94; }
+  .cc-fact > span { color: #8fd0ff; }
+  .cc-bloq { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; user-select: none; }
+  .cc-bloq input { width: 22px; height: 22px; flex: none; accent-color: var(--bad); margin: 0; }
+  .cc-bloq.on { border-color: var(--bad); color: #ffb3c1; background: var(--bad-soft); }
+  .cc-del { align-self: end; }
+  @media (min-width: 700px) {
+    .cc-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) auto auto; }
+    .cc-bloq { white-space: nowrap; }
+  }
+  @media (max-width: 699px) {
+    .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cc-bloq { grid-column: 1 / -1; }
+    .cc-del { grid-column: 1 / -1; justify-self: end; }
+  }
+  /* Entrega: tarjeta de notas naranja claro y cantidades en 0 */
+  .notas-card { background: linear-gradient(0deg, rgba(255,166,77,.16), rgba(255,166,77,.16)), var(--card); border-color: rgba(255,166,77,.6); }
+  .notas-card h3 { color: #ffc27a; }
+  .notas-card .notas-l li { border-color: rgba(255,166,77,.25); }
+  .cant.cero b { color: var(--muted); }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

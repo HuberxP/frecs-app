@@ -383,13 +383,17 @@
     if (!r.ok) return res;
     const tk = args[0], opts = args[1] || {};
     try {
+      // opts.pdf = false → solo cerrar; opts.telegram → al grupo (sin descargar si pdf es false)
+      if (opts.pdf === false && !opts.telegram) return res;
       if (fn === "webTurnoCerrar") {
         const id = r.data.resultado.id;
-        r.data.pdfs = [await pdfDe("VALIDACION", id), await pdfDe("ENTREGA", id)];
-        if (opts.telegram) { r.data.telegram = true; for (const p of r.data.pdfs) { try { await pdfATelegram(tk, p); } catch (e) { r.data.telegram = false; } } }
+        const pdfs = [await pdfDe("VALIDACION", id), await pdfDe("ENTREGA", id)];
+        if (opts.telegram) { r.data.telegram = true; for (const p of pdfs) { try { await pdfATelegram(tk, p); } catch (e) { r.data.telegram = false; } } }
+        r.data.pdfs = opts.pdf === false ? [] : pdfs;
       } else {
-        r.data.pdf = await pdfDe("CONCILIACION", r.data.id);
-        if (opts.telegram) { try { r.data.telegram = await pdfATelegram(tk, r.data.pdf); } catch (e) { r.data.telegram = false; } }
+        const pdf = await pdfDe("CONCILIACION", r.data.id);
+        if (opts.telegram) { try { r.data.telegram = await pdfATelegram(tk, pdf); } catch (e) { r.data.telegram = false; } }
+        r.data.pdf = opts.pdf === false ? null : pdf;
       }
     } catch (e) { console.warn("PDF al cerrar:", e); }
     return JSON.stringify(r);

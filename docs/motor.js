@@ -2971,7 +2971,8 @@ function abrirTurnoCore_(numero, heredar, usuario) {
     tAgregar_(TURNOS_DEF, [[id, numero, fechaTurno_(numero), "ABIERTO", ahora_(), usuario, "", "", prev ? prev.id : "", recibe, "", "", ""]]);
     turnosCambiaron_();
     let heredados = 0;
-    if (heredar !== false && prev) heredados = valHeredar_(id, prev, usuario);
+    // No se hereda el saldo de una validación eliminada
+    if (heredar !== false && prev && !parteEliminada_(prev, "VAL")) heredados = valHeredar_(id, prev, usuario);
     return { id: id, numero: numero, recibeDe: recibe, heredados: heredados };
   });
 }
@@ -3015,6 +3016,67 @@ function turnoEliminarCore_(turnoId, u) {
     tEscribir_(TURNOS_DEF, t.fila, 4, ["ELIMINADO"]);
     if (!t.cierre) tEscribir_(TURNOS_DEF, t.fila, 7, [ahora_()]);
     tEscribir_(TURNOS_DEF, t.fila, 13, [`${u.nombre} · ${ahora_()}`]);
+    turnosCambiaron_();
+    return true;
+  });
+}
+
+// ---------------------------------------------------------
+// ELIMINAR POR PARTES (desde cada historial)
+// Validación (VAL) y Entrega (ENT) son del mismo turno, pero se eliminan por separado:
+// borrar la validación no toca la entrega ni las conciliaciones, y al revés.
+// La marca queda en Eliminado_por: "VAL: Huber · 2026-09-29 08:00 | ENT: …".
+// Si se eliminan las dos partes, el turno queda ELIMINADO.
+// ---------------------------------------------------------
+const PARTES_TURNO = { VAL: "la validación", ENT: "la entrega de turno" };
+const marcasTurno_ = t => String((t && t.eliminadoPor) || "").split(" | ").map(x => x.trim()).filter(x => x);
+function parteEliminada_(t, parte) {
+  if (!t) return false;
+  if (t.estado === "ELIMINADO") return true;
+  return marcasTurno_(t).some(x => x.indexOf(parte + ": ") === 0);
+}
+// Quién y cuándo eliminó esa parte (para mostrarlo en el historial)
+function textoEliminada_(t, parte) {
+  const m = marcasTurno_(t);
+  const propia = m.find(x => x.indexOf(parte + ": ") === 0);
+  if (propia) return propia.substring(parte.length + 2);
+  if (t.estado === "ELIMINADO") return m.filter(x => !/^(VAL|ENT): /.test(x))[0] || "";
+  return "";
+}
+function turnoEliminarParteCore_(turnoId, parte, u) {
+  parte = String(parte || "").toUpperCase();
+  if (!PARTES_TURNO[parte]) throw new Error("Parte del turno no válida.");
+  return conLock_(() => {
+    _TURNOS = null;
+    const t = turnoPorId_(turnoId);
+    if (!t) throw new Error("Turno no encontrado.");
+    if (t.estado === "ABIERTO") throw new Error("El turno está abierto: usa «Cancelar turno» (cancela la validación y la entrega juntas).");
+    if (parteEliminada_(t, parte)) return true;
+    if (!puedeEliminar_(t.abiertoPor, u)) throw new Error("Solo quien abrió el turno o un administrador lo puede eliminar.");
+    const marcas = marcasTurno_(t).concat([`${parte}: ${u.nombre} · ${ahora_()}`]);
+    tEscribir_(TURNOS_DEF, t.fila, 13, [marcas.join(" | ")]);
+    if (parteEliminada_(t, parte === "VAL" ? "ENT" : "VAL")) tEscribir_(TURNOS_DEF, t.fila, 4, ["ELIMINADO"]);
+    turnosCambiaron_();
+    return true;
+  });
+}
+function turnoRestaurarParteCore_(turnoId, parte, u) {
+  if (u.rol !== "administrador") throw new Error("Solo un administrador puede restaurar.");
+  parte = String(parte || "").toUpperCase();
+  if (!PARTES_TURNO[parte]) throw new Error("Parte del turno no válida.");
+  const otra = parte === "VAL" ? "ENT" : "VAL";
+  return conLock_(() => {
+    _TURNOS = null;
+    const t = turnoPorId_(turnoId);
+    if (!t || !parteEliminada_(t, parte)) throw new Error("Esa parte del turno no está eliminada.");
+    let marcas = marcasTurno_(t);
+    const legado = marcas.filter(x => !/^(VAL|ENT): /.test(x));
+    marcas = marcas.filter(x => /^(VAL|ENT): /.test(x));
+    // Eliminado completo (versión anterior): la otra parte sigue eliminada
+    if (t.estado === "ELIMINADO" && !marcas.some(x => x.indexOf(otra + ": ") === 0)) marcas.push(`${otra}: ${legado[0] || "eliminado"}`);
+    marcas = marcas.filter(x => x.indexOf(parte + ": ") !== 0);
+    if (t.estado === "ELIMINADO") tEscribir_(TURNOS_DEF, t.fila, 4, ["CERRADO"]);
+    tEscribir_(TURNOS_DEF, t.fila, 13, [marcas.join(" | ")]);
     turnosCambiaron_();
     return true;
   });
@@ -3139,8 +3201,25 @@ function valCalcular_(turnoId, filasProd, filasReg) {
     p.nReg++;
   });
   productos.forEach(p => { p.disponible = p.inicial - p.validado; });
+  numerarRegistrosVal_(productos, registros);
   registros.sort((a, b) => a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0));
   return { productos: productos, registros: registros };
+}
+
+// Cada validación lleva su número dentro del producto (1, 2, 3… en orden de hora) y el saldo
+// que quedó después de ella (inicial menos lo validado hasta ahí). Las anuladas y en conflicto
+// no descuentan saldo.
+function numerarRegistrosVal_(productos, registros) {
+  const ini = {}, n = {};
+  productos.forEach(p => { ini[p.sku] = p.inicial; });
+  // (con la misma hora se respeta el orden en que se guardaron)
+  registros.slice().sort((a, b) => a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : 0)).forEach(r => {
+    n[r.sku] = (n[r.sku] || 0) + 1;
+    r.seq = n[r.sku];
+    if (r.estado === "ANULADO" || r.estado === "CONFLICTO" || ini[r.sku] === undefined) { r.saldo = null; return; }
+    ini[r.sku] -= r.cantidad;
+    r.saldo = ini[r.sku];
+  });
 }
 
 // ---------------------------------------------------------
@@ -3413,15 +3492,21 @@ function construirPDFValidacion(turnoId) {
       `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td></tr>`;
   }).join("");
   if (!filas) filas = `<tr><td colspan="${6 + cols.length}" class="vacio">No hubo productos en validación en este turno.</td></tr>`;
+  // Detalle separado por producto (para seguir la historia de cada uno), en orden de hora
   const regs = dt.registros.slice().sort((a, b) => a.fecha < b.fecha ? -1 : 1);
-  let log = regs.map(r => `<tr class="${r.estado === "ANULADO" ? "anulado" : (r.estado === "CONFLICTO" ? "conflicto" : "")}"><td>${fechaCorta_(r.fecha)}</td><td>${r.contadoEn ? fechaCorta_(r.contadoEn) : "—"}</td><td>${escHtml_(r.sku)}</td><td class="izq">${escHtml_(r.producto)}</td><td>${escHtml_(r.destino)}</td><td><b>${fM(r.cantidad)}</b></td><td>${escHtml_(r.usuario)}</td><td class="izq">${escHtml_(r.nota)}${r.estado !== "ACTIVO" ? ` (${r.estado})` : ""}</td></tr>`).join("");
+  const ordenSkus = dt.productos.map(p => p.sku).concat(regs.map(r => r.sku)).filter((x, k, a) => a.indexOf(x) === k).filter(sku => regs.some(r => r.sku === sku));
+  let log = ordenSkus.map(sku => {
+    const rs = regs.filter(r => r.sku === sku), p = dt.productos.find(x => x.sku === sku);
+    return `<tr class="grupo"><td colspan="8" class="izq"><b>${escHtml_(sku)} · ${escHtml_(rs[0].producto)}</b>${p ? ` — inicial ${fM(p.inicial)} · validado ${fM(p.validado)} · saldo ${fM(p.disponible)}` : ""}</td></tr>` +
+      rs.map(r => `<tr class="${r.estado === "ANULADO" ? "anulado" : (r.estado === "CONFLICTO" ? "conflicto" : "")}"><td>${r.seq}</td><td>${fechaCorta_(r.fecha)}</td><td>${r.contadoEn ? fechaCorta_(r.contadoEn) : "—"}</td><td>${escHtml_(r.destino)}</td><td><b>${fM(r.cantidad)}</b></td><td>${r.saldo === null || r.saldo === undefined ? "—" : `<b>${fM(r.saldo)}</b>`}</td><td>${escHtml_(r.usuario)}</td><td class="izq">${escHtml_(r.nota)}${r.estado !== "ACTIVO" ? ` (${r.estado})` : ""}</td></tr>`).join("");
+  }).join("");
   if (!log) log = `<tr><td colspan="8" class="vacio">Sin validaciones registradas.</td></tr>`;
   const cuerpo = infoTurnoHtml_(t) +
     `<h3>Saldo por producto (cajas)</h3><table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Contado</th><th>Inicial</th>${cols.map(d => `<th>${escHtml_(d)}</th>`).join("")}<th>Validado</th><th>Disponible</th></tr></thead><tbody>${filas}
     ${dt.productos.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td></td><td>${fM(totalIni)}</td>${cols.map(d => `<td>${fM(dt.productos.reduce((a, p) => a + (p.porDestino[d] || 0), 0))}</td>`).join("")}<td>${fM(totalVal)}</td><td>${fM(totalIni - totalVal)}</td></tr>` : ""}</tbody></table>
-    <h3>Detalle de validaciones</h3><table class="t"><thead><tr><th>Validado</th><th>Contado</th><th>SKU</th><th class="izq">Producto</th><th>Destino</th><th>Cajas</th><th>Usuario</th><th class="izq">Nota</th></tr></thead><tbody>${log}</tbody></table>
+    <h3>Detalle de validaciones por producto</h3><table class="t"><thead><tr><th>#</th><th>Validado</th><th>Contado</th><th>Destino</th><th>Cajas</th><th>Saldo</th><th>Usuario</th><th class="izq">Nota</th></tr></thead><tbody>${log}</tbody></table>
     <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
-  const html = pdfDoc_("VALIDACIÓN DE FACTURACIÓN", cuerpo, { vertical: true, css: ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}" });
+  const html = pdfDoc_("VALIDACIÓN DE FACTURACIÓN", cuerpo, { vertical: true, css: ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}" });
   return { blob: htmlAPdf_(html, `Validacion_${t.id}.pdf`), caption: `📝 *Validación de facturación* · ${turnoTexto_(t)}` };
 }
 
@@ -3537,13 +3622,24 @@ function entLimpiarCant_(arr) {
   }).filter(x => x.n > 0 || x.m);
 }
 
-// Para el PDF: si hay varias cantidades, primero el total (por unidad) y luego cada una con su módulo
-function cantidadesPdf_(arr) {
-  if (!arr || arr.length < 2) return escHtml_(cantTexto_(arr));
+// Para el PDF, en una sola fila:
+// · Bodega y TPC: total en negrilla y al lado cada cantidad con su módulo → "100 Estibas — 50 (B8) + 45 (C4) + 5"
+// · KA y PK: solo la suma (todo se contó en esa área)
+// Sin cantidades = 0 (p. ej. lo que se agregó solo porque estaba en KA o PK)
+function totalCant_(arr) {
   const tot = {};
-  arr.forEach(x => { tot[x.un] = (tot[x.un] || 0) + (Number(x.n) || 0); });
-  const total = ENT_UNIDADES.filter(u => tot[u]).map(u => `${fM(tot[u])} ${u}`).join(" + ");
-  return `<b>Total: ${escHtml_(total)}</b>` + arr.map(x => `<div class="cm">${x.m ? `<b>${escHtml_(x.m)}</b>: ` : ""}${fM(x.n)} ${escHtml_(x.un)}</div>`).join("");
+  (arr || []).forEach(x => { tot[x.un] = (tot[x.un] || 0) + (Number(x.n) || 0); });
+  const us = ENT_UNIDADES.filter(u => tot[u] !== undefined);
+  return { texto: us.length ? us.map(u => `${fM(tot[u])} ${u}`).join(" + ") : "0", unidades: us.length };
+}
+function cantidadesPdf_(arr, seccion) {
+  arr = arr || [];
+  const t = totalCant_(arr);
+  if (!arr.length) return "<b>0</b>";
+  if (seccion === "KA" || seccion === "PK") return `<b>${escHtml_(t.texto)}</b>`;
+  if (arr.length === 1) return `<b>${escHtml_(t.texto)}</b>${arr[0].m ? ` (${escHtml_(arr[0].m)})` : ""}`;
+  const parte = x => `${fM(x.n)}${t.unidades > 1 ? " " + escHtml_(x.un) : ""}${x.m ? ` (${escHtml_(x.m)})` : ""}`;
+  return `<b>${escHtml_(t.texto)}</b> — ${arr.map(parte).join(" + ")}`;
 }
 
 function cantTexto_(arr) {
@@ -3666,7 +3762,18 @@ function entGuardarItemCore_(seccion, sku, producto, cantidades, usuario, turnoI
     const prod = String(producto || (skuInfo_(sku) || {}).prod || ("SKU " + sku)).trim();
     const origen = turno.estado === "ABIERTO" ? "Usuario" : "Editado después del cierre";
     if (f) tEscribir_(ENT_T.items, f.fila, 4, [prod, JSON.stringify(cant), ahora_(), usuario, origen]);
-    else tAgregar_(ENT_T.items, [[turno.id, seccion, sku, prod, JSON.stringify(cant), ahora_(), usuario, origen]]);
+    else {
+      let filas = [[turno.id, seccion, sku, prod, JSON.stringify(cant), ahora_(), usuario, origen]];
+      // Un producto nuevo en KA o PK se agrega también en la otra y en Bodega con 0 (la idea es
+      // saber cuánto hay en cada área; si está en KA o PK normalmente en bodega no hay). Se edita después.
+      if (seccion === "KA" || seccion === "PK") {
+        ENT_SECCIONES.filter(o => o !== seccion && o !== "TPC").forEach(o => {
+          if (!tBuscar_(ENT_T.items, r => txt_(r[0]) === turno.id && txt_(r[1]).toUpperCase() === o && txt_(r[2]) === sku))
+            filas.push([turno.id, o, sku, prod, "[]", ahora_(), usuario, "Automático (se agregó en " + seccion + ")"]);
+        });
+      }
+      tAgregar_(ENT_T.items, filas);
+    }
     marcarTurnoEditado_(turno, usuario);
     return true;
   });
@@ -3739,7 +3846,7 @@ function construirPDFEntrega(turnoId) {
   const d = entLeerTurno_(t.id);
   const tablaSec = s => {
     const it = d.secciones[s];
-    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant)}</td></tr>`).join("")
+    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, s)}</td></tr>`).join("")
       : `<tr><td colspan="3" class="vacio">Sin productos</td></tr>`;
     return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><thead><tr><th style="width:16%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:38%">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
   };
@@ -3868,7 +3975,7 @@ function concEstadoCore_(concId) {
   const pre = preListar_();
   const t = turnoAbierto_();
   const ult = listarConc_().filter(x => x.estado === "CERRADA").sort((a, b) => a.cierre < b.cierre ? 1 : -1)[0] || null;
-  const sugerido = t ? Number(t.numero) : 3;
+  const sugerido = turnoSugerido_();   // según la hora (se puede cambiar al abrir)
   if (!c) return { conc: null, items: [], pre: pre, turno: t ? { numero: t.numero, texto: turnoTexto_(t) } : null, ultima: ult, sugerido: sugerido, horarios: HORARIO_TURNOS };
   const items = concItems_(c.id);
   const tot = items.reduce((a, x) => ({ bodega: a.bodega + (x.bodega || 0), ka: a.ka + (x.ka || 0), pk: a.pk + (x.pk || 0), total: a.total + x.total, fact: a.fact + (x.fact || 0) }), { bodega: 0, ka: 0, pk: 0, total: 0, fact: 0 });
@@ -3996,6 +4103,8 @@ function concEliminarCore_(concId, u) {
     if (!puedeEliminar_(c.abiertoPor, u)) throw new Error("Solo quien abrió la conciliación o un administrador la puede eliminar.");
     tEscribir_(CONC_T.conc, c.fila, 5, ["ELIMINADA"]);
     if (!c.cierre) tEscribir_(CONC_T.conc, c.fila, 8, [ahora_()]);
+    // Cancelar una conciliación abierta: lo que vino de la pre-conciliación vuelve a quedar pendiente
+    if (c.estado === "ABIERTA") tLeer_(CONC_T.pre).forEach((r, k) => { if (txt_(r[8]) === c.id) tEscribir_(CONC_T.pre, k + 2, 8, ["PENDIENTE", ""]); });
     tEscribir_(CONC_T.conc, c.fila, 12, [`${u.nombre} · ${ahora_()}`]);
     return true;
   });
@@ -4121,12 +4230,15 @@ function histListar_(f, u) {
       tLeer_(ENT_T.items).forEach(r => suma(txt_(r[0]), txt_(r[1]).toUpperCase()));
       tLeer_(ENT_T.notas).forEach(r => suma(txt_(r[0]), "notas"));
     }
+    // Cada historial mira solo su parte: eliminar la validación no esconde la entrega (ni al revés)
+    const parte = tipo === "VALIDACION" ? "VAL" : "ENT";
     listarTurnos_().forEach(t => {
-      if (t.estado === "ELIMINADO" && !verElim) return;
+      const elim = parteEliminada_(t, parte);
+      if (elim && !verElim) return;
       const d = det[t.id] || {};
       lis.push({
-        tipo: tipo, id: t.id, numero: t.numero, fecha: t.fecha || t.inicio.substring(0, 10), estado: t.estado, inicio: t.inicio, cierre: t.cierre,
-        abiertoPor: t.abiertoPor, cerradoPor: t.cerradoPor, recibeDe: t.recibeDe, nota: t.nota, editadoPor: t.editadoPor, eliminadoPor: t.eliminadoPor,
+        tipo: tipo, id: t.id, numero: t.numero, fecha: t.fecha || t.inicio.substring(0, 10), estado: elim ? "ELIMINADO" : t.estado, inicio: t.inicio, cierre: t.cierre,
+        abiertoPor: t.abiertoPor, cerradoPor: t.cerradoPor, recibeDe: t.recibeDe, nota: t.nota, editadoPor: t.editadoPor, eliminadoPor: elim ? textoEliminada_(t, parte) : "", parte: parte,
         resumen: tipo === "VALIDACION"
           ? [["Productos", d.prod || 0], ["Validaciones", d.val || 0], ["Cajas validadas", d.cajas || 0]]
           : [["Bodega", d.BODEGA || 0], ["TPC", d.TPC || 0], ["KA", d.KA || 0], ["PK", d.PK || 0], ["Notas", d.notas || 0]],
@@ -4967,8 +5079,9 @@ function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => ({
 function webHistorial(tk, filtros) { return webAuth_(tk, L_, u => histListar_(filtros, u)); }
 function webMantPrevia(tk, dias) { return webAuth_(tk, A_, () => mantPreviaCore_(dias)); }
 function webMantArchivar(tk, dias) { return webTurnoAuth_(tk, A_, u => mantArchivarCore_(dias, u.nombre)); }
-function webTurnoEliminar(tk, id) { return webTurnoAuth_(tk, V_, u => turnoEliminarCore_(id, u)); }
-function webTurnoRestaurar(tk, id) { return webTurnoAuth_(tk, A_, u => turnoRestaurarCore_(id, u)); }
+// parte = "VAL" | "ENT" (desde cada historial); sin parte = el turno completo (cancelar el abierto)
+function webTurnoEliminar(tk, id, parte) { return webTurnoAuth_(tk, V_, u => parte ? turnoEliminarParteCore_(id, parte, u) : turnoEliminarCore_(id, u)); }
+function webTurnoRestaurar(tk, id, parte) { return webTurnoAuth_(tk, A_, u => parte ? turnoRestaurarParteCore_(id, parte, u) : turnoRestaurarCore_(id, u)); }
 function webTurnoNota(tk, id, nota) { return webTurnoAuth_(tk, V_, u => turnoNotaCore_(id, nota, u.nombre)); }
 function webConcEliminar(tk, id) { return webTurnoAuth_(tk, V_, u => concEliminarCore_(id, u)); }
 function webConcRestaurar(tk, id) { return webTurnoAuth_(tk, A_, u => concRestaurarCore_(id, u)); }
@@ -5026,10 +5139,12 @@ function webTurnoCerrar(tk, opts) {
     opts = opts || {};
     const r = cerrarTurnoCore_(opts.nota, u.nombre);
     let pdfs = [], telegram = null;
+    // opts.pdf = false → solo cerrar (sin descargar); opts.telegram → se envían al grupo
+    if (opts.pdf === false && !opts.telegram) return { resultado: r, pdfs: pdfs, telegram: telegram, turno: turnoEstadoCore_() };
     [["VALIDACION", construirPDFValidacion], ["ENTREGA", construirPDFEntrega]].forEach(([tipo, fn]) => {
       try {
         const p = fn(r.id);
-        pdfs.push(pdfB64_(p));
+        if (opts.pdf !== false) pdfs.push(pdfB64_(p));
         if (opts.telegram && GRUPO_CALIDAD_ID) telegram = enviarDocumento(GRUPO_CALIDAD_ID, p.blob, `${p.caption}\n_Turno cerrado por ${escapeMd(u.nombre)}_`) && telegram !== false;
       } catch (err) { console.error(tipo + ": " + err); }
     });
@@ -5076,9 +5191,9 @@ function webConcCerrar(tk, opts) {
     opts = opts || {};
     const id = concCerrarCore_(opts.nota, u.nombre);
     let pdf = null, telegram = null;
-    try {
+    if (opts.pdf !== false || opts.telegram) try {
       const p = construirPDFConciliacion(id);
-      pdf = pdfB64_(p);
+      if (opts.pdf !== false) pdf = pdfB64_(p);
       if (opts.telegram && GRUPO_CALIDAD_ID) telegram = enviarDocumento(GRUPO_CALIDAD_ID, p.blob, `${p.caption}\n_Cerrada por ${escapeMd(u.nombre)}_`);
     } catch (err) { console.error(err); }
     return { id: id, pdf: pdf, telegram: telegram, estado: concEstadoCore_() };

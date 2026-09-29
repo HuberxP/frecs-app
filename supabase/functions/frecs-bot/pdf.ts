@@ -199,7 +199,10 @@ export async function htmlAPdf(html: string): Promise<Uint8Array> {
         };
         if (f) st.fillColor = f;
         const col = colorRgb(d["color"]); if (col) st.textColor = col;
-        return { content: txt(c), colSpan: +(c.getAttribute("colspan") || 1), rowSpan: +(c.getAttribute("rowspan") || 1), styles: st };
+        // Total en negrilla y al lado el detalle normal (entrega de turno: «95 = 50 (B8) + 45 (C4)»)
+        const tt = c.querySelector("b.tt");
+        const mixto = tt && !soloNegrita ? { b: limpiar(tt.textContent).trim(), r: limpiar(c.textContent.replace(tt.textContent, "")).replace(/\s+/g, " ").trim() } : null;
+        return { content: txt(c), colSpan: +(c.getAttribute("colspan") || 1), rowSpan: +(c.getAttribute("rowspan") || 1), styles: st, mixto };
       });
       if (!celdas.length) return;
       (enHead ? filasHead : filasBody).push(celdas);
@@ -214,7 +217,24 @@ export async function htmlAPdf(html: string): Promise<Uint8Array> {
       margin: { left: area.x, right: anchoPag - area.x - area.w, top: MARGEN, bottom: MARGEN },
       styles: { font: "helvetica", fontSize: tamBase, cellPadding: esLey ? 0.9 : 1.1, lineColor: esInfo ? [153, 153, 153] : [119, 119, 119], lineWidth: 0.15, textColor: [17, 17, 17], overflow: "linebreak", valign: "middle" },
       headStyles: { fillColor: [242, 242, 242], textColor: [0, 51, 153], fontStyle: "bold", halign: "center" },
-      columnStyles, rowPageBreak: "avoid", showHead: "everyPage"
+      columnStyles, rowPageBreak: "avoid", showHead: "everyPage",
+      // Celdas con parte en negrilla: si cabe en una línea se dibuja a mano (negrilla + normal)
+      willDrawCell: (d: any) => {
+        const m = d.cell.raw && d.cell.raw.mixto; if (!m) return;
+        const fs = d.cell.styles.fontSize; doc.setFontSize(fs);
+        doc.setFont("helvetica", "bold"); const wb = doc.getTextWidth(m.b + " ");
+        doc.setFont("helvetica", "normal"); const wr = doc.getTextWidth(m.r);
+        if (wb + wr <= d.cell.width - 2 * 1.1) { d.cell.raw.aMano = true; d.cell.text = []; }
+      },
+      didDrawCell: (d: any) => {
+        const m = d.cell.raw && d.cell.raw.mixto; if (!m || !d.cell.raw.aMano) return;
+        const fs = d.cell.styles.fontSize, yb = d.cell.y + d.cell.height / 2 + fs * 0.3528 * 0.35;
+        const x0 = d.cell.x + 1.1;
+        doc.setTextColor(17, 17, 17); doc.setFontSize(fs);
+        doc.setFont("helvetica", "bold"); doc.text(m.b, x0, yb);
+        const wb = doc.getTextWidth(m.b + " ");
+        doc.setFont("helvetica", "normal"); doc.text(m.r, x0 + wb, yb);
+      }
     });
     y = doc.lastAutoTable.finalY + (esLey ? 2 : 3);
     if (dT["margin-bottom"]) y += 1;

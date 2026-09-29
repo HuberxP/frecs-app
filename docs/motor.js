@@ -3868,7 +3868,7 @@ function cuerpoPDFEntrega_(t, d, sinFirmas) {
     const it = d.secciones[s];
     const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq pr">${escHtml_(x.producto)}</td><td class="izq ct">${cantidadesPdf_(x.cant, s)}</td></tr>`).join("")
       : `<tr><td colspan="3" class="vacio">Sin productos</td></tr>`;
-    return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><colgroup><col style="width:13%"><col style="width:50%"><col style="width:37%"></colgroup><thead><tr><th>SKU</th><th class="izq">Producto</th><th class="izq">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
+    return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><colgroup><col style="width:13%"><col style="width:50%"><col style="width:37%"></colgroup><thead><tr><th style="width:13%">SKU</th><th class="izq" style="width:50%">Producto</th><th class="izq" style="width:37%">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
   };
   const n = s => (d.secciones[s] || []).length || 1;
   const opciones = [[["BODEGA", "TPC"], ["PK", "KA"]], [["BODEGA", "KA"], ["PK", "TPC"]], [["BODEGA"], ["PK", "TPC", "KA"]], [["BODEGA", "TPC", "KA"], ["PK"]], [["BODEGA", "PK"], ["TPC", "KA"]]];

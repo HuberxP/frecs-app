@@ -24,7 +24,7 @@ const WINANSI = new Set("€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—
 export function limpiar(s: string): string {
   let t = String(s ?? "");
   for (const k of Object.keys(CAMBIOS)) if (t.includes(k)) t = t.split(k).join(CAMBIOS[k]);
-  t = t.replace(/️/g, "");
+  t = t.replace(/\uFE0F/g, "");
   let o = "";
   for (const ch of t) { const c = ch.codePointAt(0)!; if (c <= 0xff || WINANSI.has(ch)) o += ch; }
   return o.replace(/[ \t]+/g, " ");

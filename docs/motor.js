@@ -4531,7 +4531,16 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (!["sincronizar", "maestros", "pdf_telegram", "turnos"].includes(data.accion)) throw new Error("Acción no válida.");
+    if (!["sincronizar", "maestros", "pdf_telegram", "turnos", "sincronizar_bot", "maestros_bot"].includes(data.accion)) throw new Error("Acción no válida.");
+    // Pedidos del bot en Supabase (función frecs-bot): se autorizan con el secreto compartido
+    if (data.accion === "sincronizar_bot" || data.accion === "maestros_bot") {
+      const sec = prop_("BOT_SECRET", "");
+      if (!sec || String(data.secreto || "") !== sec) throw new Error("No autorizado.");
+      if (data.accion === "maestros_bot") return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []) })).setMimeType(ContentService.MimeType.JSON);
+      const s2 = sincronizarWMSCore(data.forzar === true);
+      if (!s2.ok) throw new Error(s2.error);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, filas: s2.fisicas, modulos: s2.modulos, supabase: s2.supabase })).setMimeType(ContentService.MimeType.JSON);
+    }
     let u;
     try { u = sbRpc_("mi_sesion", { p_token: String(data.token || "") }); }
     catch (e) { const m = String(e.message); if (/SESION:/.test(m)) throw new Error(m.substring(m.indexOf("SESION:"))); throw e; }
@@ -4631,6 +4640,50 @@ function sbCambioDefinitivo() {
   const n = (r.conteosSupabase || {});
   console.log(`✅ Cambio definitivo hecho. Turnos: ${n.turnos}, conciliaciones: ${n.conciliaciones}.\nDesde ahora los turnos se hacen en ${WEB_NUEVA_URL}. Las hojas quedan como copia para el bot.`);
   return { turnos: n.turnos, conciliaciones: n.conciliaciones, importado: r.importado };
+}
+
+// ---------------------------------------------------------
+// FASE 5 · EL BOT EN SUPABASE (función frecs-bot)
+// Antes: en Supabase → Edge Functions → Secrets, guardar TELEGRAM_TOKEN (el mismo del bot).
+// sbPasarBotASupabase(): le pasa a Supabase la configuración (grupo, chats, dashboard, esta
+// dirección de Apps Script y dos secretos nuevos), cambia el webhook de Telegram a la función
+// y pasa las alertas de las 6 a.m. y 2 p.m. a Supabase. Apps Script queda solo para el WMS
+// (y para copiar a las hojas de respaldo).
+// sbVolverBotAAppsScript(): deshace todo (el bot vuelve a responder desde aquí).
+// ---------------------------------------------------------
+function sbUrlFuncionBot_() { return sbCfg_().url + "/functions/v1/frecs-bot"; }
+function sbUrlAppsScript_() { return prop_("APPS_SCRIPT_URL", "") || ScriptApp.getService().getUrl(); }
+
+function sbPasarBotASupabase() {
+  if (!sbActivo_()) throw new Error("Faltan las propiedades SUPABASE_URL y SUPABASE_SECRET.");
+  if (!TELEGRAM_TOKEN) throw new Error("Falta la propiedad TELEGRAM_TOKEN.");
+  const pr = PropertiesService.getScriptProperties();
+  const secreto = pr.getProperty("BOT_SECRET") || (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
+  const secretoWebhook = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
+  pr.setProperty("BOT_SECRET", secreto);
+  const urlAS = sbUrlAppsScript_();
+  if (!/\/exec$/.test(urlAS)) throw new Error("La dirección de Apps Script debe terminar en /exec (publica la implementación o pon la propiedad APPS_SCRIPT_URL): " + urlAS);
+  sbRpc_("sb_bot_config_guardar", { p_config: { bot_grupo: String(GRUPO_CALIDAD_ID || ""), bot_chats: prop_("CHATS_PERMITIDOS", ""), bot_dashboard: DASHBOARD_URL || "",
+    bot_apps_script_url: urlAS, bot_funcion_url: sbUrlFuncionBot_(), bot_secreto: secreto, bot_webhook_secreto: secretoWebhook } });
+  // La función debe estar publicada y con el token antes de cambiar el webhook
+  const prueba = UrlFetchApp.fetch(sbUrlFuncionBot_(), { method: "get", muteHttpExceptions: true });
+  if (prueba.getResponseCode() !== 200) throw new Error(`La función frecs-bot no responde (${prueba.getResponseCode()}). No se cambió nada en Telegram.`);
+  const idBot = String(TELEGRAM_TOKEN).split(":")[0];
+  if (prueba.getContentText().indexOf("bot " + idBot) < 0) throw new Error("La función frecs-bot no tiene el token de este bot. Guárdalo en Supabase → Edge Functions → Secrets con el nombre TELEGRAM_TOKEN y vuelve a correr esto. No se cambió nada en Telegram.");
+  const r = UrlFetchApp.fetch(TELEGRAM_API + "/setWebhook", { method: "post", contentType: "application/json", muteHttpExceptions: true,
+    payload: JSON.stringify({ url: sbUrlFuncionBot_(), secret_token: secretoWebhook, allowed_updates: ["message", "callback_query"] }) });
+  if (r.getResponseCode() !== 200) throw new Error("Telegram no aceptó el cambio: " + r.getContentText());
+  try { sbRpc_("sb_bot_alertas", { p_activar: true }); quitarTriggersAutomaticos(); } catch (e) { console.warn("Alertas: " + e.message); }
+  console.log("✅ El bot ahora responde desde Supabase. Para volver: sbVolverBotAAppsScript().");
+}
+
+function sbVolverBotAAppsScript() {
+  const sec = prop_("WEBHOOK_SECRET", "");
+  const url = sbUrlAppsScript_() + (sec ? "?k=" + encodeURIComponent(sec) : "");
+  const r = UrlFetchApp.fetch(TELEGRAM_API + "/setWebhook", { method: "post", contentType: "application/json", muteHttpExceptions: true, payload: JSON.stringify({ url: url }) });
+  if (r.getResponseCode() !== 200) throw new Error("Telegram no aceptó el cambio: " + r.getContentText());
+  try { sbRpc_("sb_bot_alertas", { p_activar: false }); } catch (e) { console.warn("Alertas: " + e.message); }
+  console.log("✅ El bot volvió a Apps Script. Si quieres las alertas de las 6 a.m. y 2 p.m. desde aquí, corre crearTriggersAutomaticos().");
 }
 
 // Emergencia: las hojas vuelven a mandar (tienen la copia al día) y se reabre la importación

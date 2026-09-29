@@ -115,7 +115,7 @@ async function vaciarCola(cola: any[], cfg: Record<string, string>) {
           const b = o.payload.document || {};
           let bytes: Uint8Array | null = null, nombre = (b.getName && b.getName()) || "Frecs.pdf";
           if (b.__html) bytes = await htmlAPdf(b.__html);
-          else if (b.__instructivo) { bytes = await instructivo(); if (!bytes) { await tgMensaje("sendMessage", { chat_id: o.payload.chat_id, text: "⚠️ Todavía no se ha subido el instructivo (instructivo.pdf en el depósito «frecs» de Supabase)." }); continue; } }
+          else if (b.__instructivo) { bytes = await instructivo(); if (!bytes) { await tgMensaje("sendMessage", { chat_id: o.payload.chat_id, text: "⚠ Todavía no se ha subido el instructivo (instructivo.pdf en el depósito «frecs» de Supabase)." }); continue; } }
           else if (b.__bytes) bytes = b.__bytes;
           if (bytes) await tgDocumento(o.payload.chat_id, bytes, nombre, o.payload.caption || "");
           continue;
@@ -169,7 +169,7 @@ const seguir = (p: Promise<unknown>) => {
 
 export async function manejar(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return new Response("Frecs! bot", { headers: CORS });
+  if (req.method !== "POST") return new Response("Frecs! bot · " + (TOKEN ? "bot " + TOKEN.split(":")[0] : "sin token"), { headers: CORS });   // (el número del bot no es secreto)
   let cuerpo: any;
   try { cuerpo = await req.json(); } catch (_) { return respuesta({ ok: false, error: "JSON inválido" }, 400); }
   const cfg = await config();

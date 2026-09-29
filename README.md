@@ -24,7 +24,13 @@ Migración en curso de **Google Sheets + Apps Script** a **Supabase + GitHub Pag
 - **Escrituras:** la acción corre en el motor con las reglas del Frecs actual y solo las filas que cambiaron van a Supabase (`guardar_filas`, que revisa sesión y rol).
   - 4a: Limbo, Consumo, Sku y Canales (se copian a las hojas).
   - 4b: turnos, validación y entrega, **en modo prueba** (no pasan a las hojas ni al bot hasta el cambio definitivo).
-- **Todavía en el dashboard actual:** conciliación, pre-conciliación, historiales, PDF y usuarios.
+
+## Bot de Telegram (función `frecs-bot` de Supabase)
+
+- `supabase/functions/frecs-bot/`: la misma lógica del bot corriendo en Supabase, con PDF descargables armados en el servidor (`pdf.ts`).
+- `motor.js` lo arma `construir.py`. Al publicar la función se importa desde jsDelivr fijado al commit (es muy grande para subirlo junto).
+- Prueba local: `deno run -A pruebas/bot_prueba.ts`.
+- Secreto en Supabase: `TELEGRAM_TOKEN`. El resto (grupo, chats, secretos compartidos) lo guarda Apps Script con `sbPasarBotASupabase()`.
 
 ## Publicar (una vez)
 

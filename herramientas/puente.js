@@ -66,18 +66,19 @@
     }
     return cargandoT;
   }
-  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
+  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial", "webFinal"]);
   // Si la llamada nombra un turno o conciliación que no está cargado, se agrega a los que se piden
   function pideExtras(args) {
     let nuevo = false;
-    (args || []).slice(1).forEach(a => { if (typeof a === "string" && ES_ID.test(a) && !extras.has(a)) { extras.add(a); nuevo = true; } });
+    // (el PDF de la entrega final nombra varios: "turno|conc,conc|partes")
+    (args || []).slice(1).forEach(a => { if (typeof a === "string") a.split(/[|,]/).forEach(x => { if (ES_ID.test(x) && !extras.has(x)) { extras.add(x); nuevo = true; } }); });
     return nuevo;
   }
 
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webConsumo",
-    "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial"]);
+    "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial", "webFinal"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
     webSetup: "Los usuarios se crean desde Administración → Usuarios.",
@@ -157,7 +158,7 @@
     { tabla: "conciliaciones", pk: ["id"], hojas: { Conciliaciones: r => ({ id: txt(r[0]), turno_id: nul(r[1]), numero: num(r[2]), fecha: nul(txt(r[3]).substring(0, 10)),
       estado: txt(r[4]).toUpperCase(), inicio: ts(r[5]), abierto_por: nul(r[6]), cierre: ts(r[7]), cerrado_por: nul(r[8]), nota: nul(r[9]), editado_por: nul(r[10]), eliminado_por: nul(r[11]) }) } },
     { tabla: "conc_items", pk: ["conc_id", "sku"], hojas: { Conc_Items: r => ({ conc_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), bodega: num(r[3]), ka: num(r[4]), pk: num(r[5]),
-      facturacion: num(r[6]), bloqueo: bool(r[7]), actualizado: ts(r[8]), usuario: nul(r[9]), origen: nul(r[10]) }) } },
+      facturacion: num(r[6]), bloqueo: bool(r[7]), actualizado: ts(r[8]), usuario: nul(r[9]), origen: nul(r[10]), nota: nul(r[11]) }) } },
     { tabla: "preconciliacion", pk: ["id"], hojas: { Preconciliacion: r => ({ id: txt(r[0]), fecha: ts(r[1]), turno: num(r[2]), sku: txt(r[3]), producto: nul(r[4]), motivo: nul(r[5]),
       usuario: nul(r[6]), estado: txt(r[7]).toUpperCase() || "PENDIENTE", conc_id: nul(r[8]) }) } }
   ];

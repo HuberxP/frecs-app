@@ -3498,6 +3498,13 @@ function infoTurnoHtml_(t) {
 function construirPDFValidacion(turnoId) {
   const dt = valDatosTurno_(turnoId);
   const t = dt.turno;
+  const html = pdfDoc_("VALIDACIÓN DE FACTURACIÓN", cuerpoPDFVal_(dt), { vertical: true, css: CSS_PDF_VAL });
+  return { blob: htmlAPdf_(html, `Validacion_${t.id}.pdf`), caption: `📝 *Validación de facturación* · ${turnoTexto_(t)}` };
+}
+const CSS_PDF_VAL = ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}";
+// El cuerpo del PDF (también lo usa la Entrega final, sin la cabecera del turno ni las firmas)
+function cuerpoPDFVal_(dt, parteDeFinal) {
+  const t = dt.turno;
   const orden = valDestinos_();
   let usados = new Set();
   dt.productos.forEach(p => Object.keys(p.porDestino).forEach(d => usados.add(d)));
@@ -3520,13 +3527,11 @@ function construirPDFValidacion(turnoId) {
       rs.map(r => `<tr class="${r.estado === "ANULADO" ? "anulado" : (r.estado === "CONFLICTO" ? "conflicto" : "")}"><td>${r.seq}</td><td>${fechaCorta_(r.fecha)}</td><td>${r.contadoEn ? fechaCorta_(r.contadoEn) : "—"}</td><td>${escHtml_(r.destino)}</td><td><b>${fM(r.cantidad)}</b></td><td>${r.saldo === null || r.saldo === undefined ? "—" : `<b>${fM(r.saldo)}</b>`}</td><td>${escHtml_(r.usuario)}</td><td class="izq">${escHtml_(r.nota)}${r.estado !== "ACTIVO" ? ` (${r.estado})` : ""}</td></tr>`).join("");
   }).join("");
   if (!log) log = `<tr><td colspan="8" class="vacio">Sin validaciones registradas.</td></tr>`;
-  const cuerpo = infoTurnoHtml_(t) +
+  return (parteDeFinal ? "" : infoTurnoHtml_(t)) +
     `<h3>Saldo por producto (cajas)</h3><table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Contado</th><th>Inicial</th>${cols.map(d => `<th>${escHtml_(d)}</th>`).join("")}<th>Validado</th><th>Disponible</th></tr></thead><tbody>${filas}
     ${dt.productos.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td></td><td>${fM(totalIni)}</td>${cols.map(d => `<td>${fM(dt.productos.reduce((a, p) => a + (p.porDestino[d] || 0), 0))}</td>`).join("")}<td>${fM(totalVal)}</td><td>${fM(totalIni - totalVal)}</td></tr>` : ""}</tbody></table>
     <h3>Detalle de validaciones por producto</h3><table class="t"><thead><tr><th>#</th><th>Validado</th><th>Contado</th><th>Destino</th><th>Cajas</th><th>Saldo</th><th>Usuario</th><th class="izq">Nota</th></tr></thead><tbody>${log}</tbody></table>
-    <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
-  const html = pdfDoc_("VALIDACIÓN DE FACTURACIÓN", cuerpo, { vertical: true, css: ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}" });
-  return { blob: htmlAPdf_(html, `Validacion_${t.id}.pdf`), caption: `📝 *Validación de facturación* · ${turnoTexto_(t)}` };
+    ${parteDeFinal ? "" : `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`}`;
 }
 
 // ---------------------------------------------------------
@@ -3652,13 +3657,20 @@ function totalCant_(arr) {
   return { texto: us.length ? us.map(u => `${fM(tot[u])} ${u}`).join(" + ") : "0", unidades: us.length };
 }
 function cantidadesPdf_(arr, seccion) {
-  arr = arr || [];
-  const t = totalCant_(arr);
+  arr = (arr || []).filter(x => x && x.n !== "" && x.n !== null && x.n !== undefined);
   if (!arr.length) return "<b>0</b>";
-  if (seccion === "KA" || seccion === "PK") return `<b>${escHtml_(t.texto)}</b>`;
-  if (arr.length === 1) return `<b>${escHtml_(t.texto)}</b>${arr[0].m ? ` (${escHtml_(arr[0].m)})` : ""}`;
-  const parte = x => `${fM(x.n)}${t.unidades > 1 ? " " + escHtml_(x.un) : ""}${x.m ? ` (${escHtml_(x.m)})` : ""}`;
-  return `<b>${escHtml_(t.texto)}</b> — ${arr.map(parte).join(" + ")}`;
+  // El total va en negrilla y solo en número (la negrilla ya dice que es el total).
+  // Si se mezclan unidades (estibas y cajas) se deja la abreviatura para no sumar peras con manzanas.
+  const tot = {};
+  arr.forEach(x => { tot[x.un] = (tot[x.un] || 0) + (Number(x.n) || 0); });
+  const us = ENT_UNIDADES.filter(u => tot[u] !== undefined);
+  const ab = { Estibas: "est", Cajas: "cj", Unidades: "und" };
+  const mezcla = us.length > 1;
+  const total = us.map(u => fM(tot[u]) + (mezcla ? " " + (ab[u] || u) : "")).join(" + ");
+  if (seccion === "KA" || seccion === "PK") return `<b class="tt">${escHtml_(total)}</b>`;
+  if (arr.length === 1) return `<b class="tt">${escHtml_(total)}</b>${arr[0].m ? ` <span class="md">(${escHtml_(arr[0].m)})</span>` : ""}`;
+  const parte = x => `${fM(x.n)}${mezcla ? " " + escHtml_(ab[x.un] || x.un) : ""}${x.m ? ` (${escHtml_(x.m)})` : ""}`;
+  return `<b class="tt">${escHtml_(total)}</b> <span class="md">= ${arr.map(parte).join(" + ")}</span>`;
 }
 
 function cantTexto_(arr) {
@@ -3858,24 +3870,46 @@ function entNotaQuitarCore_(id, turnoId, usuario) {
 // ---------------------------------------------------------
 // PDF: dos columnas (izquierda Bodega y TPC · derecha PK y KA) y notas en otra página
 // ---------------------------------------------------------
+const CSS_PDF_ENTREGA = `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 4px;border:none}table.cols>tbody>tr>td:first-child{padding-left:0}table.cols>tbody>tr>td:last-child{padding-right:0}
+  .sec{margin-bottom:8px}.sec-t{font-weight:bold;color:#003399;font-size:11px;margin:2px 0 3px}
+  .sec table.t{table-layout:fixed;margin-bottom:0}.sec table.t td,.sec table.t th{font-size:8.5px;padding:2px 3px;line-height:1.2}
+  .sec td.pr{white-space:nowrap;overflow:hidden}.sec td.ct{white-space:normal}.sec b.tt{font-size:9.5px}.sec .md{color:#444}
+  .notas{margin:3px 0 0;padding-left:18px}.notas li{margin-bottom:4px;font-size:10px;page-break-inside:avoid;break-inside:avoid}
+  .notas-b{margin-top:6px;border:1px solid #f0b36a;background:#fff4e6;border-radius:4px;padding:5px 10px;page-break-inside:avoid;break-inside:avoid}.notas-b .sec-t{color:#b35c00}.notas-b .vacio{margin:3px 0;font-size:10px}
+  table.firmas{margin-top:22px}
+  .denso .sec table.t td,.denso .sec table.t th{font-size:7.8px;padding:1px 3px;line-height:1.15}.denso .sec b.tt{font-size:8.5px}.denso .sec{margin-bottom:5px}
+  .muy-denso .sec table.t td,.muy-denso .sec table.t th{font-size:7.3px;padding:0 2px;line-height:1.1}.muy-denso .sec b.tt{font-size:7.8px}.muy-denso .sec{margin-bottom:4px}.muy-denso .sec-t{font-size:10px;margin:1px 0 2px}`;
+
+// Las 4 secciones en 2 columnas, repartidas para que las columnas queden parejas (así cabe en una hoja)
+// (también lo usa la Entrega final)
+function cuerpoPDFEntrega_(t, d, sinFirmas) {
+  const tablaSec = s => {
+    const it = d.secciones[s];
+    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq pr">${escHtml_(x.producto)}</td><td class="izq ct">${cantidadesPdf_(x.cant, s)}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="vacio">Sin productos</td></tr>`;
+    return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><colgroup><col style="width:13%"><col style="width:50%"><col style="width:37%"></colgroup><thead><tr><th>SKU</th><th class="izq">Producto</th><th class="izq">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
+  };
+  const n = s => (d.secciones[s] || []).length || 1;
+  const opciones = [[["BODEGA", "TPC"], ["PK", "KA"]], [["BODEGA", "KA"], ["PK", "TPC"]], [["BODEGA"], ["PK", "TPC", "KA"]], [["BODEGA", "TPC", "KA"], ["PK"]], [["BODEGA", "PK"], ["TPC", "KA"]]];
+  const alto = col => col.reduce((a, s) => a + n(s) + 3, 0);
+  const mejor = opciones.slice().sort((a, b) => Math.max(alto(a[0]), alto(a[1])) - Math.max(alto(b[0]), alto(b[1])))[0];
+  const notas = d.notas.length ? `<ol class="notas">${d.notas.map(x => `<li><span class="sm">${soloHora_(x.hora)} · ${escHtml_(x.usuario)}</span><br>${escHtml_(x.texto)}</li>`).join("")}</ol>` : `<p class="vacio">Sin novedades registradas.</p>`;
+  // Si hay muchas filas se compacta la letra para que todo quepa en una sola hoja
+  const filas = Math.max(alto(mejor[0]), alto(mejor[1]));
+  const dens = filas > 64 ? " muy-denso" : filas > 46 ? " denso" : "";
+  return infoTurnoHtml_(t) + `<table class="cols${dens}"><tr><td>${mejor[0].map(tablaSec).join("")}</td><td>${mejor[1].map(tablaSec).join("")}</td></tr></table>
+    <div class="notas-b"><div class="sec-t">🗒️ Notas del turno (${d.notas.length})</div>${notas}</div>` +
+    (sinFirmas ? "" : `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`);
+}
+
 function construirPDFEntrega(turnoId) {
   prepararTurnos_();
   const t = turnoId ? turnoPorId_(turnoId) : turnoAbierto_(true);
   if (!t) throw new Error(turnoId ? "Turno no encontrado." : "No hay turno abierto.");
   const d = entLeerTurno_(t.id);
-  const tablaSec = s => {
-    const it = d.secciones[s];
-    const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, s)}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="vacio">Sin productos</td></tr>`;
-    return `<div class="sec"><div class="sec-t">${ENT_NOMBRES[s]} (${it.length})</div><table class="t"><thead><tr><th style="width:16%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:38%">Cantidades</th></tr></thead><tbody>${filas}</tbody></table></div>`;
-  };
-  const notas = d.notas.length ? `<ol class="notas">${d.notas.map(n => `<li><span class="sm">${soloHora_(n.hora)} · ${escHtml_(n.usuario)}</span><br>${escHtml_(n.texto)}</li>`).join("")}</ol>` : `<p class="vacio">Sin novedades registradas.</p>`;
-  const cuerpo = infoTurnoHtml_(t) +
-    `<table class="cols"><tr><td>${tablaSec("BODEGA")}${tablaSec("TPC")}</td><td>${tablaSec("PK")}${tablaSec("KA")}</td></tr></table>
-    <div class="notas-b"><div class="sec-t">🗒️ Notas del turno (${d.notas.length})</div>${notas}</div>
-    <table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
-  // Las notas van debajo, en la misma hoja; si no caben, siguen solas en la página siguiente (sin partir una nota)
-  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: `table.cols{width:100%;border-collapse:collapse}table.cols>tbody>tr>td{width:50%;vertical-align:top;padding:0 5px;border:none}.sec{margin-bottom:10px;page-break-inside:avoid}.sec-t{font-weight:bold;color:#003399;font-size:11.5px;margin:4px 0}table.t td,table.t th{font-size:9px;padding:3px 4px}.notas{margin:4px 0 0;padding-left:20px}.notas li{margin-bottom:6px;font-size:10.5px;page-break-inside:avoid;break-inside:avoid}.notas-b{margin-top:8px;border:1px solid #f0b36a;background:#fff4e6;border-radius:4px;padding:6px 10px}.notas-b .sec-t{page-break-after:avoid;break-after:avoid;color:#b35c00}.notas-b .vacio{margin:4px 0;font-size:10px}.cm{border-top:1px dotted #aaa;margin-top:2px;padding-top:2px}` });
+  const cuerpo = cuerpoPDFEntrega_(t, d);
+  // Todo en una hoja; si no cabe, lo que sobra (y las notas) sigue en la siguiente sin partir filas ni notas
+  const html = pdfDoc_("ENTREGA DE TURNO", cuerpo, { css: CSS_PDF_ENTREGA });
   return { blob: htmlAPdf_(html, `Entrega_${t.id}.pdf`), caption: `📋 *Entrega de turno* · ${turnoTexto_(t)}` };
 }
 
@@ -3918,7 +3952,7 @@ function obtenerEntregaBot() {
 // =========================================================
 const CONC_T = {
   conc: { libro: "CONC", nombre: "Conciliaciones", cab: ["ID", "Turno_ID", "Turno", "Fecha", "Estado", "Inicio", "Abierto_por", "Cierre", "Cerrado_por", "Nota", "Editado_por", "Eliminado_por"], texto: [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
-  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen"], texto: [1, 2, 3, 9, 10, 11] },
+  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota"], texto: [1, 2, 3, 9, 10, 11, 12] },
   pre: { libro: "CONC", nombre: "Preconciliacion", cab: ["ID", "Fecha", "Turno", "SKU", "Producto", "Motivo", "Usuario", "Estado", "Conc_ID"], texto: [1, 2, 4, 5, 6, 7, 8, 9] }
 };
 
@@ -3941,7 +3975,7 @@ function marcarConcEditada_(c, usuario) { if (c && c.estado === "CERRADA") tEscr
 const numVacio_ = v => (v === "" || v === null || v === undefined || String(v).trim() === "") ? "" : numero_(v);
 
 function concItems_(concId) {
-  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]) }))
+  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]) }))
     .filter(x => x.concId === concId)
     .map(x => {
       x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0);
@@ -4065,7 +4099,7 @@ function concAgregarProductosCore_(items, usuario, concId) {
   });
 }
 
-// campos = { bodega, ka, pk, fact, bloqueo } (solo los que cambian)
+// campos = { bodega, ka, pk, fact, bloqueo, nota } (solo los que cambian)
 function concGuardarItemCore_(sku, campos, usuario, concId) {
   campos = campos || {};
   const val = v => { if (v === "" || v === null) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
@@ -4079,6 +4113,8 @@ function concGuardarItemCore_(sku, campos, usuario, concId) {
     if (campos.pk !== undefined) r[5] = val(campos.pk);
     if (campos.fact !== undefined) r[6] = val(campos.fact);
     if (campos.bloqueo !== undefined) r[7] = campos.bloqueo === true || campos.bloqueo === "true";
+    while (r.length < CONC_T.items.cab.length) r.push("");
+    if (campos.nota !== undefined) r[11] = String(campos.nota || "").trim().substring(0, 300);
     r[8] = ahora_(); r[9] = usuario;
     tEscribir_(CONC_T.items, f.fila, 1, r);
     marcarConcEditada_(c, usuario);
@@ -4145,16 +4181,20 @@ function construirPDFConciliacion(concId) {
   prepararTurnos_();
   const c = concId ? listarConc_().find(x => x.id === concId) : (concAbierta_() || listarConc_().filter(x => x.estado === "CERRADA").sort((a, b) => a.cierre < b.cierre ? 1 : -1)[0]);
   if (!c) throw new Error("No hay conciliaciones.");
+  const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpoPDFConc_(c), { vertical: true, css: CSS_PDF_CONC });
+  return { blob: htmlAPdf_(html, `Conciliacion_${c.id}.pdf`), caption: `⚖️ *Conciliación* · turno ${c.numero} · ${formatearFecha(c.fecha)}` };
+}
+const CSS_PDF_CONC = "tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}.nota-p{font-size:10.5px;color:#555;font-style:italic}";
+// El cuerpo del PDF (también lo usa la Entrega final)
+function cuerpoPDFConc_(c, sinFirmas) {
   const items = concItems_(c.id);
   const v = x => x === "" ? "—" : fM(x);
-  const filas = items.map(x => `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
-  const cuerpo = `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
+  const filas = items.map(x => `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
+  return `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
     <p class="sm">Todo en cajas. <span style="background:#ffcccc;padding:1px 5px">✗ facturación tiene de más</span> (revisar bloqueo del excedente) · <span style="background:#e2efda;padding:1px 5px">✓ el conteo cubre la facturación</span> · <span style="background:#dbe8ff;padding:1px 5px">✓ +50 % o más: diferencia grande, revisar</span></p>
     <table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Bodega</th><th>KA</th><th>PK</th><th>Total</th><th>Facturación</th><th>Bloqueo</th><th>Check</th></tr></thead><tbody>${filas}</tbody></table>
-    <table class="firmas"><tr><td><div class="linea">Bodega</div></td><td><div class="linea">Facturación</div></td></tr></table>`;
-  const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpo, { vertical: true, css: "tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}" });
-  return { blob: htmlAPdf_(html, `Conciliacion_${c.id}.pdf`), caption: `⚖️ *Conciliación* · turno ${c.numero} · ${formatearFecha(c.fecha)}` };
+    ${sinFirmas ? "" : `<table class="firmas"><tr><td><div class="linea">Bodega</div></td><td><div class="linea">Facturación</div></td></tr></table>`}`;
 }
 
 // ---------------------------------------------------------
@@ -4726,7 +4766,7 @@ function sbImportarTodo() {
     if (!inicioConc[id]) return omitir("conc_items", "conciliación inexistente");
     if (!sk) return omitir("conc_items", "sin SKU");
     ci.push({ conc_id: id, sku: sk, producto: sbTxt_(r[2]), bodega: sbNum_(r[3]), ka: sbNum_(r[4]), pk: sbNum_(r[5]), facturacion: sbNum_(r[6]),
-      bloqueo: sbBool_(r[7]), actualizado: sbTs_(r[8]) || inicioConc[id], usuario: sbTxt_(r[9]), origen: sbTxt_(r[10]) });
+      bloqueo: sbBool_(r[7]), actualizado: sbTs_(r[8]) || inicioConc[id], usuario: sbTxt_(r[9]), origen: sbTxt_(r[10]), nota: sbTxt_(r[11]) });
   });
   res.conc_items = sbEnviarTabla_("conc_items", sbSinRepetir_(ci, x => x.conc_id + "|" + x.sku));
 
@@ -4934,6 +4974,73 @@ function sbProbarConexion() {
 }
 
 ;
+// ===== 27_Entrega_Final.gs =====
+// =========================================================
+// 27 · ENTREGA FINAL: un solo PDF con la entrega de turno, las conciliaciones y la validación
+// ---------------------------------------------------------
+// Orden: 1) Entrega de turno (su hoja) · 2) Conciliaciones (si hubo) · 3) Validación.
+// Conciliación y validación comparten hoja si caben; si son largas, cada una va en su hoja.
+// id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, V = validación)
+// =========================================================
+
+// Lo que se puede escoger: turnos recientes, conciliaciones y (del turno escogido) qué tiene cada parte
+function finalOpciones_(turnoId) {
+  prepararTurnos_();
+  const turnos = listarTurnos_().filter(t => t.estado !== "ELIMINADO")
+    .sort((a, b) => a.inicio < b.inicio ? 1 : -1).slice(0, 60)
+    .map(t => ({ id: t.id, texto: turnoTexto_(t), numero: t.numero, fecha: t.fecha, estado: t.estado }));
+  const t = turnoId ? turnoPorId_(turnoId) : null;
+  const concs = listarConc_().filter(c => c.estado !== "ELIMINADA")
+    .sort((a, b) => a.inicio < b.inicio ? 1 : -1).slice(0, 40)
+    .map(c => ({ id: c.id, texto: `Conciliación turno ${c.numero} · ${formatearFecha(c.fecha)}`, estado: c.estado, cerradoPor: c.cerradoPor || c.abiertoPor,
+      sugerida: !!t && (c.turnoId === t.id || (c.fecha === String(t.fecha).substring(0, 10) && Number(c.numero) === Number(t.numero))) }));
+  const r = { turnos: turnos, turno: null, conc: concs };
+  if (t) {
+    r.turno = { id: t.id, texto: turnoTexto_(t), estado: t.estado };
+    try { const d = entLeerTurno_(t.id); r.ent = { items: ["BODEGA", "PK", "TPC", "KA"].reduce((a, s) => a + (d.secciones[s] || []).length, 0), notas: d.notas.length, eliminada: parteEliminada_(t, "ENT") }; } catch (e) { r.ent = { items: 0, notas: 0, error: e.message }; }
+    try { const v = valDatosTurno_(t.id); r.val = { productos: v.productos.length, registros: v.registros.length, eliminada: parteEliminada_(t, "VAL") }; } catch (e) { r.val = { productos: 0, registros: 0, error: e.message }; }
+  }
+  return r;
+}
+
+function construirPDFEntregaFinal(id) {
+  prepararTurnos_();
+  const p = String(id || "").split("|");
+  const t = turnoPorId_(p[0]);
+  if (!t) throw new Error("Escoge el turno de la entrega final.");
+  const partes = (p[2] === undefined ? "EV" : p[2]).toUpperCase();
+  const concs = (p[1] || "").split(",").filter(x => x).map(cid => listarConc_().find(c => c.id === cid)).filter(c => c);
+  if (!partes.includes("E") && !partes.includes("V") && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
+
+  const bloques = [];   // [{ html, filas }] cada uno es una parte; se decide dónde va el salto de hoja
+  if (partes.includes("E")) bloques.push({ entrega: true, html: `<div class="parte-t">📋 Entrega de turno</div>` + cuerpoPDFEntrega_(t, entLeerTurno_(t.id)) });
+  concs.forEach(c => bloques.push({ filas: concItems_(c.id).length + 8, html: `<div class="parte-t">⚖️ Conciliación con facturación</div>` + cuerpoPDFConc_(c, true) }));
+  if (partes.includes("V")) {
+    const dt = valDatosTurno_(t.id);
+    const grupos = dt.registros.map(r => r.sku).filter((x, k, a) => a.indexOf(x) === k).length;
+    bloques.push({ filas: dt.productos.length + dt.registros.length + grupos + 10, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true) });
+  }
+  // La entrega va sola en su hoja. Lo demás se acomoda junto mientras quepa (≈ 52 filas por hoja).
+  const CABEN = 52;
+  let usadas = 0, html = "";
+  bloques.forEach((b, k) => {
+    let salto = false;
+    if (k > 0) {
+      if (bloques[k - 1].entrega) { salto = true; usadas = 0; }
+      else if (usadas + b.filas > CABEN) { salto = true; usadas = 0; }
+    }
+    usadas += b.filas || 0;
+    html += `<div class="parte${salto ? " salto" : ""}">${b.html}</div>`;
+  });
+  html += `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
+  const css = CSS_PDF_ENTREGA + CSS_PDF_CONC + CSS_PDF_VAL +
+    `.parte.salto{page-break-before:always;break-before:page}.parte+.parte:not(.salto){margin-top:14px}
+     .parte-t{font-size:12.5px;font-weight:bold;color:#fff;background:#003399;padding:4px 8px;border-radius:3px;margin:0 0 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}`;
+  const doc = pdfDoc_("ENTREGA FINAL", html, { css: css });
+  return { blob: htmlAPdf_(doc, `Entrega_final_${t.id}.pdf`), caption: `📦 *Entrega final* · ${turnoTexto_(t)}` };
+}
+
+;
 // ===== 30_Web_Api.gs =====
 // =========================================================
 // 30 · DASHBOARD WEB: doGet y funciones que llama la página
@@ -5096,6 +5203,7 @@ function webBarriles(tk) {
 }
 function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => ({ id: x.id, p: x.p, v: x.v, dias: x.dias, pres: x.pres, cub: x.cub, fecha: x.fecha, vida: vidaUtilInfo(x.dias).clave }))); }
 function webHistorial(tk, filtros) { return webAuth_(tk, L_, u => histListar_(filtros, u)); }
+function webFinal(tk, turnoId) { return webAuth_(tk, L_, () => finalOpciones_(turnoId || "")); }
 function webMantPrevia(tk, dias) { return webAuth_(tk, A_, () => mantPreviaCore_(dias)); }
 function webMantArchivar(tk, dias) { return webTurnoAuth_(tk, A_, u => mantArchivarCore_(dias, u.nombre)); }
 // parte = "VAL" | "ENT" (desde cada historial); sin parte = el turno completo (cancelar el abierto)
@@ -5492,6 +5600,7 @@ function construirPDFPorTipo_(tipo, id) {
     case "VALIDACION": r = construirPDFValidacion(id || ""); break;
     case "ENTREGA": r = construirPDFEntrega(id || ""); break;
     case "CONCILIACION": r = construirPDFConciliacion(id || ""); break;
+    case "FINAL": r = construirPDFEntregaFinal(id || ""); break;
     case "INSTRUCTIVO":
       if (!INSTRUCTIVO_DRIVE_ID) throw new Error("No está configurado el ID del instructivo.");
       r = { blob: DriveApp.getFileById(INSTRUCTIVO_DRIVE_ID).getBlob(), caption: "📘 *Instructivo WMS oficial*" };

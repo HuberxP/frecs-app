@@ -321,10 +321,19 @@
   .modal-card .field { margin-top: 12px; }
   .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
   .modal-actions .muted { margin-right: auto; }
+  .modal-card { max-height: calc(100dvh - 32px); overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  /* Los botones de la ventana quedan siempre a la vista abajo, aunque la lista sea larga */
+  .modal-card > .modal-actions:last-child, .modal-card > .cierre-acc:last-child { position: sticky; bottom: 0; margin: 18px -18px -18px; padding: 12px 18px 18px; background: var(--card); border-top: 1px solid var(--line); z-index: 2; }
+  html.con-modal, html.con-modal body { overflow: hidden; }
   @media (max-width: 699px) {
     .modal { align-items: flex-end; padding: 0; }
-    .modal-card { border-radius: 16px 16px 0 0; max-height: 92vh; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+    .modal-card { border-radius: 16px 16px 0 0; max-height: 92vh; max-height: calc(100dvh - var(--top-h) - 8px); padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
+    .modal-card > .modal-actions:last-child, .modal-card > .cierre-acc:last-child { margin: 16px -14px calc(-16px - env(safe-area-inset-bottom)); padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); }
     .modal-actions .btn { flex: 1; }
+    .modal-card h3 { margin-top: 0; }
+    .num-pick { gap: 6px; }
+    .num-pick button { min-height: 64px; padding: 4px 2px; }
+    .num-pick button span { font-size: 10.5px; line-height: 1.2; }
   }
 
   /* Ingreso */
@@ -629,15 +638,31 @@
     .cc-bloq { white-space: nowrap; }
   }
   @media (max-width: 699px) {
-    .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
+    .cc-campo.cc-bodega, .cc-campo.cc-pk { grid-column: 1; }
+    .cc-campo.cc-ka, .cc-campo.cc-fact { grid-column: 2 / 4; }
     .cc-bloq { grid-column: 1 / -1; }
-    .cc-del { grid-column: 1 / -1; justify-self: end; }
+    .cc-nota { grid-column: 1 / 3; }
+    .cc-del { grid-column: 3; order: 9; }
   }
+  /* Nota por producto (debajo de las cantidades) */
+  .cc-nota { grid-column: 1 / -1; order: 8; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .cc-nota input { font-size: 14px; font-weight: 500; }
+  .cc-tn { padding: 0 6px; }
+  /* Si el conteo cubre la facturación (verde o azul) el bloqueo del excedente no aplica: se esconde (salvo que ya estuviera marcado) */
+  .conc-card.ok .cc-bloq:not(.on), .conc-card.sobra .cc-bloq:not(.on) { display: none; }
   /* Entrega: tarjeta de notas naranja claro y cantidades en 0 */
   .notas-card { background: linear-gradient(0deg, rgba(255,166,77,.16), rgba(255,166,77,.16)), var(--card); border-color: rgba(255,166,77,.6); }
   .notas-card h3 { color: #ffc27a; }
   .notas-card .notas-l li { border-color: rgba(255,166,77,.25); }
-  .cant.cero b { color: var(--muted); }/* ============ Versión web (Supabase) ============ */
+  .cant.cero b { color: var(--muted); }
+  /* Entrega final */
+  .fin-card { margin-bottom: 12px; }
+  .fin-card h3 { margin: 0 0 8px; }
+  .fin-card select { width: 100%; }
+  .fin-sub { margin: 14px 0 4px; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .fin-otras { margin-top: 6px; }
+  .fin-otras summary { cursor: pointer; color: var(--cyan); font-weight: 700; font-size: 14px; padding: 8px 0; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

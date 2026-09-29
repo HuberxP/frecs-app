@@ -11,6 +11,7 @@ const NAV = [
     { id: "conciliacion", ic: "⚖️", t: "Conciliación" },
     { id: "validacion", ic: "📝", t: "Validaciones" },
     { id: "entrega", ic: "📋", t: "Entrega de turno" },
+    { id: "final", ic: "📦", t: "Entrega final" },
     { id: "consumo", ic: "🥤", t: "Consumo" },
     { id: "preconciliacion", ic: "📌", t: "Pre-conciliación" } ] },
   { g: "Historial", cls: "turnos", items: [
@@ -229,7 +230,7 @@ const usandoPantalla = () => Date.now() - ultimaInteraccion < 15000;
 // Si en ese instante alguien tocaba, el toque caía en otro botón (p. ej. el 🗑 de otra fila).
 // Ahora: si la persona ya tocó la sección, no se redibuja; sale un aviso "Hay cambios · Ver".
 function refrescarVista(pintar) {
-  if (!modalAbierto() && ultimaInteraccion <= S.vistaDesde) { pintar(); return; }
+  if (!modalAbierto() && ultimaInteraccion <= S.vistaDesde) { const y = window.scrollY; pintar(); if (window.scrollY !== y) window.scrollTo(0, y); return; }
   S.pendRepintar = pintar;
   $("#nuevoChip").classList.remove("hidden");
 }
@@ -270,9 +271,24 @@ document.addEventListener("click", e => {
   const card = c.closest(".plegable"); if (!card) return;
   const [g, k] = c.dataset.plegar.split("|");
   S.abiertos[g] = S.abiertos[g] || {};
-  S.abiertos[g][k] = !card.classList.contains("abierto");
-  card.classList.toggle("abierto", S.abiertos[g][k]);
-  c.setAttribute("aria-expanded", S.abiertos[g][k] ? "true" : "false");
+  const abrir = !card.classList.contains("abierto");
+  const y0 = c.getBoundingClientRect().top;
+  // Acordeón: al abrir una se cierran las demás del mismo grupo («Abrir todas» sigue abriéndolas todas)
+  if (abrir) {
+    S.abiertos[g] = {};
+    $$(`.plegable.abierto`).forEach(o => {
+      if (o === card) return;
+      const oc = o.querySelector("[data-plegar]");
+      if (!oc || oc.closest(".plegable") !== o || oc.dataset.plegar.split("|")[0] !== g) return;
+      o.classList.remove("abierto"); oc.setAttribute("aria-expanded", "false");
+    });
+  }
+  S.abiertos[g][k] = abrir;
+  card.classList.toggle("abierto", abrir);
+  c.setAttribute("aria-expanded", abrir ? "true" : "false");
+  // Que la tarjeta tocada no se mueva de su sitio en la pantalla aunque se cierren otras arriba
+  const dy = c.getBoundingClientRect().top - y0;
+  if (Math.abs(dy) > 1) window.scrollBy(0, dy);
 });
 const LEYENDA = `<div class="leyenda"><span class="v-venc">Vencido</span><span class="v-rojo">0–29 días</span><span class="v-amar">30–45 días</span><span class="v-vcla">46–90 días</span><span class="v-vosc">&gt; 90 días</span></div>`;
 
@@ -286,6 +302,8 @@ function abrirModal(html, opts) {
   card.className = "modal-card" + (opts.wide ? " wide" : "");
   card.innerHTML = html;
   $("#modal").classList.remove("hidden");
+  document.documentElement.classList.add("con-modal");
+  card.scrollTop = 0;
   modalOnClose = opts.onClose || null;
   const f = card.querySelector("[autofocus]") || card.querySelector("input:not([type=checkbox]):not([type=hidden]), textarea");
   if (f && window.innerWidth > 699) setTimeout(() => f.focus(), 30);
@@ -296,6 +314,7 @@ function cerrarModal(forzar) {
   if (modalBusy && !forzar) return;
   modalBusy = false;
   $("#modal").classList.add("hidden");
+  document.documentElement.classList.remove("con-modal");
   $("#modalCard").innerHTML = "";
   const cb = modalOnClose; modalOnClose = null;
   if (cb) cb();
@@ -638,6 +657,8 @@ function botonesPDF(tipo, etiqueta, id) {
 // Barras de botones en una sola fila: si no caben con su texto, quedan solo los íconos
 function ajustarBarras(raiz) {
   $$(".barra-acc", raiz || document).forEach(b => {
+    // Si la barra ya se ajustó a este ancho no se vuelve a medir (medir mueve la página al deslizar en el celular)
+    if (b.dataset.aw === String(b.clientWidth) && b.dataset.an === String(b.children.length)) return;
     const bs = $$(".btn", b);
     bs.forEach(x => { x.classList.remove("solo-ic"); if (!x.getAttribute("aria-label")) { const t = $(".txt", x); if (t) x.setAttribute("aria-label", t.textContent.trim()); } });
     // Se mide cada botón a su ancho natural; si no caben, se quita el texto al más largo, y así hasta que quepan
@@ -650,12 +671,17 @@ function ajustarBarras(raiz) {
       con.sort((x, y) => prio(x) - prio(y) || y.offsetWidth - x.offsetWidth)[0].classList.add("solo-ic");
     }
     b.classList.remove("midiendo");
+    b.dataset.aw = b.clientWidth; b.dataset.an = b.children.length;
   });
 }
 let _ajBarras = 0;
 const pedirAjuste = () => { cancelAnimationFrame(_ajBarras); _ajBarras = requestAnimationFrame(() => ajustarBarras()); };
-new MutationObserver(pedirAjuste).observe(document.getElementById("view") || document.body, { childList: true, subtree: true });
-window.addEventListener("resize", pedirAjuste);
+// Solo cuando aparecen barras nuevas (no con cada número que cambia dentro de una tarjeta)
+new MutationObserver(ms => { if (ms.some(m => Array.from(m.addedNodes).some(n => n.nodeType === 1 && (n.matches(".barra-acc") || n.querySelector(".barra-acc"))))) pedirAjuste(); })
+  .observe(document.getElementById("view") || document.body, { childList: true, subtree: true });
+// En el celular la barra del navegador aparece y se esconde al deslizar (cambia el alto, no el ancho): eso no cuenta
+let _anchoVent = window.innerWidth;
+window.addEventListener("resize", () => { if (window.innerWidth === _anchoVent) return; _anchoVent = window.innerWidth; pedirAjuste(); });
 document.addEventListener("click", e => {
   const p = e.target.closest("[data-pdf]"); if (p) { descargarPDF(p.dataset.pdf, p.dataset.id || "", p); return; }
   const t = e.target.closest("[data-tg]"); if (t) { enviarTG(t.dataset.tg, t.dataset.id || "", t); }
@@ -1271,7 +1297,7 @@ function modalAbrirTurno(te) {
   let num = turnoPorHora();
   const hor = (te && te.horarios) || { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
   const c = abrirModal(`<h3>Abrir turno</h3><p class="muted small">Escoge tu turno. No se puede abrir otro hasta cerrar este.</p>
-    <div class="num-pick" id="np">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(hor[n])}</span></button>`).join("")}</div>
+    <div class="num-pick" id="np">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(String(hor[n] || "").replace(/:00/g, ""))}</span></button>`).join("")}</div>
     ${te && te.ultimo ? `<label class="check"><input type="checkbox" id="atH" checked><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar el saldo de la validación (se puede editar después).</span></label>` : `<p class="muted small">No hay turno anterior del que recibir.</p>`}
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="atOk">Abrir turno</button></div>`);
   $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); };
@@ -1907,21 +1933,28 @@ function tarjetaConc(x, esc) {
   const ab = abierto("conc", x.sku);
   return `<article class="card conc-card plegable ${x.nivel || "sin"} ${ab ? "abierto" : ""}" data-row="${h(x.sku)}" data-q="${h(x.sku + " " + x.producto)}">
     <div class="pl-cab" data-plegar="conc|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${x.fact === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}</div></div>
+      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${x.fact === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
       <div class="cc-grid">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}${inp("fact", x.fact, "Facturación")}
         <label class="cc-bloq ${x.bloqueo ? "on" : ""}"><input type="checkbox" data-f="bloqueo" data-sku="${h(x.sku)}" ${x.bloqueo ? "checked" : ""} ${esc ? "" : "disabled"}><span>🔒 Bloqueo del excedente</span></label>
-        ${esc ? `<button class="btn sm icon del cc-del" data-a="qconc" data-sku="${h(x.sku)}" title="Quitar de la conciliación" aria-label="Quitar de la conciliación">${ICO_DEL}</button>` : ""}</div>
+        ${esc ? `<button class="btn sm icon del cc-del" data-a="qconc" data-sku="${h(x.sku)}" title="Quitar de la conciliación" aria-label="Quitar de la conciliación">${ICO_DEL}</button>` : ""}
+        <label class="cc-nota"><span>📝 Nota</span>${esc ? `<input type="text" data-f="nota" data-sku="${h(x.sku)}" value="${h(x.nota || "")}" maxlength="300" placeholder="Opcional: algo que deba saber quien revise">` : `<b>${h(x.nota || "—")}</b>`}</label></div>
     </div></article>`;
 }
 function onConcCampo(e) {
   const i = e.target.closest("[data-f]"); if (!i) return;
   const sku = i.dataset.sku, f = i.dataset.f;
+  const tr = i.closest(".conc-card");
+  if (f === "nota") {
+    const nota = i.value.trim(); i.value = nota;
+    tr.querySelector("[data-tnota]").innerHTML = nota ? ` <span class="pill cc-tn" title="${h(nota)}">📝</span>` : "";
+    enviarOptimista("webConcGuardar", [sku, { nota: nota }, S.concId || ""], `Conciliación ${sku}: nota`, r => { if (r && r.estado) { S.conc = r.estado; if (!S.concId) ls.setJ("conc", S.conc); } });
+    return;
+  }
   const valor = f === "bloqueo" ? i.checked : i.value.replace(/\D/g, "");
   if (f !== "bloqueo") i.value = valor; else { const l = i.closest(".cc-bloq"); if (l) l.classList.toggle("on", i.checked); }
   // Se recalcula la fila de inmediato; el servidor guarda por detrás
-  const tr = i.closest(".conc-card");
   const val = n => { const x = tr.querySelector(`[data-f="${n}"]`); return x && x.value !== "" ? Number(x.value) : null; };
   const tot = (val("bodega") || 0) + (val("ka") || 0) + (val("pk") || 0), fact = val("fact"), nivel = nivelConc(tot, fact);
   tr.querySelector("[data-tot]").textContent = fm(tot);
@@ -1938,9 +1971,10 @@ async function onConcClick(e) {
     const pend = k.pre.filter(x => x.estado === "PENDIENTE");
     let num = turnoPorHora();
     const hor = k.horarios || { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
+    const horC = n => String(hor[n] || "").replace(/:00/g, "");
     const ant = n => ({ 1: 3, 2: 1, 3: 2 })[n];
     const c = abrirModal(`<h3>Abrir conciliación</h3><p class="muted small">¿De qué turno es la conciliación? Normalmente se hace en el turno 3.</p>
-      <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(hor[n])}</span></button>`).join("")}</div>
+      <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(horC(n))}</span></button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="caP" checked><span>Precargar los <b>pocos</b> (columna Minimo)</span></label>
       <label class="check"><input type="checkbox" id="caE" checked><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (y usar esos conteos)</span></label>
       <h2 style="margin-top:14px">📌 Pre-conciliación (${pend.length})</h2>
@@ -2224,6 +2258,52 @@ async function modalArchivar(alTerminar) {
       if (alTerminar) alTerminar();
     } catch (e) { modalBusy = false; ocupado(b, false); toast(e.message, "bad", 8000); }
   };
+}
+
+// =====================================================================
+// ENTREGA FINAL: un solo PDF con la entrega, las conciliaciones y la validación de un turno
+// =====================================================================
+VISTAS.final = async (el, p, vigente) => {
+  el.innerHTML = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), las conciliaciones (si hubo) y la validación. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.") + loader("Buscando turnos…");
+  let base;
+  try { base = await api("webFinal", ""); } catch (e) { if (vigente()) el.insertAdjacentHTML("beforeend", errBox(e)); return; }
+  if (!vigente()) return;
+  if (!base.turnos.length) { el.innerHTML = cab("📦 Entrega final") + vacio("Todavía no hay turnos.", "📭"); return; }
+  const def = (base.turnos.find(t => t.estado === "CERRADO") || base.turnos[0]).id;
+  S.finalTurno = base.turnos.some(t => t.id === S.finalTurno) ? S.finalTurno : def;
+  await pintarFinal(el, base, vigente);
+};
+async function pintarFinal(el, base, vigente) {
+  const cabF = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), las conciliaciones (si hubo) y la validación. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.");
+  const selT = `<label class="field"><span>Turno</span><select id="fnT">${base.turnos.map(t => `<option value="${h(t.id)}" ${t.id === S.finalTurno ? "selected" : ""}>${h(t.texto)}${t.estado === "ABIERTO" ? " (en curso)" : ""}</option>`).join("")}</select></label>`;
+  el.innerHTML = cabF + `<section class="card fin-card"><h3>1 · Turno</h3>${selT}</section>` + loader("Revisando el turno…");
+  $("#fnT", el).onchange = e => { S.finalTurno = e.target.value; pintarFinal(el, base, vigente); };
+  let d;
+  try { d = await api("webFinal", S.finalTurno); } catch (e) { el.insertAdjacentHTML("beforeend", errBox(e)); return; }
+  if (!vigente() || S.vista !== "final") return;
+  const sug = d.conc.filter(c => c.sugerida), otras = d.conc.filter(c => !c.sugerida);
+  const chkConc = (c, on) => `<label class="check"><input type="checkbox" data-fc="${h(c.id)}" ${on ? "checked" : ""}><span>⚖️ ${h(c.texto)}<br><span class="sub">${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}${c.cerradoPor ? " · " + h(c.cerradoPor) : ""}${c.sugerida ? " · del mismo turno" : ""}</span></span></label>`;
+  const ent = d.ent || {}, val = d.val || {};
+  el.innerHTML = cabF + `<section class="card fin-card"><h3>1 · Turno</h3>${selT}</section>
+    <section class="card fin-card"><h3>2 · Qué va en el PDF</h3>
+      <label class="check"><input type="checkbox" id="fnE" ${ent.items || ent.notas ? "checked" : ""}><span>📋 <b>Entrega de turno</b><br><span class="sub">${ent.items || 0} productos · ${ent.notas || 0} notas${ent.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>
+      <div class="fin-sub">Conciliaciones</div>
+      ${sug.length ? sug.map(c => chkConc(c, true)).join("") : `<p class="muted small">No hay conciliación de este mismo turno.</p>`}
+      ${otras.length ? `<details class="fin-otras"><summary>Ver otras conciliaciones (${otras.length})</summary>${otras.map(c => chkConc(c, false)).join("")}</details>` : ""}
+      <div class="fin-sub">Validación</div>
+      <label class="check"><input type="checkbox" id="fnV" ${val.productos || val.registros ? "checked" : ""}><span>📝 <b>Validación de facturación</b><br><span class="sub">${val.productos || 0} productos · ${val.registros || 0} validaciones${val.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>
+    </section>
+    <section class="card fin-card"><h3>3 · PDF</h3><p class="muted small" id="fnRes"></p><div class="barra-acc" id="fnB"></div></section>`;
+  $("#fnT", el).onchange = e => { S.finalTurno = e.target.value; pintarFinal(el, base, vigente); };
+  const actualizar = () => {
+    const concs = $$("input[data-fc]:checked", el).map(x => x.dataset.fc);
+    const partes = ($("#fnE", el).checked ? "E" : "") + ($("#fnV", el).checked ? "V" : "");
+    const orden = [partes.includes("E") && "Entrega de turno", concs.length && (concs.length > 1 ? `${concs.length} conciliaciones` : "Conciliación"), partes.includes("V") && "Validación"].filter(x => x);
+    $("#fnRes", el).textContent = orden.length ? "Orden: " + orden.join(" → ") : "Escoge al menos una parte.";
+    $("#fnB", el).innerHTML = orden.length ? botonesPDF("FINAL", "Descargar PDF", `${S.finalTurno}|${concs.join(",")}|${partes}`) : "";
+  };
+  el.onchange = e => { if (e.target.id !== "fnT") actualizar(); };
+  actualizar();
 }
 
 // =====================================================================

@@ -3159,10 +3159,10 @@ function obtenerTurnoBot() {
 // ya no alcanzaba el saldo: no descuenta hasta que alguien lo corrija o lo anule).
 // =========================================================
 const VAL_T = {
-  productos: { libro: "VAL", nombre: "Val_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Actualizado", "Usuario", "Contado_en"], texto: [1, 2, 3, 5, 6, 7] },
+  productos: { libro: "VAL", nombre: "Val_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Actualizado", "Usuario", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar"], texto: [1, 2, 3, 5, 6, 7] },
   registros: { libro: "VAL", nombre: "Val_Registros", cab: ["ID", "Turno_ID", "Fecha", "SKU", "Producto", "Destino", "Cantidad", "Usuario", "Nota", "Estado", "Modificado_por", "Contado_en"], texto: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12] },
   destinos: { libro: "VAL", nombre: "Val_Destinos", cab: ["Destino"], texto: [1], inicial: [["Tradicional"], ["Bodegas"], ["KA"]] },
-  histProd: { libro: "VAL", nombre: "Val_Hist_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Validado", "Disponible", "Detalle_destinos", "Contado_en"], texto: [1, 2, 3, 7, 8] },
+  histProd: { libro: "VAL", nombre: "Val_Hist_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Validado", "Disponible", "Detalle_destinos", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar"], texto: [1, 2, 3, 7, 8] },
   histReg: { libro: "VAL", nombre: "Val_Hist_Registros", cab: ["ID", "Turno_ID", "Fecha", "SKU", "Producto", "Destino", "Cantidad", "Usuario", "Nota", "Estado", "Modificado_por", "Contado_en"], texto: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12] }
 };
 
@@ -3203,7 +3203,8 @@ function valCalcular_(turnoId, filasProd, filasReg) {
     if (txt_(r[0]) !== turnoId) return;
     const sku = txt_(r[1]);
     if (!sku || mapa[sku]) return;
-    const p = { sku: sku, producto: txt_(r[2]), inicial: Number(r[3]) || 0, actualizado: txt_(r[4]), usuario: txt_(r[5]), contadoEn: txt_(r[6]), validado: 0, porDestino: {}, nReg: 0, conflictos: 0 };
+    const p = { sku: sku, producto: txt_(r[2]), inicial: Number(r[3]) || 0, actualizado: txt_(r[4]), usuario: txt_(r[5]), contadoEn: txt_(r[6]), validado: 0, porDestino: {}, nReg: 0, conflictos: 0,
+      bodega: numVacio_(r[7]), pk: numVacio_(r[8]), ka: numVacio_(r[9]), porConfirmar: esSi_(r[10]), familia: familiaDeSku_(sku) };
     mapa[sku] = p; productos.push(p);
   });
   let registros = [];
@@ -3251,16 +3252,27 @@ function valCtx_(turnoId) {
   const cerrado = t.estado !== "ABIERTO";
   return { t: t, cerrado: cerrado, prod: cerrado ? VAL_T.histProd : VAL_T.productos, reg: cerrado ? VAL_T.histReg : VAL_T.registros };
 }
-// Productos en formato común: [Turno_ID, SKU, Producto, Inicial, Actualizado, Usuario, Contado_en]
+// Productos en formato común: [Turno_ID, SKU, Producto, Inicial, Actualizado, Usuario, Contado_en, Bodega, PK, KA, Por_confirmar]
+const histAComun_ = r => [r[0], r[1], r[2], r[3], "", "", r[7], r[8], r[9], r[10], r[11]];
 function valProdFilas_(cx) {
   const filas = tLeer_(cx.prod);
-  return cx.cerrado ? filas.map(r => [r[0], r[1], r[2], r[3], "", "", r[7]]) : filas;
+  return cx.cerrado ? filas.map(histAComun_) : filas;
 }
+const esSi_ = v => v === true || /^(true|si|sí|1)$/i.test(String(v || "").trim());
+// Familia del WMS de cada SKU (para ordenar las tarjetas); sin familia = «OTROS»
+let _FAM = null;
+function familiaDeSku_(sku) {
+  if (!_FAM) { _FAM = {}; try { obtenerInventarioLocal().forEach(i => { if (i.fam && !_FAM[i.s]) _FAM[i.s] = i.fam; }); } catch (e) {} }
+  return _FAM[String(sku)] || "OTROS";
+}
+// Cantidad por zona: vacío = no se contó ahí; el total es la suma de las zonas contadas
+const zonaNum_ = v => { if (v === "" || v === null || v === undefined) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
+const conZonas_ = o => o && ["bodega", "pk", "ka"].some(k => o[k] !== undefined && o[k] !== null && o[k] !== "");
 function valCalcCtx_(cx, filasReg) { return valCalcular_(cx.t.id, valProdFilas_(cx), filasReg || tLeer_(cx.reg)); }
 
 function valHistRecalcular_(turnoId) {
   const filas = tLeer_(VAL_T.histProd);
-  const calc = valCalcular_(turnoId, filas.map(r => [r[0], r[1], r[2], r[3], "", "", r[7]]), tLeer_(VAL_T.histReg));
+  const calc = valCalcular_(turnoId, filas.map(histAComun_), tLeer_(VAL_T.histReg));
   let mapa = {};
   calc.productos.forEach(p => { mapa[p.sku] = p; });
   filas.forEach((r, k) => {
@@ -3319,14 +3331,17 @@ function valAgregarProductosCore_(items, usuario, turnoId) {
     let filas = [], omitidos = [];
     (items || []).forEach(it => {
       const sku = String(it.sku || "").trim();
-      const inicial = entero_(it.inicial);
+      let z;
+      try { z = { bodega: zonaNum_(it.bodega), pk: zonaNum_(it.pk), ka: zonaNum_(it.ka) }; } catch (e) { omitidos.push(`${sku}: ${e.message}`); return; }
+      const inicial = conZonas_(z) ? (z.bodega || 0) + (z.pk || 0) + (z.ka || 0) : (it.inicial === "" || it.inicial === undefined || it.inicial === null ? 0 : entero_(it.inicial));
+      const pc = esSi_(it.porConfirmar);
       if (!/^\d+$/.test(sku)) { omitidos.push(`${sku || "?"}: SKU inválido`); return; }
       if (isNaN(inicial) || inicial < 0) { omitidos.push(`${sku}: cantidad inicial inválida`); return; }
       if (existentes.has(sku)) { omitidos.push(`${sku}: ya está en el turno`); return; }
       existentes.add(sku);
       const prod = String(it.producto || (skuInfo_(sku) || {}).prod || ("SKU " + sku)).trim();
       const contado = normalizarFechaHora_(it.contadoEn) || ahora_();
-      filas.push(cx.cerrado ? [cx.t.id, sku, prod, inicial, 0, inicial, "", contado] : [cx.t.id, sku, prod, inicial, ahora_(), usuario, contado]);
+      filas.push(cx.cerrado ? [cx.t.id, sku, prod, inicial, 0, inicial, "", contado, z.bodega, z.pk, z.ka, pc] : [cx.t.id, sku, prod, inicial, ahora_(), usuario, contado, z.bodega, z.pk, z.ka, pc]);
     });
     tAgregar_(cx.prod, filas);
     if (filas.length) valTrasEditar_(cx, usuario);
@@ -3334,16 +3349,34 @@ function valAgregarProductosCore_(items, usuario, turnoId) {
   });
 }
 
+// inicial = número (total) o { bodega, pk, ka, porConfirmar, sumar }: por zona; con «sumar» se agrega a lo que ya había
 function valActualizarInicialCore_(sku, inicial, contadoEn, usuario, turnoId) {
-  const n = entero_(inicial);
-  if (isNaN(n) || n < 0) throw new Error("La cantidad inicial debe ser un número entero mayor o igual a 0.");
+  const obj = inicial && typeof inicial === "object" ? inicial : null;
+  let n = obj ? 0 : entero_(inicial);
+  if (!obj && (isNaN(n) || n < 0)) throw new Error("La cantidad inicial debe ser un número entero mayor o igual a 0.");
+  const z = obj ? { bodega: zonaNum_(obj.bodega), pk: zonaNum_(obj.pk), ka: zonaNum_(obj.ka) } : null;
   return conLock_(() => {
     const cx = valCtx_(turnoId);
     const f = tBuscar_(cx.prod, r => txt_(r[0]) === cx.t.id && txt_(r[1]) === String(sku));
     if (!f) throw new Error("El producto no está en el turno.");
-    const contado = normalizarFechaHora_(contadoEn) || ahora_();
-    if (cx.cerrado) { tEscribir_(cx.prod, f.fila, 4, [n]); tEscribir_(cx.prod, f.fila, 8, [contado]); }
-    else tEscribir_(cx.prod, f.fila, 4, [n, ahora_(), usuario, contado]);
+    const r = f.datos.slice();
+    while (r.length < cx.prod.cab.length) r.push("");
+    const base = cx.cerrado ? 8 : 7;   // columna (0) donde empiezan Bodega, PK, KA, Por_confirmar
+    if (z) {
+      const antes = { bodega: numVacio_(r[base]), pk: numVacio_(r[base + 1]), ka: numVacio_(r[base + 2]) };
+      if (obj.sumar) {
+        // Se suma a cada zona; si antes no había zonas, lo que había queda en Bodega
+        if (!conZonas_(antes) && Number(r[3])) antes.bodega = Number(r[3]) || 0;
+        ["bodega", "pk", "ka"].forEach(k => { if (z[k] !== "") z[k] = (antes[k] || 0) + z[k]; else z[k] = antes[k]; });
+      }
+      n = conZonas_(z) ? (z.bodega || 0) + (z.pk || 0) + (z.ka || 0) : (obj.sumar ? Number(r[3]) || 0 : 0);
+      r[base] = z.bodega; r[base + 1] = z.pk; r[base + 2] = z.ka;
+    }
+    if (obj && obj.porConfirmar !== undefined) r[base + 3] = esSi_(obj.porConfirmar);
+    r[3] = n;
+    if (contadoEn !== null && contadoEn !== undefined && contadoEn !== "") r[cx.cerrado ? 7 : 6] = normalizarFechaHora_(contadoEn) || ahora_();
+    if (!cx.cerrado) { r[4] = ahora_(); r[5] = usuario; }
+    tEscribir_(cx.prod, f.fila, 1, r);
     valTrasEditar_(cx, usuario);
     return true;
   });
@@ -3380,14 +3413,15 @@ function valRegistrarCore_(obj, usuario, turnoHist) {
     const p = valCalcCtx_(cx).productos.find(x => x.sku === sku);
     if (!p) throw new Error("El producto no está en el turno.");
     let estado = "ACTIVO", notaFinal = nota;
-    if (cantidad > p.disponible) {
+    // Un producto «por confirmar cantidad» se puede validar aunque el saldo quede negativo
+    if (cantidad > p.disponible && !p.porConfirmar) {
       if (!obj.offline || turnoHist) throw new Error(`No alcanza: de ${p.producto} solo quedan ${fM(Math.max(p.disponible, 0))} cajas disponibles.`);
       estado = "CONFLICTO";
       notaFinal = (nota ? nota + " · " : "") + `Sin conexión: al subir solo quedaban ${fM(Math.max(p.disponible, 0))}`;
     }
     valAsegurarDestino_(destino);
     const id = nuevoId_("V");
-    const fecha = ((obj.offline || turnoHist) && normalizarFechaHora_(obj.hora)) || ahora_();
+    const fecha = ((obj.offline || turnoHist || obj.horaElegida) && normalizarFechaHora_(obj.hora)) || ahora_();
     const mod = turnoHist ? `Agregado después del cierre por ${usuario} ${ahora_()}` : (obj.offline ? `Subido ${ahora_()}` : "");
     tAgregar_(cx.reg, [[id, cx.t.id, fecha, sku, p.producto, destino, cantidad, usuario, notaFinal, estado, mod, p.contadoEn]]);
     valTrasEditar_(cx, usuario);
@@ -3412,9 +3446,10 @@ function valEditarRegistroCore_(id, obj, usuario, turnoId) {
     if (estadoAnt === "ANULADO") throw new Error("El registro está anulado.");
     const p = valCalcCtx_(cx, filas).productos.find(x => x.sku === txt_(filas[k][3]));
     const anterior = estadoAnt === "ACTIVO" ? (Number(filas[k][6]) || 0) : 0;
-    if (p && cantidad > p.disponible + anterior) throw new Error(`No alcanza: el máximo para este registro es ${fM(Math.max(p.disponible + anterior, 0))} cajas.`);
+    if (p && !p.porConfirmar && cantidad > p.disponible + anterior) throw new Error(`No alcanza: el máximo para este registro es ${fM(Math.max(p.disponible + anterior, 0))} cajas.`);
     valAsegurarDestino_(destino);
     tEscribir_(cx.reg, k + 2, 6, [destino, cantidad]);
+    if (obj.horaElegida && normalizarFechaHora_(obj.hora)) tEscribir_(cx.reg, k + 2, 3, [normalizarFechaHora_(obj.hora)]);
     tEscribir_(cx.reg, k + 2, 9, [nota, "ACTIVO", `${estadoAnt === "CONFLICTO" ? "Conflicto resuelto" : "Editado"} por ${usuario} ${ahora_()} (antes ${Number(filas[k][6]) || 0})`]);
     valTrasEditar_(cx, usuario);
     return true;
@@ -3448,7 +3483,7 @@ function valDetalleDestinos_(p) { return Object.keys(p.porDestino).map(d => `${d
 function valArchivarTurno_(turnoId) {
   const filasProd = tLeer_(VAL_T.productos), filasReg = tLeer_(VAL_T.registros);
   const calc = valCalcular_(turnoId, filasProd, filasReg);
-  tAgregar_(VAL_T.histProd, calc.productos.map(p => [turnoId, p.sku, p.producto, p.inicial, p.validado, p.disponible, valDetalleDestinos_(p), p.contadoEn]));
+  tAgregar_(VAL_T.histProd, calc.productos.map(p => [turnoId, p.sku, p.producto, p.inicial, p.validado, p.disponible, valDetalleDestinos_(p), p.contadoEn, p.bodega, p.pk, p.ka, p.porConfirmar]));
   tAgregar_(VAL_T.histReg, filasReg.filter(r => txt_(r[1]) === turnoId));
   tReescribir_(VAL_T.productos, r => txt_(r[0]) !== turnoId);
   tReescribir_(VAL_T.registros, r => txt_(r[1]) !== turnoId);
@@ -3481,7 +3516,7 @@ function valDatosTurno_(turnoId) {
     const calc = valCalcular_(t.id, tLeer_(VAL_T.productos), tLeer_(VAL_T.registros));
     return { turno: t, productos: calc.productos, registros: calc.registros };
   }
-  const prodHist = tLeer_(VAL_T.histProd).filter(r => txt_(r[0]) === t.id).map(r => [r[0], r[1], r[2], r[3], "", "", r[7]]);
+  const prodHist = tLeer_(VAL_T.histProd).filter(r => txt_(r[0]) === t.id).map(histAComun_);
   const calc = valCalcular_(t.id, prodHist, tLeer_(VAL_T.histReg));
   return { turno: t, productos: calc.productos, registros: calc.registros };
 }
@@ -3501,8 +3536,11 @@ function construirPDFValidacion(turnoId) {
   const html = pdfDoc_("VALIDACIÓN DE FACTURACIÓN", cuerpoPDFVal_(dt), { vertical: true, css: CSS_PDF_VAL });
   return { blob: htmlAPdf_(html, `Validacion_${t.id}.pdf`), caption: `📝 *Validación de facturación* · ${turnoTexto_(t)}` };
 }
-const CSS_PDF_VAL = ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}";
+const CSS_PDF_VAL = ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}.pc{color:#b35c00;font-size:8.5px;font-weight:bold}";
 // El cuerpo del PDF (también lo usa la Entrega final, sin la cabecera del turno ni las firmas)
+// Orden de las tarjetas y del PDF: por familia y luego por nombre (A-Z)
+function ordenFamilia_(a, b) { return String(a.familia || "").localeCompare(String(b.familia || ""), "es") || String(a.producto || "").localeCompare(String(b.producto || ""), "es", { numeric: true }); }
+
 function cuerpoPDFVal_(dt, parteDeFinal) {
   const t = dt.turno;
   const orden = valDestinos_();
@@ -3511,26 +3549,21 @@ function cuerpoPDFVal_(dt, parteDeFinal) {
   const cols = orden.filter(d => usados.has(d)).concat(Array.from(usados).filter(d => !orden.includes(d)));
   const totalIni = dt.productos.reduce((a, p) => a + p.inicial, 0);
   const totalVal = dt.productos.reduce((a, p) => a + p.validado, 0);
-  let filas = dt.productos.map(p => {
+  const z = v => v === "" || v === null || v === undefined ? "—" : fM(v);
+  const nCol = 8 + cols.length;
+  let fam = null;
+  let filas = dt.productos.slice().sort(ordenFamilia_).map(p => {
     const bg = p.disponible <= 0 ? "#ffcccc" : (p.inicial > 0 && p.disponible / p.inicial < 0.2 ? "#fff2cc" : "#e2efda");
-    return `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b></td><td class="sm">${p.contadoEn ? fechaCorta_(p.contadoEn) : "Heredado"}</td><td>${fM(p.inicial)}</td>` +
+    const g = p.familia !== fam ? `<tr class="grupo"><td colspan="${nCol}" class="izq"><b>${escHtml_(p.familia || "OTROS")}</b></td></tr>` : "";
+    fam = p.familia;
+    return g + `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}</td><td>${z(p.bodega)}</td><td>${z(p.pk)}</td><td>${z(p.ka)}</td><td><b>${fM(p.inicial)}</b></td>` +
       cols.map(d => `<td>${p.porDestino[d] ? fM(p.porDestino[d]) : "—"}</td>`).join("") +
       `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td></tr>`;
   }).join("");
-  if (!filas) filas = `<tr><td colspan="${6 + cols.length}" class="vacio">No hubo productos en validación en este turno.</td></tr>`;
-  // Detalle separado por producto (para seguir la historia de cada uno), en orden de hora
-  const regs = dt.registros.slice().sort((a, b) => a.fecha < b.fecha ? -1 : 1);
-  const ordenSkus = dt.productos.map(p => p.sku).concat(regs.map(r => r.sku)).filter((x, k, a) => a.indexOf(x) === k).filter(sku => regs.some(r => r.sku === sku));
-  let log = ordenSkus.map(sku => {
-    const rs = regs.filter(r => r.sku === sku), p = dt.productos.find(x => x.sku === sku);
-    return `<tr class="grupo"><td colspan="8" class="izq"><b>${escHtml_(sku)} · ${escHtml_(rs[0].producto)}</b>${p ? ` — inicial ${fM(p.inicial)} · validado ${fM(p.validado)} · saldo ${fM(p.disponible)}` : ""}</td></tr>` +
-      rs.map(r => `<tr class="${r.estado === "ANULADO" ? "anulado" : (r.estado === "CONFLICTO" ? "conflicto" : "")}"><td>${r.seq}</td><td>${fechaCorta_(r.fecha)}</td><td>${r.contadoEn ? fechaCorta_(r.contadoEn) : "—"}</td><td>${escHtml_(r.destino)}</td><td><b>${fM(r.cantidad)}</b></td><td>${r.saldo === null || r.saldo === undefined ? "—" : `<b>${fM(r.saldo)}</b>`}</td><td>${escHtml_(r.usuario)}</td><td class="izq">${escHtml_(r.nota)}${r.estado !== "ACTIVO" ? ` (${r.estado})` : ""}</td></tr>`).join("");
-  }).join("");
-  if (!log) log = `<tr><td colspan="8" class="vacio">Sin validaciones registradas.</td></tr>`;
+  if (!filas) filas = `<tr><td colspan="${nCol}" class="vacio">No hubo productos en validación en este turno.</td></tr>`;
   return (parteDeFinal ? "" : infoTurnoHtml_(t)) +
-    `<h3>Saldo por producto (cajas)</h3><table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Contado</th><th>Inicial</th>${cols.map(d => `<th>${escHtml_(d)}</th>`).join("")}<th>Validado</th><th>Disponible</th></tr></thead><tbody>${filas}
-    ${dt.productos.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td></td><td>${fM(totalIni)}</td>${cols.map(d => `<td>${fM(dt.productos.reduce((a, p) => a + (p.porDestino[d] || 0), 0))}</td>`).join("")}<td>${fM(totalVal)}</td><td>${fM(totalIni - totalVal)}</td></tr>` : ""}</tbody></table>
-    <h3>Detalle de validaciones por producto</h3><table class="t"><thead><tr><th>#</th><th>Validado</th><th>Contado</th><th>Destino</th><th>Cajas</th><th>Saldo</th><th>Usuario</th><th class="izq">Nota</th></tr></thead><tbody>${log}</tbody></table>
+    `<h3>Saldo por producto (cajas)</h3><table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Bodega</th><th>PK</th><th>KA</th><th>Inicial</th>${cols.map(d => `<th>${escHtml_(d)}</th>`).join("")}<th>Validado</th><th>Disponible</th></tr></thead><tbody>${filas}
+    ${dt.productos.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td></td><td></td><td></td><td>${fM(totalIni)}</td>${cols.map(d => `<td>${fM(dt.productos.reduce((a, p) => a + (p.porDestino[d] || 0), 0))}</td>`).join("")}<td>${fM(totalVal)}</td><td>${fM(totalIni - totalVal)}</td></tr>` : ""}</tbody></table>
     ${parteDeFinal ? "" : `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`}`;
 }
 
@@ -3696,9 +3729,10 @@ function entLeerTurno_(turnoId) {
     if (txt_(r[0]) !== turnoId) return;
     const s = txt_(r[1]).toUpperCase();
     if (!sec[s]) return;
-    sec[s].push({ fila: k + 2, sku: txt_(r[2]), producto: txt_(r[3]), cant: entParseCant_(r[4]), actualizado: txt_(r[5]), usuario: txt_(r[6]), origen: txt_(r[7]) });
+    sec[s].push({ fila: k + 2, sku: txt_(r[2]), producto: txt_(r[3]), cant: entParseCant_(r[4]), actualizado: txt_(r[5]), usuario: txt_(r[6]), origen: txt_(r[7]), familia: familiaDeSku_(txt_(r[2])) });
   });
-  ENT_SECCIONES.forEach(s => sec[s].sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true })));
+  // Por familia y luego por nombre (A-Z)
+  ENT_SECCIONES.forEach(s => sec[s].sort(ordenFamilia_));
   const notas = tLeer_(ENT_T.notas).map((r, k) => ({ fila: k + 2, turnoId: txt_(r[0]), id: txt_(r[1]), hora: txt_(r[2]), usuario: txt_(r[3]), texto: txt_(r[4]) }))
     .filter(n => n.turnoId === turnoId).sort((a, b) => a.hora < b.hora ? -1 : 1);
   return { secciones: sec, notas: notas };
@@ -3982,9 +4016,12 @@ function concItems_(concId) {
       x.check = x.fact === "" ? null : x.total >= x.fact;
       x.nivel = nivelConc_(x.total, x.fact);
       x.diferencia = x.fact === "" ? null : x.total - x.fact;
+      x.familia = familiaDeSku_(x.sku);
+      // Completo = las tres zonas tienen número (el 0 cuenta); si falta alguna, está incompleto
+      x.completo = x.bodega !== "" && x.ka !== "" && x.pk !== "";
       return x;
     })
-    .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+    .sort(ordenFamilia_);
 }
 
 // Color de cada producto: mal (facturación tiene de más) · ok (el conteo cubre) ·
@@ -4184,12 +4221,16 @@ function construirPDFConciliacion(concId) {
   const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpoPDFConc_(c), { vertical: true, css: CSS_PDF_CONC });
   return { blob: htmlAPdf_(html, `Conciliacion_${c.id}.pdf`), caption: `⚖️ *Conciliación* · turno ${c.numero} · ${formatearFecha(c.fecha)}` };
 }
-const CSS_PDF_CONC = "tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}.nota-p{font-size:10.5px;color:#555;font-style:italic}";
+const CSS_PDF_CONC = "tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px}tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}.nota-p{font-size:10.5px;color:#555;font-style:italic}";
 // El cuerpo del PDF (también lo usa la Entrega final)
 function cuerpoPDFConc_(c, sinFirmas) {
   const items = concItems_(c.id);
   const v = x => x === "" ? "—" : fM(x);
-  const filas = items.map(x => `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
+  let fam = null;
+  const grupo = x => { const g = x.familia !== fam ? `<tr class="grupo"><td colspan="9" class="izq"><b>${escHtml_(x.familia || "OTROS")}</b></td></tr>` : ""; fam = x.familia; return g; };
+  const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
+    (items.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td>${fM(suma("bodega"))}</td><td>${fM(suma("ka"))}</td><td>${fM(suma("pk"))}</td><td>${fM(suma("total"))}</td><td>${fM(suma("fact"))}</td><td></td><td></td></tr>` : "") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
   return `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
     <p class="sm">Todo en cajas. <span style="background:#ffcccc;padding:1px 5px">✗ facturación tiene de más</span> (revisar bloqueo del excedente) · <span style="background:#e2efda;padding:1px 5px">✓ el conteo cubre la facturación</span> · <span style="background:#dbe8ff;padding:1px 5px">✓ +50 % o más: diferencia grande, revisar</span></p>
@@ -4704,8 +4745,10 @@ function sbImportarTodo() {
   const hayTurno = id => { if (inicioTurno[id]) return true; return false; };
 
   const vp = [];
-  tLeer_(VAL_T.productos).forEach(r => vp.push({ turno_id: txt_(r[0]), sku: txt_(r[1]), producto: sbTxt_(r[2]), inicial: numero_(r[3]), actualizado: sbTs_(r[4]), usuario: sbTxt_(r[5]), contado_en: sbTs_(r[6]) }));
-  sbLeerConArchivo_(VAL_T.histProd).forEach(r => vp.push({ turno_id: txt_(r[0]), sku: txt_(r[1]), producto: sbTxt_(r[2]), inicial: numero_(r[3]), actualizado: null, usuario: null, contado_en: sbTs_(r[7]) }));
+  tLeer_(VAL_T.productos).forEach(r => vp.push({ turno_id: txt_(r[0]), sku: txt_(r[1]), producto: sbTxt_(r[2]), inicial: numero_(r[3]), actualizado: sbTs_(r[4]), usuario: sbTxt_(r[5]), contado_en: sbTs_(r[6]),
+    bodega: sbNum_(r[7]), pk: sbNum_(r[8]), ka: sbNum_(r[9]), por_confirmar: sbBool_(r[10]) }));
+  sbLeerConArchivo_(VAL_T.histProd).forEach(r => vp.push({ turno_id: txt_(r[0]), sku: txt_(r[1]), producto: sbTxt_(r[2]), inicial: numero_(r[3]), actualizado: null, usuario: null, contado_en: sbTs_(r[7]),
+    bodega: sbNum_(r[8]), pk: sbNum_(r[9]), ka: sbNum_(r[10]), por_confirmar: sbBool_(r[11]) }));
   const vp2 = [];
   vp.forEach(x => {
     if (!x.sku) return omitir("val_productos", "sin SKU");
@@ -5017,8 +5060,8 @@ function construirPDFEntregaFinal(id) {
   concs.forEach(c => bloques.push({ filas: concItems_(c.id).length + 8, html: `<div class="parte-t">⚖️ Conciliación con facturación</div>` + cuerpoPDFConc_(c, true) }));
   if (partes.includes("V")) {
     const dt = valDatosTurno_(t.id);
-    const grupos = dt.registros.map(r => r.sku).filter((x, k, a) => a.indexOf(x) === k).length;
-    bloques.push({ filas: dt.productos.length + dt.registros.length + grupos + 10, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true) });
+    const familias = dt.productos.map(p => p.familia).filter((x, k, a) => a.indexOf(x) === k).length;
+    bloques.push({ filas: dt.productos.length + familias + 6, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true) });
   }
   // La entrega va sola en su hoja. Lo demás se acomoda junto mientras quepa (≈ 52 filas por hoja).
   const CABEN = 52;

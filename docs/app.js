@@ -292,6 +292,22 @@ document.addEventListener("click", e => {
 });
 const LEYENDA = `<div class="leyenda"><span class="v-venc">Vencido</span><span class="v-rojo">0–29 días</span><span class="v-amar">30–45 días</span><span class="v-vcla">46–90 días</span><span class="v-vosc">&gt; 90 días</span></div>`;
 
+// Con el teclado del celular abierto, la ventana sube y se ajusta para que Guardar y Cancelar sigan a la vista
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const aj = () => {
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--kb", kb + "px");
+    document.documentElement.style.setProperty("--vvh", Math.round(vv.height) + "px");
+  };
+  vv.addEventListener("resize", aj); vv.addEventListener("scroll", aj); aj();
+}
+document.addEventListener("focusin", e => {
+  const t = e.target;
+  if (t && t.closest && t.closest(".modal-card") && /INPUT|TEXTAREA|SELECT/.test(t.tagName) && t.type !== "checkbox" && window.innerWidth < 700)
+    setTimeout(() => { try { t.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (x) {} }, 280);
+});
+
 let modalBusy = false, modalOnClose = null;
 let modalDesde = 0;
 function abrirModal(html, opts) {
@@ -413,6 +429,13 @@ function autoSku(input, onPick, opts) {
   box.addEventListener("mousedown", e => { const it = e.target.closest("[data-k]"); if (it) { e.preventDefault(); elegir(+it.dataset.k); } });
   input.addEventListener("blur", () => setTimeout(() => box.classList.add("hidden"), 150));
   return { cerrar: () => box.classList.add("hidden") };
+}
+// Cuadro de búsqueda con el botón pequeño al final (a la derecha). La ✕ del cuadro limpia también el resultado.
+const barraBusqueda = (id, ph, val, btn, etiqueta) => `<div class="buscador">${etiqueta ? `<span class="bq-l">${h(etiqueta)}</span>` : ""}<div class="bq-fila"><input type="search" id="${id}" placeholder="${h(ph || "SKU o nombre del producto…")}" value="${h(val || "")}" autocomplete="off">${btn ? `<button class="btn sm primary bq-btn" id="${id}B" type="button" title="${h(btn)}"><span class="ic">🔎</span><span class="txt">${h(btn)}</span></button>` : ""}</div></div>`;
+// Al vaciar el cuadro (✕ o borrando) se avisa para dejar la página en blanco
+function alLimpiar(input, fn) {
+  const f = () => { if (!input.value.trim()) fn(); };
+  input.addEventListener("search", f); input.addEventListener("input", f);
 }
 const campoAuto = (id, ph, val) => `<label class="field"><span>Producto (nombre o SKU)</span><input type="search" id="${id}" placeholder="${h(ph || "Escribe el nombre o el SKU…")}" value="${h(val || "")}"></label>`;
 
@@ -799,23 +822,17 @@ VISTAS.inicio = async (el, p, vigente) => {
 VISTAS.stock = async (el, p, vigente) => {
   const [inv] = await Promise.all([cargarInv(), cargarCat()]);
   if (!vigente()) return;
-  let sku = p.sku || ls.get("ultSku", ""), filtro = "ALL", verKA = false, modo = ls.get("modoStock", "sku");
+  let sku = p.sku || ls.get("ultSku", ""), filtro = "ALL", verKA = false;
+  const ficha0 = sku && S.cat.find(c => c.sku === sku);
   el.innerHTML = cab("📡 Stock por SKU", "Existencias físicas en bodega, ordenadas por prioridad y vencimiento") +
-    `<div class="form-row"><div class="seg" id="smo"><button data-m="sku">Por SKU</button><button data-m="nombre">Por nombre</button></div></div>
-     <div class="form-row"><label class="field" style="max-width:520px"><span id="slb"></span><input type="search" id="sq"></label><button class="btn primary" id="sb">Consultar</button></div><div id="sr"></div>`;
+    barraBusqueda("sq", "SKU o nombre (ej: 3659 · pony go 2l)", ficha0 ? `${sku} · ${ficha0.prod}` : sku, "Consultar") + `<div id="sr"></div>`;
   const inp = $("#sq", el);
-  const pintarModo = () => {
-    $$("#smo button", el).forEach(b => b.classList.toggle("on", b.dataset.m === modo));
-    $("#slb", el).textContent = modo === "sku" ? "SKU" : "Nombre del producto (escoge de la lista)";
-    inp.setAttribute("inputmode", modo === "sku" ? "numeric" : "text");
-    inp.placeholder = modo === "sku" ? "Ej: 3659" : "Ej: pony go 2l";
-    inp.value = modo === "sku" ? sku : "";
-  };
-  autoSku(inp, c => { sku = c.sku; ls.set("ultSku", sku); if (modo === "nombre") inp.value = `${c.sku} · ${c.prod}`; pintar(); }, { soloSku: false });
-  $("#smo", el).onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; modo = b.dataset.m; ls.set("modoStock", modo); pintarModo(); inp.focus(); };
+  // Un solo cuadro: si escribe el SKU o el nombre, igual encuentra
+  autoSku(inp, c => { sku = c.sku; ls.set("ultSku", sku); pintar(); });
+  alLimpiar(inp, () => { sku = ""; ls.set("ultSku", ""); pintar(); });
   const pintar = () => {
     const r = $("#sr", el);
-    if (!sku) { r.innerHTML = `<div class="note">Escribe un SKU o busca por nombre.</div>`; return; }
+    if (!sku) { r.innerHTML = ""; return; }
     const ficha = S.cat.find(c => c.sku === sku);
     if (!ficha) { r.innerHTML = vacio("Este SKU no existe en la hoja Sku.", "❌"); return; }
     const fis = inv.filter(i => i.s === sku && i.fis);
@@ -835,14 +852,15 @@ VISTAS.stock = async (el, p, vigente) => {
   };
   const consultar = () => {
     const v = inp.value.trim();
+    if (!v) { sku = ""; pintar(); return; }
     const m = v.match(/^(\d+)/);
     if (m) sku = m[1];
-    else { const r = buscarCat(v, 1); if (r.length) sku = r[0].sku; }
+    else { const r = buscarCat(v, 1); if (r.length) { sku = r[0].sku; inp.value = `${sku} · ${r[0].prod}`; } }
     ls.set("ultSku", sku); pintar();
   };
-  $("#sb", el).onclick = consultar;
+  $("#sqB", el).onclick = consultar;
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.defaultPrevented) consultar(); });
-  pintarModo(); pintar();
+  pintar();
 };
 
 // =====================================================================
@@ -859,15 +877,15 @@ VISTAS.producto = async (el, p, vigente) => {
   await Promise.all([cargarCat(), cargarInv().catch(() => null)]);
   if (!vigente()) return;
   el.innerHTML = cab("🔍 Información de producto", "Busca por nombre, parecido o SKU. La lista se filtra mientras escribes.") +
-    `<div class="form-row"><label class="field" style="max-width:560px"><span>Buscar</span><input type="search" id="bq" value="${h(p.q || "")}" placeholder="Ej: pony go 2l · 3659 · aguila lata"></label></div><div id="br"></div>`;
+    barraBusqueda("bq", "SKU o nombre (ej: pony go 2l · 3659)", p.q || "", "Buscar") + `<div id="br"></div>`;
   const pintar = () => {
     const q = $("#bq", el).value.trim();
-    if (!q) { $("#br", el).innerHTML = `<div class="note">Escribe al menos una palabra o el SKU.</div>`; return; }
+    if (!q) { $("#br", el).innerHTML = ""; return; }
     const res = buscarCat(q, 120);
     if (!res.length) { $("#br", el).innerHTML = vacio("No se encontró ningún producto.", "❌"); return; }
     $("#br", el).innerHTML = `<div class="count" style="margin-bottom:8px">${res.length} productos${res[0].aprox ? " (parecidos)" : ""}</div><div class="grid">${res.map(c => fichaHtml(c, true)).join("")}</div>`;
   };
-  $("#bq", el).oninput = pintar;
+  $("#bq", el).oninput = pintar; $("#bqB", el).onclick = pintar; $("#bq", el).addEventListener("search", pintar);
   $("#br", el).onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
   pintar();
 };
@@ -880,11 +898,13 @@ VISTAS.grupo = async (el, p, vigente) => {
   if (!vigente()) return;
   let filtro = "ALL", verKA = false;
   el.innerHTML = cab("📦 Búsqueda grupal", "Varios SKUs a la vez: las 2 mejores ubicaciones de cada uno") +
-    `<div class="form-row"><label class="field"><span>SKUs (separados por espacio o coma)</span><input type="text" id="gq" value="${h(ls.get("ultGrupo", ""))}" placeholder="2222 3810 7078"></label><button class="btn primary" id="gb">Buscar</button></div><div id="gr"></div>`;
+    barraBusqueda("gq", "SKUs o nombres: 2222 3810, pony go 2l, aguila lata", ls.get("ultGrupo", ""), "Buscar", "Varios productos: SKUs separados por espacio; nombres separados por coma") + `<div id="gr"></div>`;
+  // Cada parte separada por coma: números = SKUs; texto = el producto que más se parece
+  const leer = t => String(t || "").split(/[,;\n]+/).map(x => x.trim()).filter(x => x).flatMap(x => /^[\d\s]+$/.test(x) ? x.match(/\d+/g) : [(buscarCat(x.replace(/^\d+\s*·\s*/, ""), 1)[0] || { sku: (x.match(/^(\d+)/) || [])[1] }).sku]).filter(x => x);
   const pintar = () => {
-    const skus = ($("#gq", el).value.match(/\d+/g) || []).filter((v, k, a) => a.indexOf(v) === k);
-    ls.set("ultGrupo", skus.join(" "));
-    if (!skus.length) { $("#gr", el).innerHTML = `<div class="note">Escribe uno o más SKUs numéricos.</div>`; return; }
+    const skus = leer($("#gq", el).value).filter((v, k, a) => a.indexOf(v) === k);
+    ls.set("ultGrupo", $("#gq", el).value.trim());
+    if (!skus.length) { $("#gr", el).innerHTML = ""; return; }
     const segBtn = (f, t) => `<button data-f="${f}" class="${filtro === f ? "on" : ""}">${t}</button>`;
     let html = `<div class="lista-tools"><div class="seg" id="gf">${segBtn("ALL", "Todos")}${segBtn("DISP", "Disponible")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div><label class="toggle"><input type="checkbox" id="gk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label></div>${LEYENDA}`;
     skus.forEach(s => {
@@ -903,7 +923,8 @@ VISTAS.grupo = async (el, p, vigente) => {
     $("#gk", el).onchange = e => { verKA = e.target.checked; pintar(); };
   };
   $("#gr", el).addEventListener("click", e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); });
-  $("#gb", el).onclick = pintar; $("#gq", el).onkeydown = e => { if (e.key === "Enter") pintar(); };
+  $("#gqB", el).onclick = pintar; $("#gq", el).onkeydown = e => { if (e.key === "Enter") pintar(); };
+  alLimpiar($("#gq", el), () => { ls.set("ultGrupo", ""); $("#gr", el).innerHTML = ""; });
   pintar();
 };
 
@@ -921,10 +942,11 @@ VISTAS.modulo = async (el, p, vigente) => {
   if (!vigente()) return;
   const q = limpiarMod(p.mod || ls.get("ultMod", ""));
   el.innerHTML = cab("📍 Por módulo", "Una letra para todo el pasillo (B = B1, B2…) o el módulo exacto (B12, KA3, M4, H2)") +
-    `<div class="form-row"><label class="field" style="max-width:260px"><span>Módulo o pasillo</span><input type="text" id="mq" value="${h(q)}" placeholder="Ej: B o B12"></label><button class="btn primary" id="mb">Ver</button></div><div id="mr"></div>`;
+    barraBusqueda("mq", "Módulo o pasillo (ej: B o B12)", q, "Ver") + `<div id="mr"></div>`;
   const ver = () => { const v = $("#mq", el).value.trim(); ls.set("ultMod", v); ir("modulo", { mod: v }); };
-  $("#mb", el).onclick = ver; $("#mq", el).onkeydown = e => { if (e.key === "Enter") ver(); };
-  if (!q) { $("#mr", el).innerHTML = `<div class="note">Escribe un módulo.</div>`; return; }
+  $("#mqB", el).onclick = ver; $("#mq", el).onkeydown = e => { if (e.key === "Enter") ver(); };
+  alLimpiar($("#mq", el), () => { ls.set("ultMod", ""); $("#mr", el).innerHTML = ""; });
+  if (!q) { $("#mr", el).innerHTML = ""; return; }
   const esPasillo = q.length <= 2 && !/\d/.test(q);
   const re = new RegExp("^" + q.replace(/[^A-Z]/g, "") + "\\d+$");
   const lis = inv.filter(i => i.fis && (esPasillo ? re.test(i.m) : i.m === q)).sort(ordPrioModD);
@@ -1176,12 +1198,13 @@ VISTAS.consolidar = async (el, p, vigente) => {
 VISTAS.acomodar = async (el, p) => {
   await cargarCat().catch(() => null);
   el.innerHTML = cab("🎯 Acomodar ingreso", "Dónde ubicar un ingreso sin tapar mercancía más vieja") +
-    `<div class="form-row"><label class="field" style="max-width:380px"><span>Producto (SKU o nombre)</span><input type="search" id="as" value="${h(p.sku || "")}"></label>
-      <label class="field" style="max-width:220px"><span>Vencimiento del ingreso</span><input type="date" id="af" value="${h(p.f || "")}"></label><button class="btn primary" id="ab">Calcular</button></div><div id="ar"></div>`;
+    barraBusqueda("as", "SKU o nombre del producto", p.sku || "", "", "Producto") +
+    `<div class="form-row"><label class="field" style="max-width:220px"><span>Vencimiento del ingreso</span><input type="date" id="af" value="${h(p.f || "")}"></label><button class="btn primary sm" id="ab">Calcular</button></div><div id="ar"></div>`;
   let sku = p.sku || "";
   autoSku($("#as", el), c => { sku = c.sku; });
+  alLimpiar($("#as", el), () => { sku = ""; $("#ar", el).innerHTML = ""; });
   $("#ab", el).onclick = async () => {
-    const v = $("#as", el).value.trim(), m = v.match(/^(\d+)/); if (m) sku = m[1];
+    const v = $("#as", el).value.trim(), m = v.match(/^(\d+)/); if (m) sku = m[1]; else if (v) { const r = buscarCat(v, 1); if (r.length) sku = r[0].sku; }
     const f = $("#af", el).value;
     if (!sku || !f) { toast("Escribe el SKU y la fecha.", "bad"); return; }
     $("#ar", el).innerHTML = loader("Calculando…");
@@ -1248,6 +1271,51 @@ const botonesCierre = (id, dis) => `<div class="modal-actions cierre-acc"><butto
   <button class="btn primary" data-modo="pdf" id="${id}P" ${dis}>📄 Cerrar y descargar PDF</button>
   ${S.grupoTg ? `<button class="btn primary" data-modo="tg" id="${id}T" ${dis}>✈️ Cerrar y enviar al grupo</button>` : ""}</div>`;
 
+// La tarjeta del turno (y la de la conciliación) queda recogida: se ve el número y se despliega si el usuario quiere
+const infoAbierta = () => ls.get("infoTurno", "") === "1";
+const clsInfo = () => infoAbierta() ? "" : " plegada";
+const togInfo = () => `<button type="button" class="turno-tog" data-info-tog title="Ver u ocultar la información" aria-expanded="${infoAbierta()}"><span class="tt-v">ℹ️ Ver</span><span class="tt-o">Ocultar ▴</span></button>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-info-tog]"); if (!b) return;
+  e.stopPropagation();
+  const ab = !infoAbierta(); ls.set("infoTurno", ab ? "1" : "");
+  $$(".turno[data-info]").forEach(x => x.classList.toggle("plegada", !ab));
+  $$("[data-info-tog]").forEach(x => x.setAttribute("aria-expanded", ab ? "true" : "false"));
+}, true);
+
+// ---------- piezas comunes de validación, conciliación y entrega ----------
+// Grupos por familia (A-Z) que se recogen y despliegan; se recuerda cuáles cerró el usuario
+S.famCerradas = S.famCerradas || {};
+function gruposFamilia(clave, items, tarjeta, extra) {
+  const grupos = {};
+  items.forEach(x => { const f = x.familia || famDe(x.sku); (grupos[f] = grupos[f] || []).push(x); });
+  return Object.keys(grupos).sort((a, b) => a.localeCompare(b, "es")).map(f => {
+    const k = clave + "|" + f, cerr = !!S.famCerradas[k], lis = grupos[f].sort(porNombre);
+    return `<section class="fam-g ${cerr ? "cerrada" : ""}"><button type="button" class="fam-h" data-famtog="${h(k)}" aria-expanded="${!cerr}"><span class="fam-t">${h(f)}</span><span class="fam-n">${lis.length}</span>${extra ? extra(lis) : ""}<span class="fam-f" aria-hidden="true">▾</span></button><div class="fam-b">${lis.map(tarjeta).join("")}</div></section>`;
+  }).join("");
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-famtog]"); if (!b) return;
+  const k = b.dataset.famtog; S.famCerradas[k] = !S.famCerradas[k];
+  b.closest(".fam-g").classList.toggle("cerrada", S.famCerradas[k]); b.setAttribute("aria-expanded", String(!S.famCerradas[k]));
+});
+// Familia del WMS (para lo que todavía no confirmó el servidor)
+const famDe = sku => { const i = (S.inv || []).find(x => x.s === sku && x.fam); return i ? i.fam : "OTROS"; };
+// Al buscar se abren los grupos y se esconden los que no tienen resultados
+function filtrarGrupos(el, buscando, sel) {
+  el.classList.toggle("buscando", buscando);
+  $$(".fam-g, .pc-g", el).forEach(g => g.classList.toggle("hidden", !$$(sel + ":not(.hidden)", g).length));
+}
+// Botón flotante de agregar (abajo a la derecha)
+const fab = (accion, titulo) => `<button type="button" class="fab" data-a="${accion}" title="${h(titulo)}" aria-label="${h(titulo)}">＋</button>`;
+// Hora pequeña y editable, con su calendario, al lado de un título
+const aInputHora = t => t ? String(t).replace(" ", "T").slice(0, 16) : ahoraLocal();
+const horaTxt = v => { const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : "—"; };
+const horaEd = (id, valor, etiqueta) => `<label class="hora-ed" title="${h(etiqueta || "Cambiar la hora")}"><span class="he-t">🕐 <b data-hora="${id}">${horaTxt(aInputHora(valor))}</b> 📅</span><input type="datetime-local" data-fm="1" id="${id}" value="${h(aInputHora(valor))}" aria-label="${h(etiqueta || "Hora")}"></label>`;
+// La hora se ve como texto pequeño; al tocarla se abre el calendario del celular
+document.addEventListener("change", e => { const i = e.target.closest(".hora-ed input"); if (!i) return; const b = document.querySelector(`[data-hora="${i.id}"]`); if (b) b.textContent = horaTxt(i.value); });
+document.addEventListener("click", e => { const l = e.target.closest(".hora-ed"); if (!l) return; const i = l.querySelector("input"); if (i && i.showPicker) { e.preventDefault(); try { i.showPicker(); } catch (x) { i.focus(); } } });
+
 function pintarBarra(cont, te, compacto) {
   if (!cont) return;
   S.turno = te;
@@ -1260,7 +1328,8 @@ function pintarBarra(cont, te, compacto) {
       <div class="acciones">${esc ? `<button class="btn primary" data-t="abrir">Abrir turno</button>` : `<span class="muted small">Un validador debe abrir el turno.</span>`}</div></section>`;
   } else {
     const t = te.turno;
-    html = `<section class="card turno"><div class="turno-info"><div class="turno-num">T${h(t.numero)}</div>
+    html = `<section class="card turno${clsInfo()}" data-info="turno"><div class="turno-info"><div class="turno-num">T${h(t.numero)}</div>
+      <div class="t-res">${h(t.texto)}</div>${togInfo()}
       <div><div class="k">Turno</div><div class="v">${h(t.texto)} <span class="muted small solo-escritorio">(${h(t.horario)})</span></div></div>
       <div><div class="k">Abierto por</div><div class="v">${h(t.abiertoPor)} · ${h(soloHora(t.inicio))}</div></div>
       ${t.recibeDe ? `<div class="solo-escritorio"><div class="k">Recibe de</div><div class="v">${h(t.recibeDe.replace(/^Recibe de /, ""))}</div></div>` : ""}</div>
@@ -1298,7 +1367,7 @@ function modalAbrirTurno(te) {
   const hor = (te && te.horarios) || { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
   const c = abrirModal(`<h3>Abrir turno</h3><p class="muted small">Escoge tu turno. No se puede abrir otro hasta cerrar este.</p>
     <div class="num-pick" id="np">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(String(hor[n] || "").replace(/:00/g, ""))}</span></button>`).join("")}</div>
-    ${te && te.ultimo ? `<label class="check"><input type="checkbox" id="atH" checked><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar el saldo de la validación (se puede editar después).</span></label>` : `<p class="muted small">No hay turno anterior del que recibir.</p>`}
+    ${te && te.ultimo ? `<label class="check"><input type="checkbox" id="atH"><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar el saldo de la validación (se puede editar después).</span></label>` : `<p class="muted small">No hay turno anterior del que recibir.</p>`}
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="atOk">Abrir turno</button></div>`);
   $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); };
   $("#atOk", c).onclick = async () => {
@@ -1441,25 +1510,21 @@ function pintarVal(el) {
   const esc = puede("validador");
   let html = cab("📝 Validación de facturación", hist ? "" : "Saldo por producto escaso en el turno") + `<div id="tb"></div>`;
   if (!t) { el.innerHTML = html + vacio("Abre el turno para empezar a validar.", "🔒"); pintarBarra($("#tb", el), v.turnoInfo); return; }
-  const totIni = v.productos.reduce((a, p) => a + p.inicial, 0), totVal = v.productos.reduce((a, p) => a + p.validado, 0);
   const regs = v.registros;
-  const nAct = regs.filter(r => r.estado === "ACTIVO").length, nAn = regs.filter(r => r.estado === "ANULADO").length, nConf = regs.filter(r => r.estado === "CONFLICTO").length;
-  const regsDe = sku => regs.filter(r => r.sku === sku);
+  const nConf = regs.filter(r => r.estado === "CONFLICTO").length;
   numerarRegs(v);
-  // Cada producto tiene su color (el mismo en su tarjeta y en su registro)
-  const orden = v.productos.map(x => x.sku).concat(regs.map(r => r.sku)).filter((x, k, a) => a.indexOf(x) === k);
-  const colorDe = sku => colorProducto(orden.indexOf(sku));
-  const skusReg = orden.filter(sku => regs.some(r => r.sku === sku));
-  html += `<div class="barra-acc">${esc ? `<button class="btn btn-neon" data-a="agregar"><span><span class="ic">＋</span><span class="txt"> Agregar productos</span></span></button>` : ""}${hist ? "" : botonesPDF("VALIDACION", "PDF", t.id)}</div><div class="count" style="margin:-2px 0 10px">Validado ${fm(totVal)} de ${fm(totIni)} cajas</div>
+  const regsDe = sku => regs.filter(r => r.sku === sku);
+  const tarjeta = p => cardVal(p, esc, hist, regsDe(p.sku));
+  const porConf = v.productos.filter(p => p.porConfirmar).sort(porNombre), normales = v.productos.filter(p => !p.porConfirmar);
+  html += `${hist ? "" : `<div class="barra-acc barra-mini">${botonesPDF("VALIDACION", "PDF", t.id)}</div>`}
     ${nConf ? `<div class="err">⚠️ Hay ${nConf} validación(es) en conflicto: se hicieron sin conexión y al subir ya no alcanzaba el saldo. Corrígelas o anúlalas.</div>` : ""}
-    ${v.productos.length ? `<div class="lista-tools"><input type="search" id="vq" placeholder="Buscar el producto a actualizar (nombre o SKU)…" value="${h(S.valQ || "")}"><span class="count" id="vqc"></span></div>
-      <div class="vlista">${v.productos.map(p => cardVal(p, esc, hist, regsDe(p.sku), colorDe(p.sku))).join("")}</div>` : vacio("No hay productos en este turno. Usa «Agregar productos».", "📝")}
-    <h2>Registro <span class="muted small">(${nAct} activas${nAn ? `, ${nAn} anuladas` : ""}${nConf ? `, ${nConf} en conflicto` : ""})</span></h2>
-    ${regs.length ? `<div class="lista-tools"><button class="btn sm" data-a="rabrir">Abrir todas</button><button class="btn sm" data-a="rcerrar">Cerrar todas</button></div>
-      <div class="rlista">${skusReg.map(sku => tarjetaReg(sku, regs.filter(r => r.sku === sku), v.productos.find(x => x.sku === sku), colorDe(sku), esc, hist)).join("")}</div>` : `<div class="card muted">Sin validaciones.</div>`}
-    ${esc && !hist ? `<details class="card"><summary>Destinos (${v.destinos.length})</summary>
+    ${v.productos.length ? `<div class="lista-tools"><input type="search" id="vq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.valQ || "")}"><button class="btn sm" data-a="vabrir">Abrir todas</button><button class="btn sm" data-a="vcerrar">Cerrar todas</button><span class="count" id="vqc"></span></div>
+      ${porConf.length ? `<section class="pc-g"><div class="pc-t">⏳ Por confirmar cantidad <span class="fam-n">${porConf.length}</span></div><div class="vlista">${porConf.map(tarjeta).join("")}</div></section>` : ""}
+      <div class="vlista">${gruposFamilia("val", normales, tarjeta)}</div>` : vacio("No hay productos en este turno. Toca ＋ para agregarlos.", "📝")}
+    ${esc && !hist ? `<details class="card destinos-c"><summary>Destinos (${v.destinos.length})</summary>
       <div class="row" style="margin:10px 0">${v.destinos.map(d => `<span class="chip-x">${h(d)}<button data-a="qdest" data-d="${h(d)}" title="Quitar">✕</button></span>`).join("")}</div>
-      <div class="form-row" style="margin:0"><label class="field" style="max-width:260px"><span>Nuevo destino</span><input type="text" id="nd" placeholder="Ej: Mayoristas"></label><button class="btn" data-a="adest">Agregar</button></div></details>` : ""}`;
+      <div class="form-row" style="margin:0"><label class="field" style="max-width:260px"><span>Nuevo destino</span><input type="text" id="nd" placeholder="Ej: Mayoristas"></label><button class="btn sm" data-a="adest">Agregar</button></div></details>` : ""}
+    ${esc ? fab("agregar", "Agregar productos") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(Object.assign({}, t, { texto: t.texto }), "VALIDACION");
   else pintarBarra($("#tb", el), v.turnoInfo);
@@ -1467,18 +1532,15 @@ function pintarVal(el) {
   const vq = $("#vq", el);
   if (vq) { vq.oninput = () => { S.valQ = vq.value; filtrarVal(el); }; filtrarVal(el); }
 }
+const porNombre = (a, b) => String(a.producto || "").localeCompare(String(b.producto || ""), "es", { numeric: true });
 // El buscador solo esconde tarjetas (no repinta: el teclado no se cierra mientras se escribe)
 function filtrarVal(el) {
   const q = norm(S.valQ || "").split(/\s+/).filter(x => x);
   let n = 0;
   $$(".vlista .vcard", el).forEach(c => { const ok = !q.length || coincide(norm(c.dataset.q), q) > 0; c.classList.toggle("hidden", !ok); if (ok) n++; });
+  filtrarGrupos(el, q.length > 0, ".vcard");
   const c = $("#vqc", el); if (c) c.textContent = q.length ? `${n} de ${$$(".vlista .vcard", el).length}` : "";
 }
-
-// Cada producto: cerrado muestra solo SKU y nombre; al tocarlo se despliega todo
-// Colores claros por producto (se repiten si hay más de 10)
-const TONOS = [0, 28, 52, 95, 150, 180, 205, 240, 280, 320];
-const colorProducto = k => { const t = TONOS[((k % TONOS.length) + TONOS.length) % TONOS.length]; return `--pc:hsl(${t} 85% 66%);--pcs:hsla(${t},85%,60%,.13)`; };
 // Número de cada validación dentro de su producto y saldo que quedó después (igual que el servidor)
 function numerarRegs(v) {
   const ini = {}, n = {};
@@ -1489,43 +1551,40 @@ function numerarRegs(v) {
     ini[r.sku] -= r.cantidad; r.saldo = ini[r.sku];
   });
 }
-// Registro: una tarjeta desplegable por producto, con cada validación numerada y su saldo
-function tarjetaReg(sku, rs, p, color, esc, hist) {
-  rs = rs.slice().sort((a, b) => a.seq - b.seq);
-  const act = rs.filter(r => r.estado !== "ANULADO" && r.estado !== "CONFLICTO");
-  const ab = abierto("reg", sku), ult = act[act.length - 1];
-  return `<article class="card rcard plegable ${ab ? "abierto" : ""}" style="${color}">
-    <div class="pl-cab" data-plegar="reg|${h(sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="rc-tit"><span class="rc-n" title="Validaciones">${act.length}</span><div><div class="prod">${skuTxt(sku, rs[0].producto)}</div>
-        <div class="sub">${act.length} ${act.length === 1 ? "validación" : "validaciones"}${ult && ult.saldo !== null ? ` · saldo <b>${fm(ult.saldo)}</b>` : ""}${p ? ` de ${fm(p.inicial)}` : ""}</div></div></div>
-      <span class="pl-flecha" aria-hidden="true">▾</span></div>
-    <div class="pl-cuerpo">${rs.map(r => {
-      const cls = r.estado === "ANULADO" ? "anulado" : r.estado === "CONFLICTO" ? "conflicto" : (r.estado === "PENDIENTE" || r.estado === "ENVIANDO") ? "pendiente" : "";
-      return `<div class="rreg ${cls}" title="${h(r.modificadoPor || "")}"><span class="rr-num">${r.seq}</span>
-        <div class="rr-main"><div class="rr-l"><span class="chip">${h(r.destino)} <b>${fm(r.cantidad)}</b></span>${r.saldo !== null && r.saldo !== undefined ? `<span class="rr-saldo">Saldo <b>${fm(r.saldo)}</b></span>` : ""}
-          ${r.estado === "ANULADO" ? `<span class="pill">ANULADA</span>` : ""}${r.estado === "CONFLICTO" ? `<span class="pill bad">CONFLICTO</span>` : ""}${r.estado === "PENDIENTE" ? `<span class="pill warn">⏳ sin subir</span>` : ""}${r.estado === "ENVIANDO" ? `<span class="pill info">guardando…</span>` : ""}</div>
-          <div class="sub">✔ ${h(hist ? fechaCorta(r.fecha) : soloHora(r.fecha))} · 🕐 contado ${r.contadoEn ? h(fechaCorta(r.contadoEn)) : "—"} · ${h(r.usuario)}${r.nota ? ` · 📝 ${h(r.nota)}` : ""}</div></div>
-        ${esc && r.id && r.estado !== "ANULADO" ? `<div class="rr-acc"><button class="btn sm" data-a="editar" data-id="${h(r.id)}">${r.estado === "CONFLICTO" ? "Corregir" : "Editar"}</button><button class="btn sm danger-ghost" data-a="anular" data-id="${h(r.id)}">Anular</button></div>` : ""}</div>`;
-    }).join("")}</div></article>`;
+// Una validación dentro de la tarjeta de su producto (compacta, con editar y anular)
+function filaReg(r, esc, hist) {
+  const cls = r.estado === "ANULADO" ? "anulado" : r.estado === "CONFLICTO" ? "conflicto" : (r.estado === "PENDIENTE" || r.estado === "ENVIANDO") ? "pendiente" : "";
+  return `<div class="vreg ${cls}" title="${h((r.usuario || "") + (r.modificadoPor ? " · " + r.modificadoPor : ""))}"><span class="rr-num">${r.seq}</span>
+    <span class="vr-d">${h(r.destino)}</span><b class="vr-c">${fm(r.cantidad)}</b>
+    <span class="vr-s">${r.saldo !== null && r.saldo !== undefined ? `saldo <b>${fm(r.saldo)}</b>` : ""}${r.estado === "ANULADO" ? ` <span class="pill">anulada</span>` : ""}${r.estado === "CONFLICTO" ? ` <span class="pill bad">conflicto</span>` : ""}${r.estado === "PENDIENTE" ? ` <span class="pill warn">⏳</span>` : ""}${r.estado === "ENVIANDO" ? ` <span class="pill info">↑</span>` : ""}</span>
+    <span class="vr-h">${h(hist ? fechaCorta(r.fecha) : soloHora(r.fecha))}${r.nota ? ` · 📝 ${h(r.nota)}` : ""}</span>
+    ${esc && r.id && r.estado !== "ANULADO" ? `<span class="vr-acc"><button class="btn sm icon" data-a="editar" data-id="${h(r.id)}" title="${r.estado === "CONFLICTO" ? "Corregir" : "Editar"}" aria-label="Editar">✎</button><button class="btn sm icon del" data-a="anular" data-id="${h(r.id)}" title="Anular" aria-label="Anular">🚫</button></span>` : ""}</div>`;
 }
-
-function cardVal(p, esc, hist, regs, color) {
-  const dest = Object.keys(p.porDestino);
-  const activos = (regs || []).filter(r => r.estado === "ACTIVO" || r.estado === "PENDIENTE" || r.estado === "ENVIANDO");
+// Cada producto: cerrado muestra SKU, nombre y el saldo; abierto muestra lo contado en cada zona y sus validaciones
+function cardVal(p, esc, hist, regs) {
+  regs = regs || [];
+  const activos = regs.filter(r => r.estado === "ACTIVO" || r.estado === "PENDIENTE" || r.estado === "ENVIANDO");
   const ultima = activos.map(r => r.fecha).filter(x => x).sort().pop();
   const ab = abierto("val", p.sku);
-  return `<article class="card vcard plegable ${estadoVal(p)} ${ab ? "abierto" : ""}" data-q="${h(p.sku + " " + p.producto)}" style="${color || ""}">
-    <div class="pl-cab" data-plegar="val|${h(p.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div class="rc-tit"><span class="rc-n" title="Validaciones">${activos.length}</span><div class="prod">${skuTxt(p.sku, p.producto)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+  const vacia = x => x === "" || x === null || x === undefined;
+  const z = x => vacia(x) ? `<b class="z-no" title="No se contó">—</b>` : `<b>${fm(x)}</b>`;
+  const hayZ = [p.bodega, p.pk, p.ka].some(x => !vacia(x));
+  const sinSaldo = p.disponible <= 0 && !p.porConfirmar;
+  return `<article class="card vcard plegable ${estadoVal(p)} ${ab ? "abierto" : ""}" data-q="${h(p.sku + " " + p.producto)}">
+    <div class="pl-cab" data-plegar="val|${h(p.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
+      <div class="rc-tit"><span class="rc-n" title="Validaciones">${activos.length}</span><div class="prod">${skuTxt(p.sku, p.producto)}</div></div>
+      <span class="vc-mini" title="Disponible de la cantidad inicial"><b>${fm(p.disponible)}</b><small>/${fm(p.inicial)}</small></span><span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
-      <div class="vc-top"><div class="vc-disp"><span class="n">${fm(p.disponible)}</span><span class="l">disponibles de ${fm(p.inicial)}</span></div></div>
-      <div class="bar"><i style="width:${pctVal(p)}%"></i></div>
-      <div class="vc-horas">
-        <div>🕐 Hora de conteo: <b>${p.contadoEn ? h(fechaCorta(p.contadoEn)) : "Heredado"}</b></div>
-        <div>✔ Última validación: <b>${ultima ? h(fechaCorta(ultima)) : "—"}</b></div></div>
-      ${dest.length ? `<div class="dest">${dest.map(d => `<span class="chip">${h(d)} <b>${fm(p.porDestino[d])}</b></span>`).join("")}</div>` : `<div class="muted small">Sin validaciones todavía.</div>`}
-      <div class="vc-meta">Inicial <b>${fm(p.inicial)}</b>${esc ? ` <button class="link" data-a="inicial" data-sku="${h(p.sku)}">✎</button>` : ""} · Validado <b>${fm(p.validado)}</b>${!hist ? ` · WMS ${fm(p.wmsCajas)}` : ""}${p.conflictos ? ` · <span style="color:var(--bad)">${p.conflictos} en conflicto</span>` : ""}</div>
+      <div class="vc-zonas"><span>Bodega ${z(p.bodega)}</span><span>PK ${z(p.pk)}</span><span>KA ${z(p.ka)}</span><span class="vc-ini">Total <b>${fm(p.inicial)}</b></span></div>
+      ${!hayZ && p.inicial ? `<div class="muted small">Sin detalle por zona (cantidad total).</div>` : ""}
+      <div class="vc-cifras"><span class="vc-val">Validado <b>${fm(p.validado)}</b></span><span class="vc-dis">Disponible <b>${fm(p.disponible)}</b></span>${!hist && p.wmsCajas !== undefined ? `<span class="muted small">WMS ${fm(p.wmsCajas)}</span>` : ""}
+        <button type="button" class="reloj" data-a="horas" title="Ver horas de conteo y de validación" aria-label="Ver horas">🕐</button></div>
+      <div class="vc-horas hidden">🕐 Contado: <b>${p.contadoEn ? h(fechaCorta(p.contadoEn)) : "Heredado"}</b> · ✔ Última validación: <b>${ultima ? h(fechaCorta(ultima)) : "—"}</b></div>
+      ${p.porConfirmar ? `<div class="vc-alerta">⏳ Cantidad por confirmar: se puede validar, pero confirma el conteo con «✎ Cantidad».</div>` : ""}
       ${p.alertaWms ? `<div class="vc-alerta">⚠️ El WMS tiene menos cajas (${fm(p.wmsCajas)}) que las disponibles.</div>` : ""}
-      ${esc ? `<div class="vc-acc"><button class="btn primary sm grow" data-a="validar" data-sku="${h(p.sku)}" ${p.disponible <= 0 ? "disabled" : ""}>${p.disponible <= 0 ? "Sin saldo" : "Validar"}</button><button class="btn sm icon del" data-a="quitar" data-sku="${h(p.sku)}" title="Quitar del turno" aria-label="Quitar del turno">${ICO_DEL}</button></div>` : ""}
+      ${Object.keys(p.porDestino).length ? `<div class="dest">${Object.keys(p.porDestino).map(d => `<span class="chip">${h(d)} <b>${fm(p.porDestino[d])}</b></span>`).join("")}</div>` : ""}
+      ${regs.length ? `<div class="vc-regs">${regs.slice().sort((a, b) => a.seq - b.seq).map(r => filaReg(r, esc, hist)).join("")}</div>` : `<div class="muted small">Sin validaciones todavía.</div>`}
+      ${esc ? `<div class="vc-acc"><button class="btn primary sm grow" data-a="validar" data-sku="${h(p.sku)}" ${sinSaldo ? "disabled" : ""}>${sinSaldo ? "Sin saldo" : "Validar"}</button><button class="btn sm" data-a="inicial" data-sku="${h(p.sku)}" title="Corregir o sumar a la cantidad inicial">✎ Cantidad</button><button class="btn sm icon del" data-a="quitar" data-sku="${h(p.sku)}" title="Quitar del turno" aria-label="Quitar del turno">${ICO_DEL}</button></div>` : ""}
     </div>
   </article>`;
 }
@@ -1535,7 +1594,8 @@ async function onValClick(e) {
   const a = b.dataset.a, v = valConPendientes(), T = S.valTurno || "";
   const prod = sku => v.productos.find(x => x.sku === sku);
   if (a === "agregar") return modalAgregar();
-  if (a === "rabrir" || a === "rcerrar") { S.abiertos.reg = {}; v.registros.forEach(r => { S.abiertos.reg[r.sku] = a === "rabrir"; }); $$(".rcard").forEach(c => c.classList.toggle("abierto", a === "rabrir")); return; }
+  if (a === "vabrir" || a === "vcerrar") { S.abiertos.val = {}; v.productos.forEach(p => { S.abiertos.val[p.sku] = a === "vabrir"; }); $$(".vlista .vcard").forEach(c => c.classList.toggle("abierto", a === "vabrir")); return; }
+  if (a === "horas") { const hz = b.closest(".pl-cuerpo").querySelector(".vc-horas"); if (hz) hz.classList.toggle("hidden"); return; }
   if (a === "validar") return modalValidar(prod(b.dataset.sku));
   if (a === "editar") { const r = v.registros.find(x => x.id === b.dataset.id); return modalValidar(prod(r.sku), r); }
   if (a === "inicial") return modalInicial(prod(b.dataset.sku));
@@ -1566,37 +1626,36 @@ function modalValidar(p, reg) {
   if (!p) return;
   const hist = !!S.valTurno;
   const max = p.disponible + (reg && reg.estado === "ACTIVO" ? reg.cantidad : 0);
-  let destino = reg ? reg.destino : "";
-  const c = abrirModal(`<h3>${reg ? (reg.estado === "CONFLICTO" ? "Corregir validación en conflicto" : "Editar validación") : (hist ? "Agregar validación olvidada" : "Validar")}</h3>
-    <div>${skuTxt(p.sku, p.producto)}</div>
-    <div class="muted small">Disponible: <b>${fm(max)}</b> cajas · contado ${p.contadoEn ? h(fechaCorta(p.contadoEn)) : "(heredado)"}</div>
-    <div class="field"><span>Destino (canal)</span><div class="dest-pick" id="dp">${S.val.destinos.map(d => `<button type="button" class="chip-btn ${d === destino ? "on" : ""}" data-d="${h(d)}">${h(d)}</button>`).join("")}<button type="button" class="chip-btn" data-d="__otro">＋ Otro</button></div></div>
-    <label class="field hidden" id="otroF"><span>Nombre del nuevo destino</span><input type="text" id="otro" placeholder="Ej: Mayoristas"></label>
-    <label class="field"><span>Cantidad (cajas)</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="vc" class="grande" value="${reg ? reg.cantidad : ""}" placeholder="0" autofocus></label>
-    <div class="small" id="vr" style="margin-top:6px;text-align:center"></div>
-    ${hist && !reg ? `<label class="field"><span>Hora en que se validó</span><input type="datetime-local" id="vh" value="${ahoraLocal()}"></label>` : ""}
+  const libre = !!p.porConfirmar;   // por confirmar: se puede validar aunque quede negativo
+  const destinos = S.val.destinos.slice();
+  if (reg && reg.destino && !destinos.includes(reg.destino)) destinos.push(reg.destino);
+  const c = abrirModal(`<div class="m-tit"><h3>${reg ? (reg.estado === "CONFLICTO" ? "Corregir validación" : "Editar validación") : (hist ? "Validación olvidada" : "Validar")}</h3>${horaEd("vh", reg ? reg.fecha : "", "Hora en que se validó")}</div>
+    <div class="m-prod">${skuTxt(p.sku, p.producto)}</div>
+    <div class="m-info">Disponible <b>${fm(max)}</b>${libre ? ` · <span class="pill warn">por confirmar</span>` : ""}</div>
+    <div class="m-fila">
+      <label class="field f-dest"><span>Destino</span><select id="vd"><option value="">Escoge…</option>${destinos.map(d => `<option ${reg && reg.destino === d ? "selected" : ""}>${h(d)}</option>`).join("")}<option value="__otro">＋ Otro…</option></select></label>
+      <label class="field f-cant"><span>Cajas</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="vc" value="${reg ? reg.cantidad : ""}" placeholder="0" autofocus></label></div>
+    <label class="field hidden" id="otroF"><span>Nuevo destino</span><input type="text" id="otro" placeholder="Ej: Mayoristas"></label>
+    <div class="small m-res" id="vr"></div>
     <label class="field"><span>Nota (opcional)</span><input type="text" id="vn" value="${h(reg ? reg.nota : "")}" placeholder="Pedido, cliente, factura…"></label>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="vok">${reg ? "Guardar" : "Validar"}</button></div>`);
+  const horaIni = $("#vh", c).value;
   const cant = () => parseInt(String($("#vc", c).value).replace(/\D/g, ""), 10) || 0;
+  const destino = () => $("#vd", c).value === "__otro" ? $("#otro", c).value.trim() : $("#vd", c).value;
   const upd = () => {
     const n = cant(), resto = max - n;
-    $("#vr", c).innerHTML = n ? (resto < 0 ? `<span style="color:var(--bad)">⛔ Excede el disponible por ${fm(-resto)} cajas.</span>` : `Quedarán <b>${fm(resto)}</b> cajas disponibles.`) : "";
-    $("#vok", c).disabled = !n || resto < 0 || !(destino && destino !== "__otro" || (destino === "__otro" && $("#otro", c).value.trim()));
+    $("#otroF", c).classList.toggle("hidden", $("#vd", c).value !== "__otro");
+    $("#vr", c).innerHTML = n ? (resto < 0 ? (libre ? `<span style="color:var(--warn)">Queda en ${fm(resto)} (producto por confirmar).</span>` : `<span style="color:var(--bad)">⛔ Excede el disponible por ${fm(-resto)} cajas.</span>`) : `Quedarán <b>${fm(resto)}</b> cajas.`) : "";
+    $("#vok", c).disabled = !n || (resto < 0 && !libre) || !destino();
   };
-  $("#dp", c).onclick = e => {
-    const bt = e.target.closest("[data-d]"); if (!bt) return;
-    destino = bt.dataset.d;
-    $$("#dp .chip-btn", c).forEach(x => x.classList.toggle("on", x === bt));
-    $("#otroF", c).classList.toggle("hidden", destino !== "__otro");
-    if (destino === "__otro") $("#otro", c).focus(); else $("#vc", c).focus();
-    upd();
-  };
+  $("#vd", c).onchange = () => { upd(); if ($("#vd", c).value === "__otro") $("#otro", c).focus(); };
   $("#vc", c).oninput = upd; $("#otro", c).oninput = upd;
   $("#vc", c).onkeydown = e => { if (e.key === "Enter" && !$("#vok", c).disabled) $("#vok", c).click(); };
   upd();
   $("#vok", c).onclick = async () => {
-    const d = destino === "__otro" ? $("#otro", c).value.trim() : destino;
-    const obj = { sku: p.sku, destino: d, cantidad: cant(), nota: $("#vn", c).value.trim(), turnoId: S.val.turno.id, hora: hist && $("#vh", c) ? $("#vh", c).value : ahoraTxt() };
+    const d = destino();
+    const horaElegida = $("#vh", c).value && $("#vh", c).value !== horaIni;
+    const obj = { sku: p.sku, destino: d, cantidad: cant(), nota: $("#vn", c).value.trim(), turnoId: S.val.turno.id, hora: horaElegida || hist ? $("#vh", c).value : ahoraTxt(), horaElegida: !!horaElegida };
     if (reg || hist) {
       const btn = $("#vok", c); ocupado(btn, true);
       try { await guardarVal(reg ? api("webValEditar", reg.id, obj, S.valTurno || "") : api("webValRegistrar", obj, S.valTurno)); ocupado(btn, false); cerrarModal(true); toast("Guardado", "ok"); } catch (e) { ocupado(btn, false); }
@@ -1622,83 +1681,110 @@ function modalValidar(p, reg) {
   };
 }
 
+// Cantidad inicial por zona (Bodega, PK y KA) y el total; «Sumar» agrega a lo que ya había
+const campoZona = (id, l, v) => `<label class="field f-zona"><span>${l}</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="${id}" value="${v === "" || v === null || v === undefined ? "" : v}" placeholder="—"></label>`;
 function modalInicial(p) {
-  const c = abrirModal(`<h3>Cantidad inicial</h3><div>${skuTxt(p.sku, p.producto)}</div>
-    <p class="muted small">Ya validado: <b>${fm(p.validado)}</b>${p.wmsCajas !== undefined ? ` · WMS hoy: <b>${fm(p.wmsCajas)}</b> cajas` : ""}.</p>
-    <label class="field"><span>Cantidad inicial (cajas)</span><input type="text" inputmode="numeric" id="ic" class="grande" value="${p.inicial}" autofocus></label>
-    <label class="field"><span>Hora en que se contó</span><input type="datetime-local" id="ih" value="${ahoraLocal()}"></label>
-    <div class="small" id="ir" style="margin-top:6px;text-align:center"></div>
+  let modo = "fijar";
+  const vacia = x => x === "" || x === null || x === undefined;
+  const hayZ = [p.bodega, p.pk, p.ka].some(x => !vacia(x));
+  const ant = { bodega: hayZ ? p.bodega : (p.inicial ? p.inicial : ""), pk: hayZ ? p.pk : "", ka: hayZ ? p.ka : "" };
+  const c = abrirModal(`<div class="m-tit"><h3>Cantidad inicial</h3>${horaEd("ih", p.contadoEn, "Hora en que se contó")}</div>
+    <div class="m-prod">${skuTxt(p.sku, p.producto)}</div>
+    <div class="seg seg-sm" id="imo"><button data-m="fijar" class="on">Corregir</button><button data-m="sumar">＋ Sumar</button></div>
+    <div class="m-zonas">${campoZona("iB", "Bodega", ant.bodega)}${campoZona("iP", "PK", ant.pk)}${campoZona("iK", "KA", ant.ka)}<div class="z-tot"><span>Total</span><b id="iT">0</b></div></div>
+    <div class="m-cifras"><span class="vc-val">Validado <b>${fm(p.validado)}</b></span>${p.wmsCajas !== undefined ? `<span class="muted small">WMS hoy ${fm(p.wmsCajas)}</span>` : ""}</div>
+    <label class="check"><input type="checkbox" id="iC" ${p.porConfirmar ? "checked" : ""}><span>Cantidad por confirmar</span></label>
+    <div class="small m-res" id="ir"></div>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="iok">Guardar</button></div>`);
-  const upd = () => { const n = parseInt($("#ic", c).value.replace(/\D/g, ""), 10) || 0; $("#ir", c).innerHTML = n < p.validado ? `<span style="color:var(--bad)">⚠️ Queda por debajo de lo ya validado: el disponible será ${fm(n - p.validado)}.</span>` : `Disponible quedará en <b>${fm(n - p.validado)}</b>.`; };
-  $("#ic", c).oninput = upd; upd();
+  const horaIni = $("#ih", c).value;
+  const val = id => { const t = $("#" + id, c).value.replace(/\D/g, ""); return t === "" ? "" : Number(t); };
+  const upd = () => {
+    const z = { bodega: val("iB"), pk: val("iP"), ka: val("iK") };
+    const suma = (z.bodega || 0) + (z.pk || 0) + (z.ka || 0);
+    const total = modo === "sumar" ? (hayZ ? (p.bodega || 0) + (p.pk || 0) + (p.ka || 0) : p.inicial) + suma : suma;
+    $("#iT", c).textContent = fm(total);
+    $("#ir", c).innerHTML = (modo === "sumar" ? `Se suma <b>${fm(suma)}</b> a lo que ya había. ` : "") + (total < p.validado ? `<span style="color:var(--bad)">⚠️ Queda por debajo de lo ya validado: el disponible será ${fm(total - p.validado)}.</span>` : `Disponible quedará en <b>${fm(total - p.validado)}</b>.`);
+  };
+  $("#imo", c).onclick = e => {
+    const b = e.target.closest("[data-m]"); if (!b) return;
+    modo = b.dataset.m; $$("#imo button", c).forEach(x => x.classList.toggle("on", x === b));
+    [["iB", "bodega"], ["iP", "pk"], ["iK", "ka"]].forEach(([id, k]) => { $("#" + id, c).value = modo === "sumar" ? "" : (vacia(ant[k]) ? "" : ant[k]); });
+    upd(); $("#iB", c).focus();
+  };
+  c.addEventListener("input", e => { if (e.target.closest(".f-zona")) { e.target.value = e.target.value.replace(/\D/g, ""); upd(); } });
+  upd();
   $("#iok", c).onclick = async () => {
     const btn = $("#iok", c); ocupado(btn, true);
-    try { await guardarVal(api("webValInicial", p.sku, $("#ic", c).value.replace(/\D/g, ""), $("#ih", c).value, S.valTurno || ""), "Cantidad inicial actualizada"); ocupado(btn, false); cerrarModal(true); }
+    const obj = { bodega: val("iB"), pk: val("iP"), ka: val("iK"), porConfirmar: $("#iC", c).checked, sumar: modo === "sumar" };
+    const hora = $("#ih", c).value !== horaIni ? $("#ih", c).value : (modo === "fijar" ? $("#ih", c).value : "");
+    try { await guardarVal(api("webValInicial", p.sku, obj, hora, S.valTurno || ""), modo === "sumar" ? "Cantidad sumada" : "Cantidad inicial actualizada"); ocupado(btn, false); cerrarModal(true); }
     catch (e) { ocupado(btn, false); }
   };
 }
 
+// Agregar productos: solo el buscador (SKU o nombre). Los «pocos» salen solo si se marca la casilla.
 async function modalAgregar() {
   const sel = new Map();
-  const c = abrirModal(`<h3>Agregar productos</h3>
-    <label class="field" style="max-width:280px"><span>Hora en que se contó</span><input type="datetime-local" id="agH" value="${ahoraLocal()}"></label>
-    <div class="tabs"><button class="tab on" data-t="esc">Pocos</button><button class="tab" data-t="bus">Buscar producto</button></div>
-    <div id="agB">${loader("Cargando pocos…")}</div>
-    <div class="modal-actions"><span class="muted small" id="agC">Ninguno seleccionado</span><button class="btn" data-x>Cancelar</button><button class="btn primary" id="agOk" disabled>Agregar</button></div>`, { wide: true });
-  let tab = "esc", sug = null;
+  const c = abrirModal(`<div class="m-tit"><h3>Agregar productos</h3>${horaEd("agH", "", "Hora en que se contó")}</div>
+    <div class="buscador"><div class="bq-fila"><input type="search" id="agQ" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div>
+    <label class="check"><input type="checkbox" id="agP"><span>Mostrar los <b>pocos</b> (debajo de su mínimo)</span></label>
+    <div class="ag-list hidden" id="agPL"></div>
+    <div id="agS"></div>
+    <div class="modal-actions"><span class="muted small" id="agC">Ninguno</span><button class="btn" data-x>Cancelar</button><button class="btn primary" id="agOk" disabled>Agregar</button></div>`, { wide: true });
   const enTurno = new Set(S.val.productos.map(p => p.sku));
-  const wmsCajas = sku => (S.inv || []).filter(i => i.s === sku && i.fis && i.disp).reduce((a, i) => a + (i.c || i.u), 0);
-  const fila = it => {
-    const ya = enTurno.has(it.sku), s = sel.get(it.sku);
-    return `<label class="ag-row ${ya ? "dis" : ""}"><input type="checkbox" data-sku="${h(it.sku)}" data-prod="${h(it.producto)}" ${s ? "checked" : ""} ${ya ? "disabled" : ""}>
-      <div>${skuTxt(it.sku, it.producto)}${it.prio ? ' <span class="pill bad">PRIORIDAD</span>' : ""}<div class="sub">WMS: <b>${fm(it.cajas)}</b> cajas${it.estibas !== undefined ? ` · ≈ ${fm(it.estibas)} de mín. ${fm(it.minimo)} estibas` : ""}${ya ? " · <b>ya está</b>" : ""}</div></div>
-      <input type="text" inputmode="numeric" class="ag-ini" data-sku="${h(it.sku)}" value="${s ? s.inicial : it.cajas}" ${ya ? "disabled" : ""} aria-label="Cantidad inicial" title="Cantidad inicial (cajas)"></label>`;
-  };
-  const cuenta = () => { $("#agC", c).textContent = sel.size ? `${sel.size} seleccionado${sel.size > 1 ? "s" : ""}` : "Ninguno seleccionado"; $("#agOk", c).disabled = !sel.size; };
-  const pintar = () => {
-    const B = $("#agB", c);
-    if (tab === "esc") {
-      if (!sug) { B.innerHTML = loader("Cargando pocos…"); return; }
-      B.innerHTML = `<p class="muted small" style="margin:0">SKUs con menos estibas que su mínimo. La cantidad inicial se propone con las cajas del WMS: ajústala a lo contado.</p><div class="ag-list">${sug.length ? sug.map(fila).join("") : `<p class="muted">No hay productos por debajo de su mínimo.</p>`}</div>`;
-    } else {
-      B.innerHTML = `<div class="field"><input type="search" id="agQ" placeholder="Nombre o SKU del producto"></div><div class="ag-list" id="agL"><p class="muted small">Escribe para buscar en la hoja Sku.</p></div>`;
-      const q = $("#agQ", c);
-      q.oninput = () => {
-        const res = buscarCat(q.value, 40).map(x => ({ sku: x.sku, producto: x.prod, cajas: wmsCajas(x.sku) }));
-        $("#agL", c).innerHTML = q.value.trim() ? (res.length ? res.map(fila).join("") : `<p class="muted">Sin resultados.</p>`) : `<p class="muted small">Escribe para buscar.</p>`;
-      };
-      if (window.innerWidth > 699) q.focus();
-    }
-  };
-  c.addEventListener("change", e => {
-    const cb = e.target.closest("input[type=checkbox][data-sku]"); if (!cb) return;
-    const ini = cb.closest(".ag-row").querySelector(".ag-ini");
-    if (cb.checked) sel.set(cb.dataset.sku, { sku: cb.dataset.sku, producto: cb.dataset.prod, inicial: ini.value.replace(/\D/g, "") || "0" });
-    else sel.delete(cb.dataset.sku);
+  let pocos = null;
+  const cuenta = () => { $("#agC", c).textContent = sel.size ? `${sel.size} producto${sel.size > 1 ? "s" : ""}` : "Ninguno"; $("#agOk", c).disabled = !sel.size; };
+  // Cada producto escogido: Bodega, PK y KA (vacío = no se contó ahí) y si la cantidad está por confirmar
+  const pintarSel = () => {
+    $("#agS", c).innerHTML = [...sel.values()].map(x => `<div class="ag-sel" data-sku="${h(x.sku)}"><div class="ag-st">${skuTxt(x.sku, x.producto)}<button type="button" class="btn sm icon del" data-q="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar">✕</button></div>
+      <div class="m-zonas">${campoZona("b" + x.sku, "Bodega", x.bodega)}${campoZona("p" + x.sku, "PK", x.pk)}${campoZona("k" + x.sku, "KA", x.ka)}<div class="z-tot"><span>Total</span><b>${fm((x.bodega || 0) + (x.pk || 0) + (x.ka || 0))}</b></div></div>
+      <label class="check"><input type="checkbox" data-pc="${h(x.sku)}" ${x.porConfirmar ? "checked" : ""}><span>No sé la cantidad real: <b>por confirmar</b></span></label></div>`).join("");
     cuenta();
-  });
+  };
+  const agregar = (sku, prod) => {
+    if (enTurno.has(sku)) { toast("Ese producto ya está en el turno.", "warn"); return; }
+    if (!sel.has(sku)) sel.set(sku, { sku: sku, producto: prod, bodega: "", pk: "", ka: "", porConfirmar: false });
+    pintarSel();
+    const i = $("#b" + sku, c); if (i) i.focus();
+  };
+  autoSku($("#agQ", c), p => agregar(p.sku, p.prod), { limpiar: true });
   c.addEventListener("input", e => {
-    const ini = e.target.closest(".ag-ini"); if (!ini) return;
-    const s = sel.get(ini.dataset.sku);
-    if (s) s.inicial = ini.value.replace(/\D/g, "") || "0";
-    else { const cb = ini.closest(".ag-row").querySelector("input[type=checkbox]"); if (cb && !cb.disabled) { cb.checked = true; cb.dispatchEvent(new Event("change", { bubbles: true })); } }
+    const i = e.target.closest(".f-zona input"); if (!i) return;
+    i.value = i.value.replace(/\D/g, "");
+    const box = i.closest(".ag-sel"); if (!box) return;
+    const x = sel.get(box.dataset.sku), k = { b: "bodega", p: "pk", k: "ka" }[i.id[0]];
+    x[k] = i.value === "" ? "" : Number(i.value);
+    box.querySelector(".z-tot b").textContent = fm((x.bodega || 0) + (x.pk || 0) + (x.ka || 0));
   });
-  c.querySelector(".tabs").onclick = e => { const t = e.target.closest("[data-t]"); if (!t) return; tab = t.dataset.t; $$(".tab", c).forEach(x => x.classList.toggle("on", x === t)); pintar(); };
+  c.addEventListener("change", e => {
+    const pc = e.target.closest("[data-pc]"); if (pc) { sel.get(pc.dataset.pc).porConfirmar = pc.checked; return; }
+    const cb = e.target.closest("#agPL input[type=checkbox]");
+    if (cb) { if (cb.checked) agregar(cb.dataset.sku, cb.dataset.prod); else { sel.delete(cb.dataset.sku); pintarSel(); } }
+  });
+  c.addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; sel.delete(q.dataset.q); const cb = $(`#agPL input[data-sku="${q.dataset.q}"]`, c); if (cb) cb.checked = false; pintarSel(); });
+  $("#agP", c).onchange = async () => {
+    const L = $("#agPL", c);
+    L.classList.toggle("hidden", !$("#agP", c).checked);
+    if (!$("#agP", c).checked) return;
+    if (!pocos) {
+      L.innerHTML = loader("Cargando pocos…");
+      try { pocos = await api("webValSugerencias", S.valTurno || ""); } catch (er) { L.innerHTML = errBox(er); return; }
+    }
+    L.innerHTML = pocos.length ? pocos.map(it => `<label class="ag-row ${enTurno.has(it.sku) ? "dis" : ""}"><input type="checkbox" data-sku="${h(it.sku)}" data-prod="${h(it.producto)}" ${sel.has(it.sku) ? "checked" : ""} ${enTurno.has(it.sku) ? "disabled" : ""}>
+      <div>${skuTxt(it.sku, it.producto)}${it.prio ? ' <span class="pill bad">PRIORIDAD</span>' : ""}<div class="sub">WMS ${fm(it.cajas)} cajas · ≈ ${fm(it.estibas)} de mín. ${fm(it.minimo)} estibas${enTurno.has(it.sku) ? " · <b>ya está</b>" : ""}</div></div></label>`).join("") : `<p class="muted small">No hay productos por debajo de su mínimo.</p>`;
+  };
   $("#agOk", c).onclick = async () => {
     const btn = $("#agOk", c); ocupado(btn, true);
     const hora = $("#agH", c).value;
     try {
-      const r = await guardarVal(api("webValAgregar", Array.from(sel.values()).map(x => Object.assign({ contadoEn: hora }, x)), S.valTurno || ""));
+      const r = await guardarVal(api("webValAgregar", [...sel.values()].map(x => Object.assign({ contadoEn: hora }, x)), S.valTurno || ""));
       ocupado(btn, false); cerrarModal(true);
       toast(`${r.resultado.agregados} producto(s) agregados`, "ok");
       if (r.resultado.omitidos.length) toast("Omitidos: " + r.resultado.omitidos.join(" · "), "bad", 8000);
     } catch (e) { ocupado(btn, false); }
   };
-  try {
-    const [s] = await Promise.all([api("webValSugerencias", S.valTurno || ""), cargarCat(), cargarInv()]);
-    sug = s.map(x => ({ sku: x.sku, producto: x.producto, cajas: x.cajas, estibas: x.estibas, minimo: x.minimo, prio: x.prio }));
-    pintar();
-  } catch (e) { $("#agB", c).innerHTML = errBox(e); }
+  cargarCat().catch(() => null);
+  if (window.innerWidth > 699) $("#agQ", c).focus();
 }
 
 // =====================================================================
@@ -1761,9 +1847,9 @@ function pintarEnt(el) {
     return `<section class="card sec-card plegable sec-${s.toLowerCase()} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="ent|${s}" role="button" tabindex="0" aria-expanded="${ab}"><h3><span>${SECC[s].t} <span class="sec-n">${it.length}</span></span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
-      ${esc ? `<div class="sec-acc"><button class="btn btn-neon sm" data-a="add" data-s="${s}"><span>＋ Agregar</span></button>${it.length ? `<button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button>` : ""}</div>` : ""}
-      ${it.length ? `<div class="ent-list">${it.map(x => `<div class="ent-row"><div class="ent-main"><div>${skuTxt(x.sku, x.producto)}${x.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</div><div class="cants">${cantChips(x.cant, s)}</div><div class="sub">${h(x.origen || "")}${x.usuario ? " · " + h(x.usuario) : ""}${x.actualizado ? " · " + h(fechaCorta(x.actualizado)) : ""}</div></div>
-        ${esc ? `<div class="ent-acc"><button class="btn sm icon" data-a="edit" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Editar">✎</button><button class="btn sm icon del" data-a="del" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Quitar">${ICO_DEL}</button></div>` : ""}</div>`).join("")}</div>` : `<p class="muted small">Sin productos.</p>`}
+      ${esc && it.length ? `<div class="sec-acc"><button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button></div>` : ""}
+      ${it.length ? `<div class="ent-list">${gruposFamilia("ent-" + s, it, x => `<div class="ent-row"><div class="ent-main"><div>${skuTxt(x.sku, x.producto)}${x.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</div><div class="cants">${cantChips(x.cant, s)}</div><div class="sub">${h(x.origen || "")}${x.usuario ? " · " + h(x.usuario) : ""}${x.actualizado ? " · " + h(fechaCorta(x.actualizado)) : ""}</div></div>
+        ${esc ? `<div class="ent-acc"><button class="btn sm icon" data-a="edit" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Editar">✎</button><button class="btn sm icon del" data-a="del" data-s="${s}" data-sku="${h(x.sku)}" aria-label="Quitar">${ICO_DEL}</button></div>` : ""}</div>`)}</div>` : `<p class="muted small">Sin productos. Toca ＋ para agregar.</p>`}
       </div></section>`;
   };
   // Si ya se está agregando a mano, la precarga se bloquea (llenaría todo por error)
@@ -1773,7 +1859,8 @@ function pintarEnt(el) {
     <div class="grid2"><div class="col-sec">${sec("BODEGA")}${sec("TPC")}</div><div class="col-sec">${sec("PK")}${sec("KA")}</div></div>
     <section class="card notas-card" style="margin-top:14px"><h3>🗒️ Notas del turno <span class="muted small">(${en.notas.length})</span></h3>
       <ol class="notas-l">${en.notas.map(n => `<li><div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><span>${h(n.texto)}${n.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</span>${esc && n.id ? `<span class="row" style="flex-wrap:nowrap"><button class="btn sm icon" data-a="nedit" data-id="${h(n.id)}">✎</button><button class="btn sm icon del" data-a="ndel" data-id="${h(n.id)}">${ICO_DEL}</button></span>` : ""}</div><div class="sub">${h(soloHora(n.hora))} · ${h(n.usuario)}</div></li>`).join("")}</ol>
-      ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary" data-a="nota">Agregar</button></div>` : ""}</section>`;
+      ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary sm" data-a="nota">Agregar</button></div>` : ""}</section>
+    ${esc ? fab("add", "Agregar a la entrega") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA");
   else pintarBarra($("#tb", el), en.turnoInfo);
@@ -1800,7 +1887,7 @@ function agregarNota() {
 async function onEntClick(e) {
   const b = e.target.closest("[data-a]"); if (!b) return;
   const a = b.dataset.a, en = entConPendientes(), T = S.entTurno || "";
-  if (a === "add") return modalEntItem(b.dataset.s, null);
+  if (a === "add") return modalEntItem(b.dataset.s || S.entSec || Object.keys(SECC).find(s2 => abierto("ent", s2)) || "BODEGA", null, true);
   if (a === "edit") return modalEntItem(b.dataset.s, en.secciones[b.dataset.s].find(x => x.sku === b.dataset.sku));
   if (a === "del") {
     const it = en.secciones[b.dataset.s].find(x => x.sku === b.dataset.sku);
@@ -1824,7 +1911,7 @@ async function onEntClick(e) {
     const c = abrirModal(`<h3>Precargar la entrega</h3>
       <div class="note warn">⚠️ Esto carga <b>todos</b> los productos que el sistema considera con pocas existencias (y todos los TPC). Pueden ser <b>muchísimos</b>. Si prefieres agregar a mano, cancela.</div>
       <p class="muted small">Se agregan los que falten (no se tocan los que ya están). En Bodega, KA y PK: los pocos según la columna Minimo, con lo que dice el WMS o, si existe, la conciliación del turno ${h(en.turno.numero)}. En TPC: lo marcado como tapacódigo. Después corriges y quitas lo que no corresponda.</p>
-      ${Object.keys(SECC).map(s => `<label class="check"><input type="checkbox" data-s="${s}" checked><span>${SECC[s].t}</span></label>`).join("")}
+      ${Object.keys(SECC).map(s => `<label class="check"><input type="checkbox" data-s="${s}"><span>${SECC[s].t}</span></label>`).join("")}
       <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="prOk">Precargar</button></div>`);
     $("#prOk", c).onclick = async () => {
       const secs = $$("input[data-s]:checked", c).map(x => x.dataset.s);
@@ -1835,15 +1922,16 @@ async function onEntClick(e) {
   }
 }
 
-function modalEntItem(s, item) {
-  const cfg = SECC[s];
+function modalEntItem(s, item, elegir) {
+  let cfg = SECC[s];
   let prodSel = item ? { sku: item.sku, prod: item.producto } : null;
   let cant = item ? JSON.parse(JSON.stringify(item.cant || [])) : [];
   if (!cant.length) cant.push({ n: "", un: cfg.un, m: "" });
-  const c = abrirModal(`<h3>${item ? "Editar" : "Agregar"} · ${cfg.t}</h3>
-    ${item ? `<div>${skuTxt(item.sku, item.producto)}</div>` : campoAuto("eiP")}
-    <div class="field"><span>Cantidades ${cfg.mod ? "(cada una con su módulo)" : ""}</span><div id="eiC"></div></div>
-    <button class="btn sm" id="eiMas" style="margin-top:8px">＋ Otra cantidad</button>
+  const c = abrirModal(`<h3 id="eiT">${item ? "Editar" : "Agregar"} · ${cfg.t}</h3>
+    ${elegir && !item ? `<div class="seg seg-sm" id="eiS">${Object.keys(SECC).map(k => `<button data-s="${k}" class="${k === s ? "on" : ""}">${h(SECC[k].t.replace(/ \(.*\)$/, ""))}</button>`).join("")}</div>` : ""}
+    ${item ? `<div class="m-prod">${skuTxt(item.sku, item.producto)}</div>` : `<div class="buscador"><div class="bq-fila"><input type="search" id="eiP" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div>`}
+    <div class="field"><span id="eiL">Cantidades ${cfg.mod ? "(cada una con su módulo)" : ""}</span><div id="eiC"></div></div>
+    <button class="btn sm" id="eiMas" style="margin-top:6px">＋ Otra cantidad</button>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="eiOk">Guardar</button></div>`, { wide: true });
   const pintarCant = () => {
     $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}"><span class="cant-n">${k + 1}</span>
@@ -1853,13 +1941,21 @@ function modalEntItem(s, item) {
       <button class="btn sm icon" data-q="${k}" title="Quitar">✕</button></div>`).join("");
   };
   pintarCant();
-  if (!item) autoSku($("#eiP", c), p => { prodSel = p; });
+  if ($("#eiS", c)) $("#eiS", c).onclick = e => {
+    const b = e.target.closest("[data-s]"); if (!b) return;
+    s = b.dataset.s; S.entSec = s; cfg = SECC[s];
+    $$("#eiS button", c).forEach(x => x.classList.toggle("on", x === b));
+    $("#eiT", c).textContent = `Agregar · ${cfg.t}`; $("#eiL", c).textContent = `Cantidades ${cfg.mod ? "(cada una con su módulo)" : ""}`;
+    cant = cant.map(x => Object.assign({}, x, { un: x.n === "" ? cfg.un : x.un }));
+    pintarCant();
+  };
+  if (!item) { autoSku($("#eiP", c), p => { prodSel = p; const n = $("#eiC input[data-f=n]", c); if (n) n.focus(); }); alLimpiar($("#eiP", c), () => { prodSel = null; }); }
   $("#eiC", c).addEventListener("input", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k][e.target.dataset.f] = e.target.value; });
   $("#eiC", c).addEventListener("change", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k][e.target.dataset.f] = e.target.value; });
   $("#eiC", c).addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; cant.splice(+q.dataset.q, 1); if (!cant.length) cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); });
   $("#eiMas", c).onclick = () => { cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); };
   $("#eiOk", c).onclick = () => {
-    if (!prodSel) { const v = $("#eiP", c).value.trim(); const m = v.match(/^(\d+)/); const f = m ? (S.cat || []).find(x => x.sku === m[1]) : null; if (f) prodSel = f; }
+    if (!prodSel) { const v = $("#eiP", c).value.trim(); const m = v.match(/^(\d+)/); const f = m ? (S.cat || []).find(x => x.sku === m[1]) : (v ? buscarCat(v, 1)[0] : null); if (f) prodSel = f; }
     if (!prodSel) { toast("Escoge el producto de la lista.", "bad"); return; }
     const limpias = cant.map(x => ({ n: String(x.n).replace(",", "."), un: x.un, m: (x.m || "").trim().toUpperCase() })).filter(x => x.n !== "" || x.m);
     if (limpias.some(x => isNaN(Number(x.n)) || Number(x.n) < 0)) { toast("Revisa las cantidades.", "bad"); return; }
@@ -1902,16 +1998,24 @@ function pintarConc(el) {
       ${k.ultima ? `<div class="card pdf-row"><div class="t"><b>Última conciliación</b><div class="sub">${h(fechaDMY(k.ultima.fecha))} · cerrada por ${h(k.ultima.cerradoPor)}</div></div>${botonesPDF("CONCILIACION", "PDF", k.ultima.id)}</div>` : ""}`;
     el.innerHTML = html; el.onclick = onConcClick; return;
   }
-  html += hist ? bannerHist(k.conc, "CONCILIACION") : `<section class="card turno"><div class="turno-info"><div class="turno-num">T${h(k.conc.numero)}</div>
+  html += hist ? bannerHist(k.conc, "CONCILIACION") : `<section class="card turno${clsInfo()}" data-info="conc"><div class="turno-info"><div class="turno-num">T${h(k.conc.numero)}</div>
+      <div class="t-res">Conciliación · ${h(fechaDMY(k.conc.fecha))} ${k.faltantes ? `<span class="pill bad">✗ ${k.faltantes}</span>` : ""}</div>${togInfo()}
       <div><div class="k">Conciliación</div><div class="v">${h(fechaDMY(k.conc.fecha))}</div></div>
       <div><div class="k">Abierta por</div><div class="v">${h(k.conc.abiertoPor)} · ${h(soloHora(k.conc.inicio))}</div></div>
       <div><div class="k">Resultado</div><div class="v">${k.faltantes ? `<span class="pill bad">✗ ${k.faltantes} con facturación de más</span>` : `<span class="pill ok">✓ Sin faltantes</span>`}</div></div></div>
       <div class="acciones barra-acc">${botonesPDF("CONCILIACION", "PDF", k.conc.id)}${esc && puedoEliminar(k.conc.abiertoPor) ? `<button class="btn sm del" data-a="ccancelar" title="Cancelar conciliación (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc ? `<button class="btn warn sm" data-a="cerrar" title="Cerrar conciliación"><span class="ic">🔒</span><span class="txt">Cerrar</span></button>` : ""}</div></section>`;
   const cuenta = n => k.items.filter(x => x.nivel === n).length;
-  html += `${esc ? `<div class="barra-acc"><button class="btn btn-neon" data-a="agregarc"><span><span class="ic">＋</span><span class="txt"> Agregar producto</span></span></button>${pend.length && !hist ? `<button class="btn sm" data-a="pasarpre" title="Pasar de pre-conciliación"><span class="ic">📌</span><span class="txt">Pre-conciliación (${pend.length})</span></button>` : ""}</div>` : ""}
-    ${k.items.length ? `<div class="lista-tools"><input type="search" id="cq" placeholder="Buscar producto (nombre o SKU)…" value="${h(S.concQ || "")}"><button class="btn sm" data-a="cabrir">Abrir todas</button><button class="btn sm" data-a="ccerrar">Cerrar todas</button><span class="count" id="cqc"></span></div>
+  // Completos: Bodega, KA y PK con número (el 0 cuenta) · Incompletos: les falta contar alguna zona
+  const completo = x => vNum(x.bodega) !== "" && vNum(x.ka) !== "" && vNum(x.pk) !== "";
+  const inc = k.items.filter(x => !completo(x)), comp = k.items.filter(completo);
+  const tarjeta = x => tarjetaConc(x, esc);
+  const bloque = (t, cls, lis, clave) => `<section class="cc-col ${cls}"><div class="cc-col-t">${t} <span class="fam-n">${lis.length}</span></div>${lis.length ? gruposFamilia(clave, lis, tarjeta) : `<p class="muted small">Nada aquí.</p>`}</section>`;
+  html += `${esc && pend.length && !hist ? `<div class="barra-acc barra-mini"><button class="btn sm" data-a="pasarpre" title="Pasar de pre-conciliación"><span class="ic">📌</span><span class="txt">Pre-conciliación (${pend.length})</span></button></div>` : ""}
+    ${k.items.length ? `<div class="lista-tools"><input type="search" id="cq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.concQ || "")}"><button class="btn sm" data-a="cabrir">Abrir todas</button><button class="btn sm" data-a="ccerrar">Cerrar todas</button><span class="count" id="cqc"></span></div>
       <div class="conc-resumen"><span class="chip c-mal">✗ ${cuenta("mal")}</span><span class="chip c-ok">✓ ${cuenta("ok")}</span><span class="chip c-sobra">+50 % ${cuenta("sobra")}</span><span class="chip">Sin facturación ${k.items.filter(x => !x.nivel).length}</span></div>` : ""}
-    <div class="clista" id="cTab">${k.items.map(x => tarjetaConc(x, esc)).join("") || `<div class="card muted">Sin productos. Agrégalos con el botón de arriba.</div>`}</div>`;
+    <div class="clista" id="cTab">${k.items.length ? `<div class="cc-cols">${bloque("⏳ Incompletos", "cc-inc", inc, "conc-i")}${bloque("✅ Completos", "cc-comp", comp, "conc-c")}</div>
+      <div class="card cc-totales" id="cTot">${totalesConcHtml(k.items)}</div>` : `<div class="card muted">Sin productos. Toca ＋ para agregarlos.</div>`}</div>
+    ${esc ? fab("agregarc", "Agregar producto") : ""}`;
   el.innerHTML = html;
   el.onclick = e => { if (hist && onBanner(e, k.conc, "CONCILIACION")) return; onConcClick(e); };
   const tab = $("#cTab", el);
@@ -1919,10 +2023,18 @@ function pintarConc(el) {
   const cq = $("#cq", el);
   if (cq) { cq.oninput = () => { S.concQ = cq.value; filtrarConc(el); }; filtrarConc(el); }
 }
+// Totales de lo contado en cada zona (así se ve lo que falta por agregar)
+function totalesConcHtml(items) {
+  const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const falta = k => items.filter(x => vNum(x[k]) === "").length;
+  const t = k => `<div class="ct-z"><span>${{ bodega: "Bodega", ka: "KA", pk: "PK", fact: "Facturación" }[k]}</span><b>${fm(suma(k))}</b>${k !== "fact" && falta(k) ? `<small>faltan ${falta(k)}</small>` : ""}</div>`;
+  return `<div class="ct-t">Totales</div><div class="ct-fila">${t("bodega")}${t("ka")}${t("pk")}<div class="ct-z tot"><span>Total</span><b>${fm(suma("bodega") + suma("ka") + suma("pk"))}</b></div>${t("fact")}</div>`;
+}
 function filtrarConc(el) {
   const q = norm(S.concQ || "").split(/\s+/).filter(x => x);
   let n = 0;
   $$(".clista .conc-card", el).forEach(c => { const ok = !q.length || coincide(norm(c.dataset.q), q) > 0; c.classList.toggle("hidden", !ok); if (ok) n++; });
+  filtrarGrupos(el, q.length > 0, ".conc-card");
   const c = $("#cqc", el); if (c) c.textContent = q.length ? `${n} de ${$$(".clista .conc-card", el).length}` : `${$$(".clista .conc-card", el).length} productos`;
 }
 const nivelConc = (tot, fact) => fact === null || fact === "" ? "" : (tot < fact ? "mal" : (fact > 0 && tot > fact * 1.5 ? "sobra" : "ok"));
@@ -1933,7 +2045,7 @@ function tarjetaConc(x, esc) {
   const ab = abierto("conc", x.sku);
   return `<article class="card conc-card plegable ${x.nivel || "sin"} ${ab ? "abierto" : ""}" data-row="${h(x.sku)}" data-q="${h(x.sku + " " + x.producto)}">
     <div class="pl-cab" data-plegar="conc|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${x.fact === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
+      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${x.fact === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span>${(() => { const f = [["bodega", "Bodega"], ["ka", "KA"], ["pk", "PK"]].filter(z => vNum(x[z[0]]) === "").map(z => z[1]); return f.length ? ` <span class="z-falta">falta ${f.join(", ")}</span>` : ""; })()}${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
       <div class="cc-grid">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}${inp("fact", x.fact, "Facturación")}
@@ -1961,6 +2073,9 @@ function onConcCampo(e) {
   tr.querySelector("[data-fact]").textContent = fact === null ? "—" : fm(fact);
   tr.querySelector("[data-chk]").innerHTML = chkConc(nivel, tot, fact);
   ["mal", "ok", "sobra", "sin"].forEach(c => tr.classList.toggle(c, (nivel || "sin") === c));
+  // Totales al instante (la tarjeta pasa a «Completos» al volver a pintar, no mientras se escribe)
+  const it = S.conc && S.conc.items.find(x => x.sku === sku);
+  if (it && f !== "bloqueo") { it[f] = valor === "" ? "" : Number(valor); const tt = $("#cTot"); if (tt) tt.innerHTML = totalesConcHtml(S.conc.items); }
   const campos = {}; campos[f] = valor;
   enviarOptimista("webConcGuardar", [sku, campos, S.concId || ""], `Conciliación ${sku}: ${f}`, r => { if (r && r.estado) { S.conc = r.estado; if (!S.concId) ls.setJ("conc", S.conc); } });
 }
@@ -1975,10 +2090,10 @@ async function onConcClick(e) {
     const ant = n => ({ 1: 3, 2: 1, 3: 2 })[n];
     const c = abrirModal(`<h3>Abrir conciliación</h3><p class="muted small">¿De qué turno es la conciliación? Normalmente se hace en el turno 3.</p>
       <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(horC(n))}</span></button>`).join("")}</div>
-      <label class="check"><input type="checkbox" id="caP" checked><span>Precargar los <b>pocos</b> (columna Minimo)</span></label>
-      <label class="check"><input type="checkbox" id="caE" checked><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (y usar esos conteos)</span></label>
+      <label class="check"><input type="checkbox" id="caP"><span>Precargar los <b>pocos</b> (columna Minimo)</span></label>
+      <label class="check"><input type="checkbox" id="caE"><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (y usar esos conteos)</span></label>
       <h2 style="margin-top:14px">📌 Pre-conciliación (${pend.length})</h2>
-      ${pend.length ? pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}" checked><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("") : `<p class="muted small">No hay productos anotados.</p>`}
+      ${pend.length ? pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}"><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("") : `<p class="muted small">No hay productos anotados.</p>`}
       <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="caOk">Abrir conciliación</button></div>`, { wide: true });
     $("#caN", c).onclick = e2 => { const bt = e2.target.closest("[data-n]"); if (!bt) return; num = +bt.dataset.n; $$("#caN button", c).forEach(x => x.classList.toggle("on", x === bt)); $("#caA", c).textContent = ant(num); };
     $("#caOk", c).onclick = async () => {
@@ -2002,7 +2117,7 @@ async function onConcClick(e) {
     return;
   }
   if (a === "agregarc") {
-    const c = abrirModal(`<h3>Agregar a la conciliación</h3>${campoAuto("cAdd", "Nombre o SKU")}<p class="muted small">Escoge el producto de la lista. Si la entrega del turno anterior lo contó, se trae ese conteo.</p><div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`);
+    const c = abrirModal(`<h3>Agregar a la conciliación</h3><div class="buscador"><div class="bq-fila"><input type="search" id="cAdd" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div><p class="muted small">Escoge el producto de la lista. Si la entrega del turno anterior lo contó, se trae ese conteo.</p><div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`);
     autoSku($("#cAdd", c), async p => {
       try {
         const r = await api("webConcAgregar", [{ sku: p.sku, producto: p.prod }], S.concId || "");
@@ -2015,7 +2130,7 @@ async function onConcClick(e) {
   }
   if (a === "pasarpre") {
     const pend = k.pre.filter(x => x.estado === "PENDIENTE");
-    const c = abrirModal(`<h3>Pasar de pre-conciliación</h3>${pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}" checked><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("")}
+    const c = abrirModal(`<h3>Pasar de pre-conciliación</h3>${pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}"><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("")}
       <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ppOk">Pasar a la conciliación</button></div>`);
     $("#ppOk", c).onclick = async () => {
       const ids = new Set($$("input[data-pre]:checked", c).map(x => x.dataset.pre));

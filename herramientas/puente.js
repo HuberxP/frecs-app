@@ -148,8 +148,10 @@
       inicio: ts(r[4]), abierto_por: nul(r[5]), cierre: ts(r[6]), cerrado_por: nul(r[7]), recibe_de_id: nul(r[8]), recibe_de: nul(r[9]), nota: nul(r[10]),
       editado_por: nul(r[11]), eliminado_por: nul(r[12]) }) } },
     { tabla: "val_productos", pk: ["turno_id", "sku"], hojas: {
-      Val_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, actualizado: ts(r[4]), usuario: nul(r[5]), contado_en: ts(r[6]) }),
-      Val_Hist_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, contado_en: ts(r[7]) }) } },
+      Val_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, actualizado: ts(r[4]), usuario: nul(r[5]), contado_en: ts(r[6]),
+        bodega: num(r[7]), pk: num(r[8]), ka: num(r[9]), por_confirmar: bool(r[10]) }),
+      Val_Hist_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, contado_en: ts(r[7]),
+        bodega: num(r[8]), pk: num(r[9]), ka: num(r[10]), por_confirmar: bool(r[11]) }) } },
     { tabla: "val_registros", pk: ["id"], hojas: { Val_Registros: filaReg, Val_Hist_Registros: filaReg } },
     { tabla: "destinos", pk: ["nombre"], hojas: { Val_Destinos: (r, k) => ({ nombre: txt(r[0]), orden: k + 1 }) } },
     { tabla: "ent_items", pk: ["turno_id", "seccion", "sku"], hojas: { Ent_Items: r => ({ turno_id: txt(r[0]), seccion: txt(r[1]).toUpperCase(), sku: txt(r[2]),

@@ -251,9 +251,19 @@ let llamadasSb = 0, sinRed = false;
   const off = await val.page.evaluate(() => api("webValRegistrar", { sku: "2882", destino: "KA", cantidad: 1 }).then(() => "sin error", e => (e.red ? "red" : e.message)));
   sinRed = false;
   if (off !== "red") errores.push("sin conexión la validación no queda como error de red: " + off);
+  // Cantidad inicial por zona y «por confirmar» llegan a Supabase
+  await P.evaluate(() => api("webValAgregar", [{ sku: "3617", producto: "Costeñita", bodega: 4, pk: 3, ka: "" }, { sku: "15781", producto: "Club 850", porConfirmar: true }]));
+  await P.waitForTimeout(800);
+  const zz = q(`select bodega || '|' || pk || '|' || coalesce(ka::text, '-') || '|' || inicial || '|' || por_confirmar from val_productos where turno_id='${T}' and sku='3617'`);
+  if (zz !== "4|3|-|7|false") errores.push("zonas de la cantidad inicial mal en Supabase: " + zz);
+  if (q(`select por_confirmar from val_productos where turno_id='${T}' and sku='15781'`) !== "t") errores.push("«por confirmar» no llegó a Supabase");
+  const neg = await P.evaluate(() => api("webValRegistrar", { sku: "15781", destino: "KA", cantidad: 2 }).then(() => "ok", e => e.message));
+  if (neg !== "ok") errores.push("por confirmar no deja validar (la base lo frenó): " + neg);
   // Cerrar el turno desde la pantalla
   const nProd = q(`select count(*) from val_productos where turno_id='${T}'`), nReg = q(`select count(*) from val_registros where turno_id='${T}'`);
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(600);
+  // La tarjeta del turno viene recogida: se despliega para ver «Cerrar turno»
+  if (await P.$(".turno.plegada")) { await P.click("[data-info-tog]"); await P.waitForTimeout(300); }
   await P.click('[data-t="cerrar"]'); await P.waitForSelector("#ctS", { timeout: 10000 });
   if (!(await P.$("#ctP"))) errores.push("cerrar turno: falta la opción «Cerrar y descargar PDF»");
   await P.screenshot({ path: "/tmp/w_cerrar.png" });
@@ -267,7 +277,8 @@ let llamadasSb = 0, sinRed = false;
   // Abrir el siguiente heredando el saldo
   const saldo = JSON.parse(q(`select jsonb_object_agg(p.sku, p.inicial - coalesce((select sum(cantidad) from val_registros r where r.turno_id=p.turno_id and r.sku=p.sku and r.estado='ACTIVO'),0)) from val_productos p where p.turno_id='${T}'`));
   await P.click('[data-t="abrir"]'); await P.waitForSelector("#atOk", { timeout: 10000 });
-  await P.click('#np [data-n="3"]'); await P.waitForTimeout(450); await P.click("#atOk"); await P.waitForTimeout(1500);
+  if (await P.$eval("#atH", x => x.checked).catch(() => true)) errores.push("heredar el saldo viene marcado por defecto");
+  await P.click('#np [data-n="3"]'); await P.check("#atH"); await P.waitForTimeout(450); await P.click("#atOk"); await P.waitForTimeout(1500);
   const T2 = turnoAb();
   if (!T2 || T2 === T || q(`select numero || '|' || recibe_de_id || '|' || abierto_por from turnos where id='${T2}'`) !== `3|${T}|Huber`) errores.push("abrir turno falló: " + T2);
   const her = JSON.parse(q(`select coalesce(jsonb_object_agg(sku, inicial), '{}') from val_productos where turno_id='${T2}'`) || "{}");
@@ -358,8 +369,11 @@ let llamadasSb = 0, sinRed = false;
   if (!nCards || abiertas0) errores.push(`validación: ${nCards} tarjetas, ${abiertas0} abiertas al entrar (deben estar cerradas)`);
   await P.click(".vlista .vcard .pl-cab"); await P.waitForTimeout(200);
   if (!(await P.$eval(".vlista .vcard", c => c.classList.contains("abierto") && !!c.querySelector(".vc-horas") && c.querySelector(".pl-cuerpo").offsetParent !== null))) errores.push("tocar un producto no lo despliega");
-  const horas = await P.$eval(".vlista .vcard .vc-horas", e => e.innerText);
-  if (!/^🕐 Hora de conteo[\s\S]*Última validación/.test(horas)) errores.push("orden de horas en validación: " + horas);
+  // Las horas quedan escondidas detrás del reloj
+  if (await P.$eval(".vlista .vcard .vc-horas", e => e.offsetParent !== null)) errores.push("las horas de conteo se ven sin tocar el reloj");
+  await P.click(".vlista .vcard .reloj"); await P.waitForTimeout(150);
+  const horas = await P.$eval(".vlista .vcard .vc-horas", e => e.offsetParent !== null ? e.innerText : "");
+  if (!/^🕐 Contado[\s\S]*Última validación/.test(horas)) errores.push("el reloj no muestra las horas: " + horas);
   await P.fill("#vq", "zzzz-no-existe"); await P.waitForTimeout(150);
   if (await P.$$eval(".vlista .vcard:not(.hidden)", c => c.length)) errores.push("el buscador de validación no filtra");
   await P.fill("#vq", ""); await P.waitForTimeout(100);

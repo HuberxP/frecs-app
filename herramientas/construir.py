@@ -73,7 +73,7 @@ v_cfg = hashlib.sha1(leer(os.path.join(DOCS, "config.js")).encode()).hexdigest()
 # ---------- index.html ----------
 html = leer(os.path.join(GAS, "Dashboard.html"))
 html = html.replace('<base target="_top">\n', "")
-cabeza = f'''<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+cabeza = f'''<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="iconos/icon-192.png">
 <link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">

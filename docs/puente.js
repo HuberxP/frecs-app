@@ -334,17 +334,18 @@
         paginas.push([y, corte]); y = corte;
       }
       // 2) Se dibujan varias páginas por vez (más rápido) sin pasar el límite de tamaño de imagen del celular
-      const largo = paginas.length > 6, escala = largo ? 1.4 : 1.8, calidad = largo ? 0.8 : 0.88;
+      // Más resolución = texto nítido (antes se veía borroso); los PDF largos un poco menos para no pesar tanto
+      const largo = paginas.length > 8, escala = largo ? 2.2 : 2.8, calidad = largo ? 0.9 : 0.94;
       const maxPx = 12e6, porTrozo = Math.max(1, Math.floor(maxPx / (anchoPx * escala * altoPag * escala)));
       const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: horizontal ? "landscape" : "portrait", compress: true });
       for (let k = 0; k < paginas.length; k += porTrozo) {
         const grupo = paginas.slice(k, k + porTrozo), y0 = grupo[0][0], y1 = grupo[grupo.length - 1][1];
-        const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", x: 0, y: y0, width: anchoPx, height: y1 - y0, windowWidth: anchoPx, windowHeight: alto, logging: false });
+        const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", x: 0, y: y0, width: anchoPx, height: y1 - y0, windowWidth: anchoPx, windowHeight: alto, logging: false, letterRendering: true });
         grupo.forEach((pg, n) => {
           const h = pg[1] - pg[0];
           const hoja = document.createElement("canvas");
           hoja.width = lienzo.width; hoja.height = Math.max(1, Math.round(h * escala));
-          const cx = hoja.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, hoja.width, hoja.height);
+          const cx = hoja.getContext("2d"); cx.imageSmoothingEnabled = false; cx.fillStyle = "#fff"; cx.fillRect(0, 0, hoja.width, hoja.height);
           cx.drawImage(lienzo, 0, Math.round((pg[0] - y0) * escala), lienzo.width, hoja.height, 0, 0, lienzo.width, hoja.height);
           if (k + n) pdf.addPage();
           pdf.addImage(hoja.toDataURL("image/jpeg", calidad), "JPEG", margen, margen, pag.w - 2 * margen, h / MM);

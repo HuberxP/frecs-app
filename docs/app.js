@@ -1281,10 +1281,11 @@ function turnoPorHora() {
   return hr >= 22 || hr < 6 ? 1 : hr < 14 ? 2 : 3;
 }
 // Tres formas de cerrar: solo cerrar · cerrar y descargar el PDF · cerrar y enviarlo al grupo
-const botonesCierre = (id, dis) => `<div class="modal-actions cierre-acc"><button class="btn" data-x>Cancelar</button>
-  <button class="btn" data-modo="solo" id="${id}S" ${dis}>Solo cerrar</button>
-  <button class="btn primary" data-modo="pdf" id="${id}P" ${dis}>📄 Cerrar y descargar PDF</button>
-  ${S.grupoTg ? `<button class="btn primary" data-modo="tg" id="${id}T" ${dis}>✈️ Cerrar y enviar al grupo</button>` : ""}</div>`;
+const botonesCierre = (id, dis) => `<div class="modal-actions cierre-acc">
+  <button class="btn sm c-verde" data-modo="solo" id="${id}S" ${dis}>🔒 Solo cerrar</button>
+  ${S.grupoTg ? `<button class="btn sm c-azul" data-modo="tg" id="${id}T" ${dis}>✈️ Cerrar y enviar al grupo</button>` : ""}
+  <button class="btn sm c-amar" data-modo="pdf" id="${id}P" ${dis}>📄 Cerrar y descargar PDF</button>
+  <button class="btn sm c-rojo" data-x>Cancelar</button></div>`;
 
 // La tarjeta del turno (y la de la conciliación) queda recogida: se ve el número y se despliega si el usuario quiere
 const infoAbierta = () => ls.get("infoTurno", "") === "1";

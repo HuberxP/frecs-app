@@ -5596,19 +5596,21 @@ const CSS_PDF_BASE = `@page { size: letter; margin: 12mm; }
   body { font-family: Arial, sans-serif; font-size: 10px; color: #111; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   ${CSS_CABECERA_PDF}
   h3 { font-size: 11.5px; color: #003399; margin: 12px 0 5px; }
-  table.t { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  table.t th, table.t td { border: 1px solid #777; padding: 4px 5px; text-align: center; font-size: 9.5px; }
+  /* Líneas simples: cada celda dibuja solo su borde derecho e inferior y la tabla el de arriba y el izquierdo
+     (con border-collapse el conversor dibujaba dos líneas juntas) */
+  table.t { width: 100%; border-collapse: separate; border-spacing: 0; border-top: 1px solid #777; border-left: 1px solid #777; margin-bottom: 8px; }
+  table.t th, table.t td { border: 0; border-right: 1px solid #777; border-bottom: 1px solid #777; padding: 4px 5px; text-align: center; font-size: 9.5px; }
   table.t th { background: #f2f2f2; color: #003399; font-weight: bold; }
   .izq { text-align: left !important; }
   .sm { font-size: 8.5px; color: #555; }
   .rojo { color: #b00020; }
   .vacio { font-style: italic; color: #777; }
   .tot td { font-weight: bold; background: #f7f7f7; }
-  table.info { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-  table.info td { border: 1px solid #999; padding: 4px 6px; font-size: 10px; }
+  table.info { width: 100%; border-collapse: separate; border-spacing: 0; border-top: 1px solid #999; border-left: 1px solid #999; margin-bottom: 10px; }
+  table.info td { border: 0; border-right: 1px solid #999; border-bottom: 1px solid #999; padding: 4px 6px; font-size: 10px; }
   table.info .k { background: #f2f2f2; font-weight: bold; width: 15%; }
-  table.leyenda { width: 100%; border-collapse: collapse; margin: 0 0 8px 0; }
-  table.leyenda td { border: 1px solid #999; padding: 3px 4px; font-size: 8.5px; font-weight: bold; text-align: center; }
+  table.leyenda { width: 100%; border-collapse: separate; border-spacing: 0; border-top: 1px solid #999; border-left: 1px solid #999; margin: 0 0 8px 0; }
+  table.leyenda td { border: 0; border-right: 1px solid #999; border-bottom: 1px solid #999; padding: 3px 4px; font-size: 8.5px; font-weight: bold; text-align: center; }
   table.firmas { width: 100%; margin-top: 30px; border-collapse: collapse; }
   table.firmas td { width: 50%; padding: 0 16px; text-align: center; font-size: 10px; border: none; }
   .linea { border-top: 1px solid #000; padding-top: 4px; }
@@ -5777,14 +5779,15 @@ function construirInformePrioridades() {
       font-weight: bold;
     }
     
+    /* Líneas simples (con border-collapse el conversor dibujaba dos líneas juntas) */
     .header-table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate; border-spacing: 0;
       border: 2px solid black;
       margin-bottom: 15px;
     }
     .header-table td {
-      border: 1px solid black;
+      border: 0; border-right: 1px solid black;
       text-align: center;
       vertical-align: middle;
       background-color: #ffffff;
@@ -5801,14 +5804,15 @@ function construirInformePrioridades() {
       border-top: 1px solid black;
     }
     
+    .header-table > tbody > tr > td:last-child { border-right: 0; }
     .rules-table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate; border-spacing: 0;
       height: 100%;
       font-size: 11px;
     }
     .rules-table td {
-      border: 1px solid black;
+      border: 0; border-right: 1px solid black; border-bottom: 1px solid black;
       padding: 6px;
       font-weight: bold;
     }
@@ -5839,13 +5843,16 @@ function construirInformePrioridades() {
       line-height: 1.1;
     }
     
+    .rules-table td:last-child { border-right: 0; }
+    .rules-table tr:last-child td { border-bottom: 0; }
     .data-table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate; border-spacing: 0;
       border: 2px solid black;
     }
+    .data-table th:last-child, .data-table td:last-child { border-right: 0 !important; }
     .data-table th, .data-table td {
-      border: 1px solid black;
+      border: 0; border-right: 1px solid black; border-bottom: 1px solid black;
       padding: 6px;
       text-align: left;
     }

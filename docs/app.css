@@ -800,6 +800,15 @@
   .fin-sub { margin: 14px 0 4px; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   .fin-otras { margin-top: 6px; }
   .fin-otras summary { cursor: pointer; color: var(--cyan); font-weight: 700; font-size: 14px; padding: 8px 0; }
+  /* Botones de cierre (pequeños): Solo cerrar verde · Enviar al grupo azul · Descargar PDF amarillo · Cancelar rojo */
+  .cierre-acc { justify-content: flex-start; gap: 6px; }
+  .cierre-acc .btn.sm { flex: 0 1 auto !important; min-height: 34px; padding: 0 12px; font-size: 13px; font-weight: 700; }
+  .btn.c-verde { background: #1f9d55; border-color: #1f9d55; color: #fff; }
+  .btn.c-azul { background: #1e6fd9; border-color: #1e6fd9; color: #fff; }
+  .btn.c-amar { background: #f2c230; border-color: #f2c230; color: #2b2200; }
+  .btn.c-rojo { background: #d63447; border-color: #d63447; color: #fff; }
+  .btn.c-verde:hover { background: #1b8a4b; } .btn.c-azul:hover { background: #1a60bd; } .btn.c-amar:hover { background: #e0b228; } .btn.c-rojo:hover { background: #bf2d3f; }
+  @media (max-width: 560px) { .cierre-acc { flex-direction: row !important; flex-wrap: wrap; align-items: stretch; } .cierre-acc .btn.sm { flex: 1 1 calc(50% - 6px) !important; white-space: normal; line-height: 1.15; padding: 4px 8px; } }
   /* Cuadros de búsqueda (todas las funciones): borde de color, fondo blanco-gris y letra negra */
   input[type=search] { background: #eef1f5 !important; color: #111 !important; border: 2px solid var(--cyan) !important; }
   input[type=search]::placeholder { color: #6b7485 !important; }

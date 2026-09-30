@@ -2955,6 +2955,9 @@ function marcarTurnoEditado_(t, usuario) {
   turnosCambiaron_();
 }
 
+const TURNO_SIGUIENTE = { 1: 2, 2: 3, 3: 1 };
+// (si el turno anterior no tiene número, p. ej. el que vino de la migración, se deja heredar)
+const puedeHeredar_ = (prev, numero) => !!prev && (!TURNO_SIGUIENTE[Number(prev.numero)] || TURNO_SIGUIENTE[Number(prev.numero)] === Number(numero));
 function abrirTurnoCore_(numero, heredar, usuario) {
   numero = parseInt(numero, 10);
   if (![1, 2, 3].includes(numero)) throw new Error("Escoge el turno: 1, 2 o 3.");
@@ -2971,8 +2974,8 @@ function abrirTurnoCore_(numero, heredar, usuario) {
     tAgregar_(TURNOS_DEF, [[id, numero, fechaTurno_(numero), "ABIERTO", ahora_(), usuario, "", "", prev ? prev.id : "", recibe, "", "", ""]]);
     turnosCambiaron_();
     let heredados = 0;
-    // No se hereda el saldo de una validación eliminada
-    if (heredar !== false && prev && !parteEliminada_(prev, "VAL")) heredados = valHeredar_(id, prev, usuario);
+    // Solo se hereda del turno inmediatamente anterior (3 → 1 → 2 → 3) y nunca de una validación eliminada
+    if (heredar === true && prev && puedeHeredar_(prev, numero) && !parteEliminada_(prev, "VAL")) heredados = valHeredar_(id, prev, usuario);
     return { id: id, numero: numero, recibeDe: recibe, heredados: heredados };
   });
 }
@@ -3532,12 +3535,9 @@ function cuerpoPDFVal_(dt, parteDeFinal) {
   const totalVal = dt.productos.reduce((a, p) => a + p.validado, 0);
   const z = v => v === "" || v === null || v === undefined ? "—" : fM(v);
   const nCol = 8 + cols.length;
-  let fam = null;
-  let filas = dt.productos.slice().sort(ordenFamilia_).map(p => {
+  let filas = dt.productos.map(p => {   // en el orden en que se agregaron
     const bg = p.disponible <= 0 ? "#ffcccc" : (p.inicial > 0 && p.disponible / p.inicial < 0.2 ? "#fff2cc" : "#e2efda");
-    const g = p.familia !== fam ? `<tr class="grupo"><td colspan="${nCol}" class="izq"><b>${escHtml_(p.familia || "OTROS")}</b></td></tr>` : "";
-    fam = p.familia;
-    return g + `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}</td><td>${z(p.bodega)}</td><td>${z(p.pk)}</td><td>${z(p.ka)}</td><td><b>${fM(p.inicial)}</b></td>` +
+    return `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}</td><td>${z(p.bodega)}</td><td>${z(p.pk)}</td><td>${z(p.ka)}</td><td><b>${fM(p.inicial)}</b></td>` +
       cols.map(d => `<td>${p.porDestino[d] ? fM(p.porDestino[d]) : "—"}</td>`).join("") +
       `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td></tr>`;
   }).join("");
@@ -3692,6 +3692,30 @@ function cantTexto_(arr) {
   return arr.map(x => `${fM(x.n)} ${x.un}${x.m ? " · " + x.m : ""}`).join(" | ");
 }
 
+function entPrecargarConcCore_(secciones, usuario) {
+  return conLock_(() => {
+    const turno = turnoAbiertoObligatorio_();
+    const c = listarConc_().filter(x => x.estado !== "ELIMINADA" && Number(x.numero) === Number(turno.numero) && x.fecha === String(turno.fecha).substring(0, 10) && mismoUsuario_(x.abiertoPor, usuario))
+      .sort((a, b) => a.inicio < b.inicio ? 1 : -1)[0];
+    if (!c) throw new Error(`No hay una conciliación tuya del turno ${turno.numero} de esta fecha para precargar.`);
+    const actuales = entLeerTurno_(turno.id).secciones;
+    const ya = new Set();
+    ENT_SECCIONES.forEach(s => actuales[s].forEach(x => ya.add(s + "|" + x.sku)));
+    let nuevas = [], agregados = { BODEGA: 0, TPC: 0, KA: 0, PK: 0 };
+    const origen = `Conciliación T${c.numero} (${nombreCorto_(c.abiertoPor)})`;
+    concItems_(c.id).forEach(x => {
+      [["BODEGA", "bodega"], ["KA", "ka"], ["PK", "pk"]].forEach(([s, campo]) => {
+        if (!secciones.includes(s) || x[campo] === "" || ya.has(s + "|" + x.sku)) return;
+        ya.add(s + "|" + x.sku);
+        nuevas.push([turno.id, s, x.sku, x.producto, JSON.stringify([{ n: x[campo], un: "Cajas", m: "" }]), ahora_(), usuario, origen]);
+        agregados[s]++;
+      });
+    });
+    tAgregar_(ENT_T.items, nuevas);
+    return agregados;
+  });
+}
+
 // Total en cajas de una lista de cantidades (estibas × cajas por estiba)
 function entACajas_(arr, cpe) {
   return (arr || []).reduce((a, x) => a + (x.un === "Estibas" ? x.n * (cpe || 1) : (x.un === "Unidades" ? 0 : x.n)), 0);
@@ -3735,8 +3759,10 @@ function entEstadoCore_(turnoId) {
 // ---------------------------------------------------------
 // PRECARGA
 // ---------------------------------------------------------
-function entPrecargarCore_(secciones, usuario) {
+// opts.fuente = "pocos" (lo de siempre) o "conc": trae lo que contaste en tu conciliación del mismo turno y fecha
+function entPrecargarCore_(secciones, usuario, opts) {
   secciones = (secciones && secciones.length ? secciones : ENT_SECCIONES).filter(s => ENT_SECCIONES.includes(s));
+  if (opts && opts.fuente === "conc") return entPrecargarConcCore_(secciones, usuario);
   return conLock_(() => {
     const turno = turnoAbiertoObligatorio_();
     const actuales = entLeerTurno_(turno.id).secciones;
@@ -4001,8 +4027,7 @@ function concItems_(concId) {
       // Completo = las tres zonas tienen número (el 0 cuenta); si falta alguna, está incompleto
       x.completo = x.bodega !== "" && x.ka !== "" && x.pk !== "";
       return x;
-    })
-    .sort(ordenFamilia_);
+    });   // en el orden en que se agregaron
 }
 
 // Color de cada producto: mal (facturación tiene de más) · ok (el conteo cubre) ·
@@ -4207,8 +4232,7 @@ const CSS_PDF_CONC = "tr.grupo td{background:#e8eef9 !important;color:#003399;fo
 function cuerpoPDFConc_(c, sinFirmas) {
   const items = concItems_(c.id);
   const v = x => x === "" ? "—" : fM(x);
-  let fam = null;
-  const grupo = x => { const g = x.familia !== fam ? `<tr class="grupo"><td colspan="9" class="izq"><b>${escHtml_(x.familia || "OTROS")}</b></td></tr>` : ""; fam = x.familia; return g; };
+  const grupo = () => "";
   const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
   const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
     (items.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td>${fM(suma("bodega"))}</td><td>${fM(suma("ka"))}</td><td>${fM(suma("pk"))}</td><td>${fM(suma("total"))}</td><td>${fM(suma("fact"))}</td><td></td><td></td></tr>` : "") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
@@ -5007,17 +5031,26 @@ function sbProbarConexion() {
 // id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, V = validación)
 // =========================================================
 
-// Lo que se puede escoger: turnos recientes, conciliaciones y (del turno escogido) qué tiene cada parte
-function finalOpciones_(turnoId) {
+// La conciliación va en la entrega final solo si es del mismo turno (mismo número y fecha, o ligada a él) y de la misma persona
+function concDelTurno_(c, t) {
+  if (!c || !t || c.estado === "ELIMINADA") return false;
+  const mismo = c.turnoId === t.id || (c.fecha === String(t.fecha).substring(0, 10) && Number(c.numero) === Number(t.numero));
+  return mismo && mismoUsuario_(c.abiertoPor, t.abiertoPor);
+}
+const mismoUsuario_ = (a, b) => { const n = x => normalizarTexto(String(x || "").replace(/\s*\(.*\)\s*$/, "").replace(/^@/, "")).trim().toLowerCase(); return !!n(a) && n(a) === n(b); };
+
+// Lo que se puede escoger: los turnos de quien la arma (el administrador ve todos) y, del turno escogido,
+// su entrega, su validación y sus conciliaciones (solo del mismo turno y la misma persona)
+function finalOpciones_(turnoId, u) {
   prepararTurnos_();
-  const turnos = listarTurnos_().filter(t => t.estado !== "ELIMINADO")
+  const admin = u && u.rol === "administrador";
+  const turnos = listarTurnos_().filter(t => t.estado !== "ELIMINADO" && (admin || !u || mismoUsuario_(t.abiertoPor, u.nombre)))
     .sort((a, b) => a.inicio < b.inicio ? 1 : -1).slice(0, 60)
     .map(t => ({ id: t.id, texto: turnoTexto_(t), numero: t.numero, fecha: t.fecha, estado: t.estado }));
-  const t = turnoId ? turnoPorId_(turnoId) : null;
-  const concs = listarConc_().filter(c => c.estado !== "ELIMINADA")
-    .sort((a, b) => a.inicio < b.inicio ? 1 : -1).slice(0, 40)
-    .map(c => ({ id: c.id, texto: `Conciliación turno ${c.numero} · ${formatearFecha(c.fecha)}`, estado: c.estado, cerradoPor: c.cerradoPor || c.abiertoPor,
-      sugerida: !!t && (c.turnoId === t.id || (c.fecha === String(t.fecha).substring(0, 10) && Number(c.numero) === Number(t.numero))) }));
+  let t = turnoId ? turnoPorId_(turnoId) : null;
+  if (t && !turnos.some(x => x.id === t.id)) throw new Error("Solo puedes armar la entrega final de tus propios turnos.");
+  const concs = t ? listarConc_().filter(c => concDelTurno_(c, t)).sort((a, b) => a.inicio < b.inicio ? -1 : 1)
+    .map(c => ({ id: c.id, texto: `Conciliación turno ${c.numero} · ${formatearFecha(c.fecha)}`, estado: c.estado, cerradoPor: c.cerradoPor || c.abiertoPor, sugerida: true })) : [];
   const r = { turnos: turnos, turno: null, conc: concs };
   if (t) {
     r.turno = { id: t.id, texto: turnoTexto_(t), estado: t.estado };
@@ -5034,6 +5067,7 @@ function construirPDFEntregaFinal(id) {
   if (!t) throw new Error("Escoge el turno de la entrega final.");
   const partes = (p[2] === undefined ? "EV" : p[2]).toUpperCase();
   const concs = (p[1] || "").split(",").filter(x => x).map(cid => listarConc_().find(c => c.id === cid)).filter(c => c);
+  if (concs.some(c => !concDelTurno_(c, t))) throw new Error("La entrega final solo puede llevar conciliaciones del mismo turno y de la misma persona.");
   if (!partes.includes("E") && !partes.includes("V") && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
 
   const bloques = [];   // [{ html, filas }] cada uno es una parte; se decide dónde va el salto de hoja
@@ -5041,8 +5075,7 @@ function construirPDFEntregaFinal(id) {
   concs.forEach(c => bloques.push({ filas: concItems_(c.id).length + 8, html: `<div class="parte-t">⚖️ Conciliación con facturación</div>` + cuerpoPDFConc_(c, true) }));
   if (partes.includes("V")) {
     const dt = valDatosTurno_(t.id);
-    const familias = dt.productos.map(p => p.familia).filter((x, k, a) => a.indexOf(x) === k).length;
-    bloques.push({ filas: dt.productos.length + familias + 6, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true) });
+    bloques.push({ filas: dt.productos.length + 6, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true) });
   }
   // La entrega va sola en su hoja. Lo demás se acomoda junto mientras quepa (≈ 52 filas por hoja).
   const CABEN = 52;
@@ -5227,7 +5260,7 @@ function webBarriles(tk) {
 }
 function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => ({ id: x.id, p: x.p, v: x.v, dias: x.dias, pres: x.pres, cub: x.cub, fecha: x.fecha, vida: vidaUtilInfo(x.dias).clave }))); }
 function webHistorial(tk, filtros) { return webAuth_(tk, L_, u => histListar_(filtros, u)); }
-function webFinal(tk, turnoId) { return webAuth_(tk, L_, () => finalOpciones_(turnoId || "")); }
+function webFinal(tk, turnoId) { return webAuth_(tk, L_, u => finalOpciones_(turnoId || "", u)); }
 function webMantPrevia(tk, dias) { return webAuth_(tk, A_, () => mantPreviaCore_(dias)); }
 function webMantArchivar(tk, dias) { return webTurnoAuth_(tk, A_, u => mantArchivarCore_(dias, u.nombre)); }
 // parte = "VAL" | "ENT" (desde cada historial); sin parte = el turno completo (cancelar el abierto)
@@ -5321,7 +5354,7 @@ function webValDestino(tk, accion, destino, turnoId) { return webTurnoAuth_(tk, 
 // ENTREGA DE TURNO
 // ---------------------------------------------------------
 function webEnt(tk, turnoId) { return webAuth_(tk, L_, () => entEstadoCore_(turnoId || "")); }
-function webEntPrecargar(tk, secciones) { return webTurnoAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre), estado: entEstadoCore_() })); }
+function webEntPrecargar(tk, secciones, opts) { return webTurnoAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre, opts), estado: entEstadoCore_() })); }
 function webEntGuardar(tk, seccion, sku, producto, cantidades, turnoId) { return webTurnoAuth_(tk, V_, u => { entGuardarItemCore_(seccion, sku, producto, cantidades, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "") }; }); }
 function webEntQuitar(tk, seccion, sku, turnoId) { return webTurnoAuth_(tk, V_, u => { entQuitarItemCore_(seccion, sku, turnoId || "", u.nombre); return { estado: entEstadoCore_(turnoId || "") }; }); }
 function webEntQuitarSeccion(tk, seccion, turnoId) { return webTurnoAuth_(tk, V_, u => ({ quitados: entQuitarSeccionCore_(seccion, turnoId || "", u.nombre), estado: entEstadoCore_(turnoId || "") })); }

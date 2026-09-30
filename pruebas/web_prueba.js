@@ -158,7 +158,7 @@ let llamadasSb = 0, sinRed = false;
   const dupCap = await P.evaluate(() => api("webCapacidadGuardar", "", { modulo: "Z55", caras: 3 }).then(() => "sin error", e => e.message));
   if (!/ya está en la lista/.test(dupCap)) errores.push("capacidad: módulo repetido no avisa: " + dupCap);
   await P.fill("#cpQ", "z55");
-  await P.click('button[data-a="editar"][data-m="Z55"]'); await P.waitForSelector("#cmM");
+  await P.click('button[data-a="editar"][data-m="Z55"]'); await P.waitForSelector("#cmM"); await P.waitForTimeout(300);
   await P.fill("#cmM", "Z56"); await P.fill("#cmC", "4"); await P.fill("#cmE", "3"); await P.press("#cmE", "Enter");
   await P.waitForTimeout(800);
   if (q("select count(*) from capacidad_bodega where modulo='Z55'") !== "0" || q("select caras || '|' || capacidad from capacidad_bodega where modulo='Z56'") !== "4|3") errores.push("capacidad: renombrar/editar falló");

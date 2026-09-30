@@ -12,7 +12,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Frecs!">
-<link rel="stylesheet" href="app.css?v=bc879af2">
+<link rel="stylesheet" href="app.css?v=f73e1ce6">
+<script>try { if (localStorage.getItem("frecs_tema") === "claro") document.documentElement.dataset.tema = "claro"; } catch (e) {}</script>
 </head>
 <body>
 <!-- Ingreso con nombre y PIN -->
@@ -33,6 +34,7 @@
   <div class="sync-chip" id="syncChip">…</div>
   <button class="btn btn-ref" id="refBtn" title="Recargar datos y reglas" aria-label="Recargar datos">↻</button>
   <button class="btn btn-sync" id="syncBtn" title="Traer inventario del WMS">⟳ <span class="txt">Sincronizar</span></button>
+  <button class="tema-btn" id="temaBtn" title="Cambiar colores (oscuro / claro)" aria-label="Cambiar colores">☀️</button>
   <button class="user-chip" id="userChip" title="Tu usuario">👤 …</button>
 </header>
 <div class="offline-bar hidden" id="offBar">📡 Sin conexión · trabajando con los datos guardados. Los cambios se suben cuando vuelva la conexión.</div>
@@ -55,9 +57,9 @@
 <div id="toasts" aria-live="polite"></div>
 
 <script src="config.js?v=8d7f90e9"></script>
-<script src="motor.js?v=cb529136"></script>
+<script src="motor.js?v=98216d17"></script>
 <script src="puente.js?v=ac397264"></script>
-<script src="app.js?v=970b86c4"></script>
+<script src="app.js?v=e2f3dc7f"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
 </body>
 </html>

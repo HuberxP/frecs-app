@@ -308,6 +308,21 @@ document.addEventListener("focusin", e => {
     setTimeout(() => { try { t.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (x) {} }, 280);
 });
 
+// Modo de colores: oscuro (el de siempre) o claro neutro. Se recuerda en este equipo.
+function ponerTema(t) {
+  const claro = t === "claro";
+  document.documentElement.dataset.tema = claro ? "claro" : "oscuro";
+  const b = document.getElementById("temaBtn"); if (b) { b.textContent = claro ? "🌙" : "☀️"; b.title = claro ? "Cambiar a colores oscuros" : "Cambiar a colores claros"; }
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = claro ? "#ffffff" : "#04070f";
+}
+try { ponerTema(localStorage.getItem("frecs_tema") || "oscuro"); } catch (e) { ponerTema("oscuro"); }
+document.addEventListener("click", e => {
+  if (!e.target.closest("#temaBtn, [data-tema-tog]")) return;
+  e.preventDefault();
+  const t = document.documentElement.dataset.tema === "claro" ? "oscuro" : "claro";
+  ponerTema(t); try { localStorage.setItem("frecs_tema", t); } catch (x) {}
+});
+
 let modalBusy = false, modalOnClose = null;
 let modalDesde = 0;
 function abrirModal(html, opts) {
@@ -496,7 +511,8 @@ $("#userChip").onclick = () => {
 
 // ---------- navegación ----------
 function pintarNav() {
-  $("#nav").innerHTML = NAV.filter(g => !g.rol || puede(g.rol)).map(g => `${g.g ? `<h4 class="${g.cls || ""}">${h(g.g)}</h4>` : ""}${g.items.map(i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span>${h(i.t)}</a>`).join("")}`).join("");
+  $("#nav").innerHTML = NAV.filter(g => !g.rol || puede(g.rol)).map(g => `${g.g ? `<h4 class="${g.cls || ""}">${h(g.g)}</h4>` : ""}${g.items.map(i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span>${h(i.t)}</a>`).join("")}`).join("") +
+    `<h4>Pantalla</h4><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a>`;
   $$("#bottombar button").forEach(b => b.classList.toggle("on", b.dataset.v === S.vista));
 }
 let menuDesde = 0;
@@ -841,9 +857,8 @@ VISTAS.stock = async (el, p, vigente) => {
     const tot = visibles.filter(i => i.disp).reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
     const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : i[filtro])).sort(ordPrioVence);
     const segBtn = (f, t) => `<button data-f="${f}" class="${filtro === f ? "on" : ""}">${t}</button>`;
-    r.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="prod" style="font-weight:700;font-size:17px">${skuTxt(sku, fis[0].p || ficha.prod)}</div>
-        <div style="margin-top:8px">✅ <b>Total disponible</b>${verKA ? "" : " (sin KA/PREV)"}: ${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div>
-        <div class="small muted" style="margin-top:4px">Mínimo para no ser «poco»: ${ficha.minimo === null ? "10 (por defecto)" : fm(ficha.minimo)} estibas</div></div>
+    r.innerHTML = `<div class="card st-card"><div class="prod">${skuTxt(sku, fis[0].p || ficha.prod)}</div>
+        <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("ALL", "Todos")}${segBtn("DISP", "Disponible")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
       ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, fefo: i.disp ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
@@ -1281,6 +1296,7 @@ document.addEventListener("click", e => {
   const ab = !infoAbierta(); ls.set("infoTurno", ab ? "1" : "");
   $$(".turno[data-info]").forEach(x => x.classList.toggle("plegada", !ab));
   $$("[data-info-tog]").forEach(x => x.setAttribute("aria-expanded", ab ? "true" : "false"));
+  if (ab) requestAnimationFrame(() => ajustarBarras());   // los botones de la tarjeta se miden ya visibles
 }, true);
 
 // ---------- piezas comunes de validación, conciliación y entrega ----------
@@ -1306,6 +1322,21 @@ function filtrarGrupos(el, buscando, sel) {
   el.classList.toggle("buscando", buscando);
   $$(".fam-g, .pc-g", el).forEach(g => g.classList.toggle("hidden", !$$(sel + ":not(.hidden)", g).length));
 }
+// Selector pequeño propio (el del celular abre una lista enorme)
+const miniSel = (id, opciones, valor, ph, otro) => `<div class="mini-sel" id="${id}" data-v="${h(valor || "")}"><button type="button" class="ms-b"><span class="ms-t">${h(valor || ph || "Escoge…")}</span><span aria-hidden="true">▾</span></button>
+  <div class="ms-l hidden" role="listbox">${opciones.map(o => `<button type="button" data-o="${h(o)}" class="${o === valor ? "on" : ""}">${h(o)}</button>`).join("")}${otro ? `<button type="button" data-o="__otro" class="ms-otro">${h(otro)}</button>` : ""}</div></div>`;
+document.addEventListener("click", e => {
+  const ms = e.target.closest(".mini-sel");
+  $$(".mini-sel .ms-l:not(.hidden)").forEach(l => { if (!ms || l.parentNode !== ms) l.classList.add("hidden"); });
+  if (!ms) return;
+  const o = e.target.closest("[data-o]");
+  if (o) {
+    ms.dataset.v = o.dataset.o; $(".ms-t", ms).textContent = o.dataset.o === "__otro" ? o.textContent : o.dataset.o;
+    $$("[data-o]", ms).forEach(x => x.classList.toggle("on", x === o)); $(".ms-l", ms).classList.add("hidden");
+    ms.dispatchEvent(new Event("elegido", { bubbles: true })); return;
+  }
+  if (e.target.closest(".ms-b")) $(".ms-l", ms).classList.toggle("hidden");
+});
 // Botón flotante de agregar (abajo a la derecha)
 const fab = (accion, titulo) => `<button type="button" class="fab" data-a="${accion}" title="${h(titulo)}" aria-label="${h(titulo)}">＋</button>`;
 // Hora pequeña y editable, con su calendario, al lado de un título
@@ -1316,7 +1347,7 @@ const horaEd = (id, valor, etiqueta) => `<label class="hora-ed" title="${h(etiqu
 document.addEventListener("change", e => { const i = e.target.closest(".hora-ed input"); if (!i) return; const b = document.querySelector(`[data-hora="${i.id}"]`); if (b) b.textContent = horaTxt(i.value); });
 document.addEventListener("click", e => { const l = e.target.closest(".hora-ed"); if (!l) return; const i = l.querySelector("input"); if (i && i.showPicker) { e.preventDefault(); try { i.showPicker(); } catch (x) { i.focus(); } } });
 
-function pintarBarra(cont, te, compacto) {
+function pintarBarra(cont, te, compacto, extra) {
   if (!cont) return;
   S.turno = te;
   const esc = puede("validador");
@@ -1333,7 +1364,7 @@ function pintarBarra(cont, te, compacto) {
       <div><div class="k">Turno</div><div class="v">${h(t.texto)} <span class="muted small solo-escritorio">(${h(t.horario)})</span></div></div>
       <div><div class="k">Abierto por</div><div class="v">${h(t.abiertoPor)} · ${h(soloHora(t.inicio))}</div></div>
       ${t.recibeDe ? `<div class="solo-escritorio"><div class="k">Recibe de</div><div class="v">${h(t.recibeDe.replace(/^Recibe de /, ""))}</div></div>` : ""}</div>
-      <div class="acciones barra-acc">${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">🔒</span><span class="txt">Cerrar turno</span></button>` : ""}</div></section>`;
+      <div class="acciones barra-acc">${extra || ""}${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">🔒</span><span class="txt">Cerrar turno</span></button>` : ""}</div></section>`;
   }
   if (cont.__html !== html) { cont.innerHTML = html; cont.__html = html; }
   cont.onclick = e => {
@@ -1367,9 +1398,14 @@ function modalAbrirTurno(te) {
   const hor = (te && te.horarios) || { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
   const c = abrirModal(`<h3>Abrir turno</h3><p class="muted small">Escoge tu turno. No se puede abrir otro hasta cerrar este.</p>
     <div class="num-pick" id="np">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(String(hor[n] || "").replace(/:00/g, ""))}</span></button>`).join("")}</div>
-    ${te && te.ultimo ? `<label class="check"><input type="checkbox" id="atH"><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar el saldo de la validación (se puede editar después).</span></label>` : `<p class="muted small">No hay turno anterior del que recibir.</p>`}
+    ${te && te.ultimo ? `<label class="check" id="atHL"><input type="checkbox" id="atH"><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar el saldo de la validación (se puede editar después).</span></label>
+      <p class="muted small hidden" id="atHN">Solo se hereda del turno inmediatamente anterior: después del turno ${h(te.ultimo.numero)} va el turno ${h({ 1: 2, 2: 3, 3: 1 }[te.ultimo.numero] || "?")}.</p>` : `<p class="muted small">No hay turno anterior del que heredar.</p>`}
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="atOk">Abrir turno</button></div>`);
-  $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); };
+  // Solo se puede heredar del turno inmediatamente anterior (3 → 1 → 2 → 3)
+  const sig = { 1: 2, 2: 3, 3: 1 };
+  const verHeredar = () => { if (!$("#atH", c)) return; const ok = te && te.ultimo && (!sig[te.ultimo.numero] || sig[te.ultimo.numero] === num); $("#atHL", c).classList.toggle("hidden", !ok); $("#atHN", c).classList.toggle("hidden", !!ok); if (!ok) $("#atH", c).checked = false; };
+  $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); verHeredar(); };
+  verHeredar();
   $("#atOk", c).onclick = async () => {
     const btn = $("#atOk", c); ocupado(btn, true, "Abriendo…");
     try {
@@ -1515,19 +1551,16 @@ function pintarVal(el) {
   numerarRegs(v);
   const regsDe = sku => regs.filter(r => r.sku === sku);
   const tarjeta = p => cardVal(p, esc, hist, regsDe(p.sku));
-  const porConf = v.productos.filter(p => p.porConfirmar).sort(porNombre), normales = v.productos.filter(p => !p.porConfirmar);
-  html += `${hist ? "" : `<div class="barra-acc barra-mini">${botonesPDF("VALIDACION", "PDF", t.id)}</div>`}
+  const porConf = v.productos.filter(p => p.porConfirmar), normales = v.productos.filter(p => !p.porConfirmar);   // en el orden en que se agregaron
+  html += `
     ${nConf ? `<div class="err">⚠️ Hay ${nConf} validación(es) en conflicto: se hicieron sin conexión y al subir ya no alcanzaba el saldo. Corrígelas o anúlalas.</div>` : ""}
     ${v.productos.length ? `<div class="lista-tools"><input type="search" id="vq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.valQ || "")}"><button class="btn sm" data-a="vabrir">Abrir todas</button><button class="btn sm" data-a="vcerrar">Cerrar todas</button><span class="count" id="vqc"></span></div>
       ${porConf.length ? `<section class="pc-g"><div class="pc-t">⏳ Por confirmar cantidad <span class="fam-n">${porConf.length}</span></div><div class="vlista">${porConf.map(tarjeta).join("")}</div></section>` : ""}
-      <div class="vlista">${gruposFamilia("val", normales, tarjeta)}</div>` : vacio("No hay productos en este turno. Toca ＋ para agregarlos.", "📝")}
-    ${esc && !hist ? `<details class="card destinos-c"><summary>Destinos (${v.destinos.length})</summary>
-      <div class="row" style="margin:10px 0">${v.destinos.map(d => `<span class="chip-x">${h(d)}<button data-a="qdest" data-d="${h(d)}" title="Quitar">✕</button></span>`).join("")}</div>
-      <div class="form-row" style="margin:0"><label class="field" style="max-width:260px"><span>Nuevo destino</span><input type="text" id="nd" placeholder="Ej: Mayoristas"></label><button class="btn sm" data-a="adest">Agregar</button></div></details>` : ""}
+      <div class="vlista">${normales.map(tarjeta).join("")}</div>` : vacio("No hay productos en este turno. Toca ＋ para agregarlos.", "📝")}
     ${esc ? fab("agregar", "Agregar productos") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(Object.assign({}, t, { texto: t.texto }), "VALIDACION");
-  else pintarBarra($("#tb", el), v.turnoInfo);
+  else pintarBarra($("#tb", el), v.turnoInfo, false, botonesPDF("VALIDACION", "PDF", t.id));
   el.onclick = e => { if (hist && onBanner(e, t, "VALIDACION")) return; onValClick(e); };
   const vq = $("#vq", el);
   if (vq) { vq.oninput = () => { S.valQ = vq.value; filtrarVal(el); }; filtrarVal(el); }
@@ -1633,29 +1666,28 @@ function modalValidar(p, reg) {
     <div class="m-prod">${skuTxt(p.sku, p.producto)}</div>
     <div class="m-info">Disponible <b>${fm(max)}</b>${libre ? ` · <span class="pill warn">por confirmar</span>` : ""}</div>
     <div class="m-fila">
-      <label class="field f-dest"><span>Destino</span><select id="vd"><option value="">Escoge…</option>${destinos.map(d => `<option ${reg && reg.destino === d ? "selected" : ""}>${h(d)}</option>`).join("")}<option value="__otro">＋ Otro…</option></select></label>
+      <div class="field f-dest"><span>Destino</span>${miniSel("vd", destinos, reg ? reg.destino : "", "Escoge…", "＋ Otro destino…")}</div>
       <label class="field f-cant"><span>Cajas</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="vc" value="${reg ? reg.cantidad : ""}" placeholder="0" autofocus></label></div>
-    <label class="field hidden" id="otroF"><span>Nuevo destino</span><input type="text" id="otro" placeholder="Ej: Mayoristas"></label>
+    <label class="field hidden" id="otroF"><span>Nuevo destino (queda en la lista)</span><input type="text" id="otro" placeholder="Ej: Mayoristas"></label>
     <div class="small m-res" id="vr"></div>
-    <label class="field"><span>Nota (opcional)</span><input type="text" id="vn" value="${h(reg ? reg.nota : "")}" placeholder="Pedido, cliente, factura…"></label>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="vok">${reg ? "Guardar" : "Validar"}</button></div>`);
   const horaIni = $("#vh", c).value;
   const cant = () => parseInt(String($("#vc", c).value).replace(/\D/g, ""), 10) || 0;
-  const destino = () => $("#vd", c).value === "__otro" ? $("#otro", c).value.trim() : $("#vd", c).value;
+  const destino = () => $("#vd", c).dataset.v === "__otro" ? $("#otro", c).value.trim() : ($("#vd", c).dataset.v || "");
   const upd = () => {
     const n = cant(), resto = max - n;
-    $("#otroF", c).classList.toggle("hidden", $("#vd", c).value !== "__otro");
+    $("#otroF", c).classList.toggle("hidden", $("#vd", c).dataset.v !== "__otro");
     $("#vr", c).innerHTML = n ? (resto < 0 ? (libre ? `<span style="color:var(--warn)">Queda en ${fm(resto)} (producto por confirmar).</span>` : `<span style="color:var(--bad)">⛔ Excede el disponible por ${fm(-resto)} cajas.</span>`) : `Quedarán <b>${fm(resto)}</b> cajas.`) : "";
     $("#vok", c).disabled = !n || (resto < 0 && !libre) || !destino();
   };
-  $("#vd", c).onchange = () => { upd(); if ($("#vd", c).value === "__otro") $("#otro", c).focus(); };
+  $("#vd", c).addEventListener("elegido", () => { upd(); if ($("#vd", c).dataset.v === "__otro") $("#otro", c).focus(); else $("#vc", c).focus(); });
   $("#vc", c).oninput = upd; $("#otro", c).oninput = upd;
   $("#vc", c).onkeydown = e => { if (e.key === "Enter" && !$("#vok", c).disabled) $("#vok", c).click(); };
   upd();
   $("#vok", c).onclick = async () => {
     const d = destino();
     const horaElegida = $("#vh", c).value && $("#vh", c).value !== horaIni;
-    const obj = { sku: p.sku, destino: d, cantidad: cant(), nota: $("#vn", c).value.trim(), turnoId: S.val.turno.id, hora: horaElegida || hist ? $("#vh", c).value : ahoraTxt(), horaElegida: !!horaElegida };
+    const obj = { sku: p.sku, destino: d, cantidad: cant(), nota: reg ? reg.nota : "", turnoId: S.val.turno.id, hora: horaElegida || hist ? $("#vh", c).value : ahoraTxt(), horaElegida: !!horaElegida };
     if (reg || hist) {
       const btn = $("#vok", c); ocupado(btn, true);
       try { await guardarVal(reg ? api("webValEditar", reg.id, obj, S.valTurno || "") : api("webValRegistrar", obj, S.valTurno)); ocupado(btn, false); cerrarModal(true); toast("Guardado", "ok"); } catch (e) { ocupado(btn, false); }
@@ -1854,16 +1886,18 @@ function pintarEnt(el) {
   };
   // Si ya se está agregando a mano, la precarga se bloquea (llenaría todo por error)
   const aMano = ["BODEGA", "TPC", "KA", "PK"].some(s2 => en.secciones[s2].some(x => !/^(WMS|Conciliación)/.test(x.origen || "")));
-  html += `<div class="barra-acc">${esc && !hist ? `<button class="btn sm" data-a="precargar" ${aMano ? "disabled" : ""} title="${aMano ? "Desactivado: ya estás agregando a mano. Para precargar, usa «Quitar todo» en cada sección." : "Precargar pocos y TPC"}"><span class="ic">⤓</span><span class="txt">Precargar pocos</span></button>` : ""}${hist ? "" : botonesPDF("ENTREGA", "PDF", en.turno.id)}</div>
-    ${esc && !hist && aMano ? `<p class="muted small" style="margin:-4px 0 10px">⤓ Precarga desactivada: ya estás agregando a mano.</p>` : ""}
+  S.entAMano = aMano;
+  const botonesTurno = (esc && !hist ? `<button class="btn sm" data-a="precargar" title="Precargar (pocos o tu conciliación)"><span class="ic">⤓</span><span class="txt">Precargar</span></button>` : "") + botonesPDF("ENTREGA", "PDF", en.turno.id);
+  const abN = abierto("entn", "notas");
+  html += `
     <div class="grid2"><div class="col-sec">${sec("BODEGA")}${sec("TPC")}</div><div class="col-sec">${sec("PK")}${sec("KA")}</div></div>
-    <section class="card notas-card" style="margin-top:14px"><h3>🗒️ Notas del turno <span class="muted small">(${en.notas.length})</span></h3>
-      <ol class="notas-l">${en.notas.map(n => `<li><div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><span>${h(n.texto)}${n.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</span>${esc && n.id ? `<span class="row" style="flex-wrap:nowrap"><button class="btn sm icon" data-a="nedit" data-id="${h(n.id)}">✎</button><button class="btn sm icon del" data-a="ndel" data-id="${h(n.id)}">${ICO_DEL}</button></span>` : ""}</div><div class="sub">${h(soloHora(n.hora))} · ${h(n.usuario)}</div></li>`).join("")}</ol>
-      ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary sm" data-a="nota">Agregar</button></div>` : ""}</section>
+    <section class="card notas-card plegable ${abN ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entn|notas" role="button" tabindex="0" aria-expanded="${abN}"><h3>🗒️ Notas del turno <span class="sec-n">${en.notas.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo"><ol class="notas-l">${en.notas.map(n => `<li><div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><span>${h(n.texto)}${n.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</span>${esc && n.id ? `<span class="row" style="flex-wrap:nowrap"><button class="btn sm icon" data-a="nedit" data-id="${h(n.id)}">✎</button><button class="btn sm icon del" data-a="ndel" data-id="${h(n.id)}">${ICO_DEL}</button></span>` : ""}</div><div class="sub">${h(soloHora(n.hora))} · ${h(n.usuario)}</div></li>`).join("")}</ol>
+      ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary sm" data-a="nota">Agregar</button></div>` : ""}</div></section>
     ${esc ? fab("add", "Agregar a la entrega") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA");
-  else pintarBarra($("#tb", el), en.turnoInfo);
+  else pintarBarra($("#tb", el), en.turnoInfo, false, botonesTurno);
   const nn = $("#nNota", el); if (nn) nn.onkeydown = e => { if (e.key === "Enter") agregarNota(); };
   el.onclick = e => { if (hist && onBanner(e, en.turno, "ENTREGA")) return; onEntClick(e); };
 }
@@ -1908,15 +1942,28 @@ async function onEntClick(e) {
     return;
   }
   if (a === "precargar") {
+    let fuente = S.entAMano ? "conc" : "pocos";
     const c = abrirModal(`<h3>Precargar la entrega</h3>
-      <div class="note warn">⚠️ Esto carga <b>todos</b> los productos que el sistema considera con pocas existencias (y todos los TPC). Pueden ser <b>muchísimos</b>. Si prefieres agregar a mano, cancela.</div>
-      <p class="muted small">Se agregan los que falten (no se tocan los que ya están). En Bodega, KA y PK: los pocos según la columna Minimo, con lo que dice el WMS o, si existe, la conciliación del turno ${h(en.turno.numero)}. En TPC: lo marcado como tapacódigo. Después corriges y quitas lo que no corresponda.</p>
-      ${Object.keys(SECC).map(s => `<label class="check"><input type="checkbox" data-s="${s}"><span>${SECC[s].t}</span></label>`).join("")}
+      <div class="seg seg-sm" id="prF"><button data-f="conc" class="${fuente === "conc" ? "on" : ""}">⚖️ Mi conciliación</button><button data-f="pocos" class="${fuente === "pocos" ? "on" : ""}" ${S.entAMano ? "disabled" : ""}>Pocos del sistema</button></div>
+      <p class="muted small" id="prT"></p>
+      <div id="prS"></div>
       <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="prOk">Precargar</button></div>`);
+    const pintarF = () => {
+      $$("#prF button", c).forEach(x => x.classList.toggle("on", x.dataset.f === fuente));
+      $("#prT", c).innerHTML = fuente === "conc"
+        ? `Trae lo que <b>tú</b> contaste en tu conciliación del <b>turno ${h(en.turno.numero)}</b> de esta misma fecha: Bodega, KA y PK (en cajas). No toca lo que ya está en la entrega.`
+        : (S.entAMano ? `Desactivado: ya estás agregando a mano. Para precargar los pocos, usa «Quitar todo» en cada sección.` : `⚠️ Carga <b>todos</b> los productos con pocas existencias (y los TPC). Pueden ser muchísimos. Se agregan los que falten.`);
+      const secs = fuente === "conc" ? ["BODEGA", "KA", "PK"] : Object.keys(SECC);
+      $("#prS", c).innerHTML = secs.map(s2 => `<label class="check"><input type="checkbox" data-s="${s2}"><span>${SECC[s2].t}</span></label>`).join("");
+    };
+    $("#prF", c).onclick = e => { const b2 = e.target.closest("[data-f]"); if (!b2 || b2.disabled) return; fuente = b2.dataset.f; pintarF(); };
+    pintarF();
     $("#prOk", c).onclick = async () => {
       const secs = $$("input[data-s]:checked", c).map(x => x.dataset.s);
+      if (!secs.length) { toast("Marca al menos una sección.", "bad"); return; }
+      if (fuente === "pocos" && S.entAMano) { toast("La precarga de pocos está desactivada porque ya agregaste a mano.", "bad"); return; }
       const btn = $("#prOk", c); ocupado(btn, true, "Precargando…");
-      try { const r = await api("webEntPrecargar", secs); ocupado(btn, false); cerrarModal(true); S.ent = r.estado; ls.setJ("ent", S.ent); toast(`Agregados: Bodega ${r.resultado.BODEGA} · TPC ${r.resultado.TPC} · KA ${r.resultado.KA} · PK ${r.resultado.PK}`, "ok", 6000); pintarEnt(); }
+      try { const r = await api("webEntPrecargar", secs, { fuente: fuente }); ocupado(btn, false); cerrarModal(true); S.ent = r.estado; ls.setJ("ent", S.ent); toast(`Agregados: Bodega ${r.resultado.BODEGA} · TPC ${r.resultado.TPC} · KA ${r.resultado.KA} · PK ${r.resultado.PK}`, "ok", 6000); pintarEnt(); }
       catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
     };
   }
@@ -2009,12 +2056,12 @@ function pintarConc(el) {
   const completo = x => vNum(x.bodega) !== "" && vNum(x.ka) !== "" && vNum(x.pk) !== "";
   const inc = k.items.filter(x => !completo(x)), comp = k.items.filter(completo);
   const tarjeta = x => tarjetaConc(x, esc);
-  const bloque = (t, cls, lis, clave) => `<section class="cc-col ${cls}"><div class="cc-col-t">${t} <span class="fam-n">${lis.length}</span></div>${lis.length ? gruposFamilia(clave, lis, tarjeta) : `<p class="muted small">Nada aquí.</p>`}</section>`;
+  // En el orden en que se agregaron; cada apartado sale solo si tiene productos
+  const bloque = (t, cls, lis) => lis.length ? `<section class="cc-col ${cls}"><div class="cc-col-t">${t} <span class="fam-n">${lis.length}</span></div><div class="fam-b">${lis.map(tarjeta).join("")}</div></section>` : "";
   html += `${esc && pend.length && !hist ? `<div class="barra-acc barra-mini"><button class="btn sm" data-a="pasarpre" title="Pasar de pre-conciliación"><span class="ic">📌</span><span class="txt">Pre-conciliación (${pend.length})</span></button></div>` : ""}
     ${k.items.length ? `<div class="lista-tools"><input type="search" id="cq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.concQ || "")}"><button class="btn sm" data-a="cabrir">Abrir todas</button><button class="btn sm" data-a="ccerrar">Cerrar todas</button><span class="count" id="cqc"></span></div>
       <div class="conc-resumen"><span class="chip c-mal">✗ ${cuenta("mal")}</span><span class="chip c-ok">✓ ${cuenta("ok")}</span><span class="chip c-sobra">+50 % ${cuenta("sobra")}</span><span class="chip">Sin facturación ${k.items.filter(x => !x.nivel).length}</span></div>` : ""}
-    <div class="clista" id="cTab">${k.items.length ? `<div class="cc-cols">${bloque("⏳ Incompletos", "cc-inc", inc, "conc-i")}${bloque("✅ Completos", "cc-comp", comp, "conc-c")}</div>
-      <div class="card cc-totales" id="cTot">${totalesConcHtml(k.items)}</div>` : `<div class="card muted">Sin productos. Toca ＋ para agregarlos.</div>`}</div>
+    <div class="clista" id="cTab">${k.items.length ? `<div class="cc-cols ${inc.length && comp.length ? "" : "una"}">${bloque("⏳ Incompletos", "cc-inc", inc)}${bloque("✅ Completos", "cc-comp", comp)}</div>` : `<div class="card muted">Sin productos. Toca ＋ para agregarlos.</div>`}</div>
     ${esc ? fab("agregarc", "Agregar producto") : ""}`;
   el.innerHTML = html;
   el.onclick = e => { if (hist && onBanner(e, k.conc, "CONCILIACION")) return; onConcClick(e); };
@@ -2075,7 +2122,7 @@ function onConcCampo(e) {
   ["mal", "ok", "sobra", "sin"].forEach(c => tr.classList.toggle(c, (nivel || "sin") === c));
   // Totales al instante (la tarjeta pasa a «Completos» al volver a pintar, no mientras se escribe)
   const it = S.conc && S.conc.items.find(x => x.sku === sku);
-  if (it && f !== "bloqueo") { it[f] = valor === "" ? "" : Number(valor); const tt = $("#cTot"); if (tt) tt.innerHTML = totalesConcHtml(S.conc.items); }
+  if (it && f !== "bloqueo") it[f] = valor === "" ? "" : Number(valor);
   const campos = {}; campos[f] = valor;
   enviarOptimista("webConcGuardar", [sku, campos, S.concId || ""], `Conciliación ${sku}: ${f}`, r => { if (r && r.estado) { S.conc = r.estado; if (!S.concId) ls.setJ("conc", S.conc); } });
 }
@@ -2383,7 +2430,7 @@ VISTAS.final = async (el, p, vigente) => {
   let base;
   try { base = await api("webFinal", ""); } catch (e) { if (vigente()) el.insertAdjacentHTML("beforeend", errBox(e)); return; }
   if (!vigente()) return;
-  if (!base.turnos.length) { el.innerHTML = cab("📦 Entrega final") + vacio("Todavía no hay turnos.", "📭"); return; }
+  if (!base.turnos.length) { el.innerHTML = cab("📦 Entrega final") + vacio("No tienes turnos para armar la entrega final (solo se usan tus propios turnos).", "📭"); return; }
   const def = (base.turnos.find(t => t.estado === "CERRADO") || base.turnos[0]).id;
   S.finalTurno = base.turnos.some(t => t.id === S.finalTurno) ? S.finalTurno : def;
   await pintarFinal(el, base, vigente);
@@ -2403,7 +2450,7 @@ async function pintarFinal(el, base, vigente) {
     <section class="card fin-card"><h3>2 · Qué va en el PDF</h3>
       <label class="check"><input type="checkbox" id="fnE" ${ent.items || ent.notas ? "checked" : ""}><span>📋 <b>Entrega de turno</b><br><span class="sub">${ent.items || 0} productos · ${ent.notas || 0} notas${ent.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>
       <div class="fin-sub">Conciliaciones</div>
-      ${sug.length ? sug.map(c => chkConc(c, true)).join("") : `<p class="muted small">No hay conciliación de este mismo turno.</p>`}
+      ${sug.length ? sug.map(c => chkConc(c, true)).join("") : `<p class="muted small">No hay conciliación tuya de este mismo turno.</p>`}
       ${otras.length ? `<details class="fin-otras"><summary>Ver otras conciliaciones (${otras.length})</summary>${otras.map(c => chkConc(c, false)).join("")}</details>` : ""}
       <div class="fin-sub">Validación</div>
       <label class="check"><input type="checkbox" id="fnV" ${val.productos || val.registros ? "checked" : ""}><span>📝 <b>Validación de facturación</b><br><span class="sub">${val.productos || 0} productos · ${val.registros || 0} validaciones${val.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>

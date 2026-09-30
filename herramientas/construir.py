@@ -81,7 +81,8 @@ cabeza = f'''<meta name="viewport" content="width=device-width, initial-scale=1,
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Frecs!">
-<link rel="stylesheet" href="app.css?v={v_css}">'''
+<link rel="stylesheet" href="app.css?v={v_css}">
+<script>try {{ if (localStorage.getItem("frecs_tema") === "claro") document.documentElement.dataset.tema = "claro"; }} catch (e) {{}}</script>'''
 html = html.replace('<?!= include("Dashboard_css"); ?>', cabeza)
 scripts = (f'<script src="config.js?v={v_cfg}"></script>\n<script src="motor.js?v={v_motor}"></script>\n'
            f'<script src="puente.js?v={v_puente}"></script>\n<script src="app.js?v={v_app}"></script>\n'

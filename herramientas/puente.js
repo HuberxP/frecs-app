@@ -289,7 +289,8 @@
   }
   const MM = 96 / 25.4;   // px por mm
   // HTML del motor → PDF tamaño carta. Se dibuja página por página y nunca se corta una fila por la mitad.
-  async function pdfDesdeHtml(html) {
+  // modo "img": devuelve cada hoja como foto JPG (para compartir por WhatsApp como imagen)
+  async function pdfDesdeHtml(html, modo) {
     await cargarLibsPdf();
     const horizontal = /size:\s*(letter\s+)?landscape/i.test(html);
     const pag = horizontal ? { w: 279.4, h: 215.9 } : { w: 215.9, h: 279.4 }, margen = 10;
@@ -338,6 +339,7 @@
       const largo = paginas.length > 8, escala = largo ? 2.2 : 2.8, calidad = largo ? 0.9 : 0.94;
       const maxPx = 12e6, porTrozo = Math.max(1, Math.floor(maxPx / (anchoPx * escala * altoPag * escala)));
       const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: horizontal ? "landscape" : "portrait", compress: true });
+      const fotos = [];
       for (let k = 0; k < paginas.length; k += porTrozo) {
         const grupo = paginas.slice(k, k + porTrozo), y0 = grupo[0][0], y1 = grupo[grupo.length - 1][1];
         const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", x: 0, y: y0, width: anchoPx, height: y1 - y0, windowWidth: anchoPx, windowHeight: alto, logging: false, letterRendering: true });
@@ -347,10 +349,19 @@
           hoja.width = lienzo.width; hoja.height = Math.max(1, Math.round(h * escala));
           const cx = hoja.getContext("2d"); cx.imageSmoothingEnabled = false; cx.fillStyle = "#fff"; cx.fillRect(0, 0, hoja.width, hoja.height);
           cx.drawImage(lienzo, 0, Math.round((pg[0] - y0) * escala), lienzo.width, hoja.height, 0, 0, lienzo.width, hoja.height);
+          if (modo === "img") {
+            // Foto de la hoja completa (con su margen blanco), tamaño carta
+            const foto = document.createElement("canvas"), mg = Math.round(margen * MM * escala);
+            foto.width = hoja.width + 2 * mg; foto.height = Math.round((pag.h * MM) * escala);
+            const fx = foto.getContext("2d"); fx.fillStyle = "#fff"; fx.fillRect(0, 0, foto.width, foto.height); fx.drawImage(hoja, mg, mg);
+            fotos.push(foto.toDataURL("image/jpeg", 0.92));
+            return;
+          }
           if (k + n) pdf.addPage();
           pdf.addImage(hoja.toDataURL("image/jpeg", calidad), "JPEG", margen, margen, pag.w - 2 * margen, h / MM);
         });
       }
+      if (modo === "img") return fotos;
       return pdf.output("datauristring").split(",")[1];
     } finally { ifr.remove(); }
   }
@@ -439,9 +450,12 @@
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
       const nuevoExtra = pideExtras(args);
       if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await despuesDeEscribir(fn, args, await escribirEnOrden(fn, args, ok, fallo));
-      if (fn === "webPDF" || fn === "webPDFTelegram") {
+      if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos") {
         await cargarDatos(args[0]);
         if (nuevoExtra || Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
+        // Ver el informe tal cual (sin convertirlo) o sacarlo como fotos
+        if (fn === "webPDFHtml") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, html: p.html, caption: p.caption }); }
+        if (fn === "webPDFFotos") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, fotos: await pdfDesdeHtml(p.html, "img") }); }
         const p = await pdfDe(args[1], args[2]);
         if (fn === "webPDF") return ok({ nombre: p.nombre, b64: p.b64 });
         await pdfATelegram(args[0], p);

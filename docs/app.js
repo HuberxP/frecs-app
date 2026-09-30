@@ -330,7 +330,7 @@ function abrirModal(html, opts) {
   modalBusy = false;
   modalDesde = Date.now();
   const card = $("#modalCard");
-  card.className = "modal-card" + (opts.wide ? " wide" : "");
+  card.className = "modal-card" + (opts.wide ? " wide" : "") + (opts.clase ? " " + opts.clase : "");
   card.innerHTML = html;
   $("#modal").classList.remove("hidden");
   document.documentElement.classList.add("con-modal");
@@ -671,6 +671,75 @@ async function descargarPDF(tipo, id, btn) {
   catch (e) { toast(e.message, "bad", 6000); }
   finally { if (btn) btn.disabled = false; }
 }
+// ---------- 👁 Ver el informe tal como sale en el PDF (sin convertirlo) ----------
+async function verInforme(tipo, id) {
+  const c = abrirModal(`<div class="vi-top"><b id="viT">Informe</b><span class="vi-z"><button class="btn sm icon" data-z="-1" aria-label="Alejar">−</button><button class="btn sm icon" data-z="1" aria-label="Acercar">＋</button></span></div>
+    <div class="vi-marco" id="viM">${loader("Armando el informe…")}</div>
+    <div class="modal-actions"><button class="btn" data-x>Cerrar</button><button class="btn sm" data-pdf="${h(tipo)}" data-id="${h(id)}">📄 PDF</button><button class="btn sm btn-wa" data-wa="${h(tipo)}" data-id="${h(id)}">🟢 WhatsApp</button></div>`, { wide: true, clase: "visor" });
+  let r;
+  try { r = await api("webPDFHtml", tipo, id || ""); } catch (e) { $("#viM", c).innerHTML = errBox(e); return; }
+  if (!document.body.contains(c)) return;
+  $("#viT", c).textContent = r.nombre.replace(/\.pdf$/i, "").replace(/_/g, " ");
+  const horizontal = /size:\s*(letter\s+)?landscape/i.test(r.html);
+  const ancho = horizontal ? 980 : 740;   // lo mismo que usa el PDF (hoja carta menos márgenes)
+  const M = $("#viM", c);
+  M.innerHTML = `<div class="vi-caja"><div class="vi-hoja" style="width:${ancho + 40}px"><iframe title="Informe" sandbox="allow-same-origin" style="width:${ancho}px"></iframe></div></div>`;
+  const caja = $(".vi-caja", M), hoja = $(".vi-hoja", M), ifr = $("iframe", M);
+  let zoom = 1;
+  const ajustar = () => {
+    const d = ifr.contentDocument; if (!d || !d.body) return;
+    d.body.style.margin = "0"; d.body.style.background = "#fff";
+    const alto = Math.ceil(d.documentElement.scrollHeight);
+    ifr.style.height = alto + "px";
+    const base = Math.min(1, (M.clientWidth - 16) / (ancho + 40));
+    const esc = base * zoom;
+    hoja.style.transform = `scale(${esc})`;
+    caja.style.width = Math.ceil((ancho + 40) * esc) + "px";
+    caja.style.height = Math.ceil((alto + 40) * esc) + "px";
+  };
+  ifr.onload = () => { ajustar(); setTimeout(ajustar, 200); };
+  ifr.srcdoc = r.html;
+  c.addEventListener("click", e => { const z = e.target.closest("[data-z]"); if (!z) return; zoom = Math.max(0.5, Math.min(3, zoom * (z.dataset.z === "1" ? 1.25 : 0.8))); ajustar(); });
+}
+
+// ---------- 🟢 Compartir por WhatsApp (el celular abre su menú de compartir y se escoge el grupo) ----------
+function b64aArchivo(b64, nombre, tipo) {
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+  return new File([bytes], nombre, { type: tipo });
+}
+async function compartirWA(tipo, id) {
+  const c = abrirModal(`<h3>Compartir por WhatsApp</h3><p class="muted small">Escoge cómo mandarlo. Luego tocas «Compartir» y en WhatsApp escoges el grupo.</p>
+    <div class="seg seg-sm" id="waF"><button data-f="pdf" class="on">📄 PDF</button><button data-f="foto">🖼️ Foto</button></div>
+    <p class="muted small" id="waT">Un solo archivo PDF, igual al que se descarga.</p>
+    <div id="waE"></div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="waOk">Preparar</button></div>`);
+  let formato = "pdf", archivos = null;
+  const textos = { pdf: "Un solo archivo PDF, igual al que se descarga.", foto: "Una foto por cada hoja: se ven de una vez en el chat, sin abrir archivos." };
+  $("#waF", c).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; formato = b.dataset.f; archivos = null; $$("#waF button", c).forEach(x => x.classList.toggle("on", x === b)); $("#waT", c).textContent = textos[formato]; $("#waOk", c).textContent = "Preparar"; $("#waE", c).innerHTML = ""; };
+  $("#waOk", c).onclick = async () => {
+    const btn = $("#waOk", c);
+    // Segundo toque: compartir (el celular exige que salga de un toque del usuario)
+    if (archivos) {
+      try {
+        if (navigator.canShare && navigator.canShare({ files: archivos })) { await navigator.share({ files: archivos, title: archivos[0].name }); cerrarModal(true); }
+        else { archivos.forEach(f => { const u = URL.createObjectURL(f); const a = document.createElement("a"); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 1000); }); toast("Este equipo no deja compartir directo: se descargó. Adjúntalo en WhatsApp.", "warn", 8000); cerrarModal(true); }
+      } catch (er) { if (er && er.name !== "AbortError") toast("No se pudo compartir: " + er.message, "bad", 6000); }
+      return;
+    }
+    ocupado(btn, true, "Preparando…");
+    try {
+      if (formato === "pdf") { const r = await api("webPDF", tipo, id || ""); archivos = [b64aArchivo(r.b64, r.nombre, "application/pdf")]; }
+      else {
+        const r = await api("webPDFFotos", tipo, id || ""), base = r.nombre.replace(/\.pdf$/i, "");
+        archivos = r.fotos.map((u, k) => b64aArchivo(u.split(",")[1], `${base}${r.fotos.length > 1 ? "_" + (k + 1) : ""}.jpg`, "image/jpeg"));
+      }
+      ocupado(btn, false); btn.textContent = "📤 Compartir";
+      $("#waE", c).innerHTML = `<div class="note">Listo: ${archivos.length} ${formato === "pdf" ? "PDF" : (archivos.length > 1 ? "fotos" : "foto")}. Toca «Compartir».</div>`;
+    } catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+  };
+}
+
 function bajarB64(nombre, b64) {
   const bin = atob(b64); const bytes = new Uint8Array(bin.length);
   for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
@@ -691,7 +760,11 @@ async function enviarTG(tipo, id, btn) {
 // Descargar siempre; Telegram solo si el usuario lo pide con su botón
 function botonesPDF(tipo, etiqueta, id) {
   const d = id ? ` data-id="${h(id)}"` : "";
-  return `<button class="btn sm" data-pdf="${tipo}"${d} title="Descargar ${h(etiqueta || "PDF")}"><span class="ic">📄</span><span class="txt">${h(etiqueta || "PDF")}</span></button>${S.grupoTg && puede("validador") ? `<button class="btn sm ghost" data-tg="${tipo}"${d} title="Enviar al grupo de Telegram"><span class="ic">✈️</span><span class="txt">Telegram</span></button>` : ""}`;
+  // Ver (tal cual, sin convertir) y compartir por WhatsApp: solo en la versión web
+  const web = !!window.FRECS_WEB;
+  return (web ? `<button class="btn sm" data-ver="${tipo}"${d} title="Ver el informe"><span class="ic">👁</span><span class="txt">Ver</span></button>` : "") +
+    `<button class="btn sm" data-pdf="${tipo}"${d} title="Descargar ${h(etiqueta || "PDF")}"><span class="ic">📄</span><span class="txt">${h(etiqueta || "PDF")}</span></button>` +
+    (web ? `<button class="btn sm btn-wa" data-wa="${tipo}"${d} title="Compartir por WhatsApp"><span class="ic">🟢</span><span class="txt">WhatsApp</span></button>` : "") + `${S.grupoTg && puede("validador") ? `<button class="btn sm ghost" data-tg="${tipo}"${d} title="Enviar al grupo de Telegram"><span class="ic">✈️</span><span class="txt">Telegram</span></button>` : ""}`;
 }
 // Barras de botones en una sola fila: si no caben con su texto, quedan solo los íconos
 function ajustarBarras(raiz) {
@@ -722,6 +795,8 @@ new MutationObserver(ms => { if (ms.some(m => Array.from(m.addedNodes).some(n =>
 let _anchoVent = window.innerWidth;
 window.addEventListener("resize", () => { if (window.innerWidth === _anchoVent) return; _anchoVent = window.innerWidth; pedirAjuste(); });
 document.addEventListener("click", e => {
+  const v = e.target.closest("[data-ver]"); if (v) { verInforme(v.dataset.ver, v.dataset.id || ""); return; }
+  const w = e.target.closest("[data-wa]"); if (w) { compartirWA(w.dataset.wa, w.dataset.id || ""); return; }
   const p = e.target.closest("[data-pdf]"); if (p) { descargarPDF(p.dataset.pdf, p.dataset.id || "", p); return; }
   const t = e.target.closest("[data-tg]"); if (t) { enviarTG(t.dataset.tg, t.dataset.id || "", t); }
 });
@@ -1365,7 +1440,7 @@ function pintarBarra(cont, te, compacto, extra) {
       <div><div class="k">Turno</div><div class="v">${h(t.texto)} <span class="muted small solo-escritorio">(${h(t.horario)})</span></div></div>
       <div><div class="k">Abierto por</div><div class="v">${h(t.abiertoPor)} · ${h(soloHora(t.inicio))}</div></div>
       ${t.recibeDe ? `<div class="solo-escritorio"><div class="k">Recibe de</div><div class="v">${h(t.recibeDe.replace(/^Recibe de /, ""))}</div></div>` : ""}</div>
-      <div class="acciones barra-acc">${extra || ""}${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">🔒</span><span class="txt">Cerrar turno</span></button>` : ""}</div></section>`;
+      ${extra ? `<div class="acciones barra-acc acc-inf">${extra}</div>` : ""}<div class="acciones barra-acc">${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">🔒</span><span class="txt">Cerrar turno</span></button>` : ""}</div></section>`;
   }
   if (cont.__html !== html) { cont.innerHTML = html; cont.__html = html; }
   cont.onclick = e => {
@@ -1603,10 +1678,12 @@ function cardVal(p, esc, hist, regs) {
   const vacia = x => x === "" || x === null || x === undefined;
   const z = x => vacia(x) ? `<b class="z-no" title="No se contó">—</b>` : `<b>${fm(x)}</b>`;
   const hayZ = [p.bodega, p.pk, p.ka].some(x => !vacia(x));
+  // Qué zona falta por contar (si se contó por zonas o todavía no tiene nada)
+  const faltaZ = hayZ || !p.inicial ? [["bodega", "Bodega"], ["pk", "PK"], ["ka", "KA"]].filter(z => vacia(p[z[0]])).map(z => z[1]).join(", ") : "";
   const sinSaldo = p.disponible <= 0 && !p.porConfirmar;
   return `<article class="card vcard plegable ${estadoVal(p)} ${ab ? "abierto" : ""}" data-q="${h(p.sku + " " + p.producto)}">
     <div class="pl-cab" data-plegar="val|${h(p.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="rc-tit"><span class="rc-n" title="Validaciones">${activos.length}</span><div class="prod">${skuTxt(p.sku, p.producto)}</div></div>
+      <div class="rc-tit"><span class="rc-n" title="Validaciones">${activos.length}</span><div><div class="prod">${skuTxt(p.sku, p.producto)}</div>${faltaZ ? `<span class="z-falta">falta ${faltaZ}</span>` : ""}</div></div>
       <span class="vc-mini" title="Disponible de la cantidad inicial"><b>${fm(p.disponible)}</b><small>/${fm(p.inicial)}</small></span><span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
       <div class="vc-zonas"><span>Bodega ${z(p.bodega)}</span><span>PK ${z(p.pk)}</span><span>KA ${z(p.ka)}</span><span class="vc-ini">Total <b>${fm(p.inicial)}</b></span></div>

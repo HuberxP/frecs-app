@@ -681,12 +681,14 @@ async function descargarPDF(tipo, id, btn) {
 }
 // ---------- 👁 Ver el informe tal como sale en el PDF (sin convertirlo) ----------
 async function verInforme(tipo, id) {
-  const todoV = tipo === "VALIDACION";
-  const c = abrirModal(`<div class="vi-top"><b id="viT">Informe</b>${todoV ? `<label class="toggle vi-todo"><input type="checkbox" id="viTodo" ${ls.get("valTodo", "") === "1" ? "checked" : ""}> Ver todo</label>` : ""}<span class="vi-z"><button class="btn sm icon" data-z="-1" aria-label="Alejar">−</button><button class="btn sm icon" data-z="1" aria-label="Acercar">＋</button></span></div>
+  const todoV = tipo === "VALIDACION", riesgoV = tipo === "INFORME";
+  const c = abrirModal(`<div class="vi-top"><b id="viT">Informe</b>${todoV ? `<label class="toggle vi-todo"><input type="checkbox" id="viTodo" ${ls.get("valTodo", "") === "1" ? "checked" : ""}> Ver todo</label>` : ""}${riesgoV ? `<label class="toggle vi-todo" title="Solo vencidos y hasta 45 días"><input type="checkbox" id="viRies" ${id === "riesgo" ? "checked" : ""}> Solo en riesgo (≤ 45 d)</label>` : ""}<span class="vi-z"><button class="btn sm icon" data-z="-1" aria-label="Alejar">−</button><button class="btn sm icon" data-z="1" aria-label="Acercar">＋</button></span></div>
     <div class="vi-marco" id="viM">${loader("Armando el informe…")}</div>
     <div class="modal-actions"><button class="btn" data-x>Cerrar</button><button class="btn sm" data-pdf="${h(tipo)}" data-id="${h(id)}"><span class="ic">${ICO.pdf}</span> PDF</button><button class="btn sm btn-wa" data-wa="${h(tipo)}" data-id="${h(id)}"><span class="ic">${ICO.wa}</span> WhatsApp</button></div>`, { wide: true, clase: "visor" });
   // «Ver todo» (validación): muestra lo contado en cada zona y lo validado a cada destino; el PDF y WhatsApp salen igual
   if (todoV) $("#viTodo", c).onchange = e => { ls.set("valTodo", e.target.checked ? "1" : ""); cargar(); };
+  // Informe de prioridad: solo lo más en riesgo (vencidos y hasta 45 días); el PDF y WhatsApp de aquí salen igual
+  if (riesgoV) $("#viRies", c).onchange = e => { id = e.target.checked ? "riesgo" : ""; $$(".modal-actions [data-id]", c).forEach(b => { b.dataset.id = id; }); cargar(); };
   let r;
   const M = $("#viM", c);
   let zoom = 1, ancho = 740;
@@ -1188,7 +1190,7 @@ VISTAS.resumen = async (el, p, vigente) => {
   if (!vigente()) return;
   const bloq = inv.filter(i => i.fis && !i.disp).sort(cmpMod);
   const fila = (l, n, v) => `<tr><td data-l="Indicador">${l}</td><td data-l="Valor" class="num"><b>${fm(n)}</b></td><td class="acc">${v ? `<button class="btn sm" data-go="${v}">Ver</button>` : ""}</td></tr>`;
-  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", botonesPDF("INFORME", "Informe de prioridad (todos los productos)") + botonesPDF("RESUMEN", "PDF resumen (5 págs)")) +
+  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", botonesPDF("INFORME", "Informe de prioridad (todos los productos)") + botonesPDF("INFORME", "Solo en riesgo (≤ 45 días)", "riesgo") + botonesPDF("RESUMEN", "PDF resumen (5 págs)")) +
     `<table class="tabla resp"><thead><tr><th>Indicador</th><th class="num">Valor</th><th></th></tr></thead><tbody>
       ${fila("🧯 SKUs bajo su mínimo", r.cPocos, "pocos")}${fila("📦 SKUs críticos (&lt; 3 estibas)", r.c3, "pocos")}${fila("🔀 Módulos con 2+ SKUs", r.cMezcla, "mezclados")}
       ${fila("🌫️ Mercancía en limbo", r.mLimbo, "limbo")}${fila("🥤 SKUs de consumo interno", r.mConsumo, "consumo")}
@@ -1342,6 +1344,7 @@ VISTAS.envasado = async el => {
 VISTAS.reportes = async el => {
   const pdfs = [
     ["INFORME", "📊 Informe de prioridad de consumo", "Todos los productos, del que vence primero al último, con su color y hacia dónde moverlo según el vencimiento"],
+    ["INFORME", "🚨 Prioridad de consumo · solo en riesgo", "Solo lo vencido y lo que vence en 45 días o menos (rojo, amarillo y gris)", "riesgo"],
     ["RESUMEN", "📋 Resumen gerencial (5 páginas)", "Riesgo, mal ubicados, bloqueados, etiquetas, limbo y vencidos"],
     ["POCOS", "🧯 Formato de pocos", "Hoja de auditoría física de los SKUs bajo su mínimo"],
     ["CONSUMO", "🥤 Consumo · completo", "Todos los módulos de cada SKU con el de consumo resaltado"],
@@ -1356,7 +1359,7 @@ VISTAS.reportes = async el => {
   ];
   if (S.instructivo) pdfs.push(["INSTRUCTIVO", "📘 Instructivo", "Manual de uso del bot"]);
   el.innerHTML = cab("📄 Reportes PDF", "Descárgalos; para enviarlos al grupo de Telegram usa el botón ✈️ de cada uno") +
-    `<div style="display:flex;flex-direction:column;gap:10px">${pdfs.map(p => `<div class="card pdf-row"><div class="t"><b>${p[1]}</b><div class="sub">${p[2]}</div></div><div class="row">${botonesPDF(p[0], "Descargar")}</div></div>`).join("")}</div>
+    `<div style="display:flex;flex-direction:column;gap:10px">${pdfs.map(p => `<div class="card pdf-row"><div class="t"><b>${p[1]}</b><div class="sub">${p[2]}</div></div><div class="row">${botonesPDF(p[0], "Descargar", p[3])}</div></div>`).join("")}</div>
     <p class="muted small" style="margin-top:14px">Los PDF de turnos y conciliaciones anteriores están en <button class="link" id="goH">Historial</button>.</p>`;
   $("#goH", el).onclick = () => ir("historial");
 };
@@ -1377,8 +1380,12 @@ const botonesCierre = (id, dis) => `<div class="modal-actions cierre-acc">
   ${S.grupoTg ? `<button class="btn sm c-azul btn-ico" data-modo="tg" id="${id}T" ${dis}><span class="ic">${ICO.tg}</span> Guardar y enviar al grupo</button>` : ""}
   <button class="btn sm c-amar btn-ico" data-modo="pdf" id="${id}P" ${dis}><span class="ic">${ICO.pdf}</span> Guardar y descargar PDF</button>
   <button class="btn sm c-rojo" data-x>Cancelar</button></div>`;
-// Botón pequeño al final de la página para guardar (cerrar) el turno o la conciliación
-const botonGuardar = (accion, texto) => `<div class="fin-acc"><button type="button" class="btn sm warn" data-a="${accion}">💾 ${h(texto)}</button></div>`;
+// Al final de la página, pequeños: cancelar (borde rojo) o guardar (borde verde) el turno o la conciliación
+const botonGuardar = (accion, texto, cancelar, textoCancelar) => `<div class="fin-acc">${cancelar ? `<button type="button" class="btn sm b-rojo" data-a="${cancelar}">✖ ${h(textoCancelar)}</button>` : ""}<button type="button" class="btn sm b-verde" data-a="${accion}">💾 ${h(texto)}</button></div>`;
+// Lista para escoger de qué conciliación anterior copiar (filas de colores alternos; la escogida queda marcada)
+const listaCopiar = (id, ants, conNinguna) => `<div class="cp-lista" id="${id}" role="listbox">${conNinguna ? `<button type="button" data-cp="" class="on"><b>No copiar</b></button>` : ""}${ants.map((x, k) => `<button type="button" data-cp="${h(x.id)}" class="${!conNinguna && !k ? "on" : ""}"><b>${h(x.texto)}</b><span>${x.productos} productos</span></button>`).join("")}</div>`;
+document.addEventListener("click", e => { const b = e.target.closest(".cp-lista [data-cp]"); if (!b) return; $$("[data-cp]", b.parentNode).forEach(x => x.classList.toggle("on", x === b)); });
+const cpElegida = (c, id) => { const b = $(`#${id} .on`, c); return b ? b.dataset.cp : ""; };
 
 // La tarjeta del turno (y la de la conciliación) queda recogida: se ve el número y se despliega si el usuario quiere
 const infoAbierta = () => ls.get("infoTurno", "") === "1";
@@ -1475,7 +1482,7 @@ function pintarBarra(cont, te, compacto, extra) {
       <div><div class="k">Turno</div><div class="v">${h(t.texto)} <span class="muted small solo-escritorio">(${h(t.horario)})</span></div></div>
       <div><div class="k">Abierto por</div><div class="v">${h(t.abiertoPor)} · ${h(soloHora(t.inicio))}</div></div>
       ${t.recibeDe ? `<div class="solo-escritorio"><div class="k">Recibe de</div><div class="v">${h(t.recibeDe.replace(/^Recibe de /, ""))}</div></div>` : ""}</div>
-      ${extra ? `<div class="acciones barra-acc acc-inf">${extra}</div>` : ""}<div class="acciones barra-acc">${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc && compacto ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">💾</span><span class="txt">Guardar turno</span></button>` : ""}</div></section>`;
+      ${extra ? `<div class="acciones barra-acc acc-inf">${extra}</div>` : ""}<div class="acciones barra-acc">${compacto ? `<button class="btn sm" data-t="val"><span class="ic">📝</span><span class="txt">Validaciones</span></button><button class="btn sm" data-t="ent"><span class="ic">📋</span><span class="txt">Entrega</span></button>` : ""}${esc && compacto && puedoEliminar(t.abiertoPor) ? `<button class="btn sm del" data-t="cancelar" title="Cancelar turno (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}${esc && compacto ? `<button class="btn warn sm" data-t="cerrar"><span class="ic">💾</span><span class="txt">Guardar turno</span></button>` : ""}</div></section>`;
   }
   if (cont.__html !== html) { cont.innerHTML = html; cont.__html = html; }
   cont.onclick = e => {
@@ -1677,7 +1684,7 @@ function pintarVal(el) {
     ${v.productos.length ? `<div class="lista-tools"><input type="search" id="vq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.valQ || "")}"><button class="btn sm" data-a="vabrir">Abrir todas</button><button class="btn sm" data-a="vcerrar">Cerrar todas</button><span class="count" id="vqc"></span></div>
       ${porConf.length ? `<section class="pc-g"><div class="pc-t">⏳ Por confirmar <span class="fam-n">${porConf.length}</span></div><div class="vlista">${porConf.map(tarjeta).join("")}</div></section>
         <section class="pc-g conf-g"><div class="pc-t">✅ Confirmadas <span class="fam-n">${normales.length}</span></div><div class="vlista">${normales.map(tarjeta).join("")}</div></section>` : `<div class="vlista">${normales.map(tarjeta).join("")}</div>`}` : vacio("No hay productos en este turno. Toca ＋ para agregarlos.", "📝")}
-    ${esc && !hist ? botonGuardar("gturno", "Guardar turno") : ""}
+    ${esc && !hist ? botonGuardar("gturno", "Guardar turno", puedoEliminar(t.abiertoPor) ? "cturno" : "", "Cancelar turno") : ""}
     ${esc ? fab("agregar", "Agregar productos") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(Object.assign({}, t, { texto: t.texto }), "VALIDACION");
@@ -1751,6 +1758,7 @@ async function onValClick(e) {
   const prod = sku => v.productos.find(x => x.sku === sku);
   if (a === "agregar") return modalAgregar();
   if (a === "gturno") return modalCerrarTurno();
+  if (a === "cturno") return cancelarTurno(v.turno);
   if (a === "vabrir" || a === "vcerrar") { S.abiertos.val = {}; v.productos.forEach(p => { S.abiertos.val[p.sku] = a === "vabrir"; }); $$(".vlista .vcard").forEach(c => c.classList.toggle("abierto", a === "vabrir")); return; }
   if (a === "horas") { const hz = b.closest(".pl-cuerpo").querySelector(".vc-horas"); if (hz) hz.classList.toggle("hidden"); return; }
   if (a === "validar") return modalValidar(prod(b.dataset.sku));
@@ -1949,16 +1957,14 @@ async function modalAgregar() {
 // ENTREGA DE TURNO
 // =====================================================================
 const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Cajas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK", un: "Cajas", mod: false } };
-// Sin cantidades = «–» (falta contar) · un 0 contado sale en verde (se contó y no hay)
+// Sin cantidades = «–» (falta contar, sin color) · un 0 contado se ve igual que cualquier número («0 Cajas»)
 const cantChips = (arr, s) => {
-  if (!arr || !arr.length) return `<span class="cant pend" title="Falta contar">–</span>`;
+  if (!arr || !arr.length) return `<span class="cant-pend" title="Falta contar">–</span>`;
   const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); });
   const us = ["Estibas", "Cajas", "Unidades"].filter(u => t[u] !== undefined);
-  const todoCero = us.every(u => !t[u]);
-  if (todoCero) return `<span class="cant cero-ok" title="Contado: no hay"><b>0</b></span>`;
   if ((s === "KA" || s === "PK") && arr.length > 1) return `<span class="cant tot"><b>${us.map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span><span class="muted small">(${arr.length} conteos sumados)</span>`;
-  const tot = arr.length > 1 ? `<span class="cant tot">Total: <b>${us.filter(u => t[u]).map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span>` : "";
-  return tot + arr.map(x => `<span class="cant ${Number(x.n) ? "" : "cero-ok"}"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("");
+  const tot = arr.length > 1 ? `<span class="cant tot">Total: <b>${us.map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span>` : "";
+  return tot + arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("");
 };
 // Lo que vino de una conciliación y nadie ha revisado (al editarlo deja de estar marcado)
 const esHeredadoEnt = x => /^Conciliación/.test(x.origen || "");
@@ -2015,9 +2021,9 @@ function pintarEnt(el) {
     const pendN = it.filter(x => !x.cant || !x.cant.length).length;
     const lista = zona ? `<div class="ent-list">${it.slice().sort((a, b) => ((a.cant && a.cant.length) ? 1 : 0) - ((b.cant && b.cant.length) ? 1 : 0) || porPres(a, b)).map(fila(s)).join("")}</div>` : `<div class="ent-list">${gruposFamilia("ent-" + s, it, fila(s))}</div>`;
     return `<section class="card sec-card plegable sec-${s.toLowerCase()} ${ab ? "abierto" : ""}">
-      <div class="pl-cab" ${zona ? "" : `data-plegar="ent|${s}" role="button" tabindex="0"`} aria-expanded="${ab}"><h3><span>${SECC[s].t} <span class="sec-n">${it.length}</span>${pendN ? ` <span class="pill pend-p" title="Falta contar">– ${pendN}</span>` : ""}</span></h3>${zona ? "" : `<span class="pl-flecha" aria-hidden="true">▾</span>`}</div>
+      <div class="pl-cab" ${zona ? "" : `data-plegar="ent|${s}" role="button" tabindex="0"`} aria-expanded="${ab}"><h3><span>${SECC[s].t} <span class="sec-n">${it.length}</span>${pendN ? ` <span class="pill pend-p" title="Falta contar">– ${pendN}</span>` : ""}</span></h3>
+        ${esc && it.length ? `<button type="button" class="btn sm danger-ghost sec-vaciar" data-a="vaciar" data-s="${s}" title="Quitar todos los productos de la sección">🧹 Quitar todo</button>` : ""}${zona ? "" : `<span class="pl-flecha" aria-hidden="true">▾</span>`}</div>
       <div class="pl-cuerpo">
-      ${esc && it.length ? `<div class="sec-acc"><button class="btn sm danger-ghost" data-a="vaciar" data-s="${s}">🧹 Quitar todo</button></div>` : ""}
       ${it.length ? lista : `<p class="muted small">Sin productos. Toca ＋ para agregar.</p>`}
       </div></section>`;
   };
@@ -2035,7 +2041,7 @@ function pintarEnt(el) {
     <section class="card notas-card plegable ${abN ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entn|notas" role="button" tabindex="0" aria-expanded="${abN}"><h3>🗒️ Notas del turno <span class="sec-n">${en.notas.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo"><ol class="notas-l">${en.notas.map(n => `<li><div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><span>${h(n.texto)}${n.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</span>${esc && n.id ? `<span class="row" style="flex-wrap:nowrap"><button class="btn sm icon" data-a="nedit" data-id="${h(n.id)}">✎</button><button class="btn sm icon del" data-a="ndel" data-id="${h(n.id)}">${ICO_DEL}</button></span>` : ""}</div><div class="sub">${h(soloHora(n.hora))} · ${h(n.usuario)}</div></li>`).join("")}</ol>
       ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary sm" data-a="nota">Agregar</button></div>` : ""}</div></section>
-    ${esc && !hist ? botonGuardar("gturno", "Guardar turno") : ""}
+    ${esc && !hist ? botonGuardar("gturno", "Guardar turno", puedoEliminar(en.turno.abiertoPor) ? "cturno" : "", "Cancelar turno") : ""}
     ${esc ? fab("add", "Agregar a la entrega") : ""}`;
   el.innerHTML = html;
   if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA");
@@ -2069,6 +2075,7 @@ async function onEntClick(e) {
   const a = b.dataset.a, en = entConPendientes(), T = S.entTurno || "";
   if (a === "add") return modalEntItem(b.dataset.s || ls.get("entZona", "") || S.entSec || Object.keys(SECC).find(s2 => abierto("ent", s2)) || "BODEGA", null, true);
   if (a === "gturno") return modalCerrarTurno();
+  if (a === "cturno") return cancelarTurno(en.turno);
   if (a === "cpno") { ls.set("entConcNo", en.turno.id + "|" + en.concPropia.id); pintarEnt(); return; }
   if (a === "cptraer") {
     ocupado(b, true, "Trayendo…");
@@ -2214,7 +2221,7 @@ function pintarConc(el) {
       <div><div class="k">Conciliación</div><div class="v">${h(fechaDMY(k.conc.fecha))}</div></div>
       <div><div class="k">Abierta por</div><div class="v">${h(k.conc.abiertoPor)} · ${h(soloHora(k.conc.inicio))}</div></div>
       <div><div class="k">Resultado</div><div class="v">${k.faltantes ? `<span class="pill bad">✗ ${k.faltantes} con facturación de más</span>` : `<span class="pill ok">✓ Sin faltantes</span>`}</div></div></div>
-      <div class="acciones barra-acc">${botonesPDF("CONCILIACION", "PDF", k.conc.id)}${esc && puedoEliminar(k.conc.abiertoPor) ? `<button class="btn sm del" data-a="ccancelar" title="Cancelar conciliación (deshacer)"><span class="ic">✖</span><span class="txt">Cancelar</span></button>` : ""}</div></section>`;
+      <div class="acciones barra-acc">${botonesPDF("CONCILIACION", "PDF", k.conc.id)}</div></section>`;
   // «Falta Bodega / KA / PK»: muestra solo lo que le falta a esa zona, para ir llenándola rápido (se esconde cuando todo está completo)
   if (S.concZona && !k.items.some(x => vNum(x[S.concZona]) === "") && !(S.concHechos || []).length) S.concZona = "";
   const zf = esc ? (S.concZona || "") : "";
@@ -2232,7 +2239,7 @@ function pintarConc(el) {
       ${esc && (hayFaltas || zf) ? `<div class="seg seg-sm cz-f" id="czf">${[["", "Todo"]].concat(ZONAS_C.map(([z, t]) => [z, "Falta " + t])).map(([z, t]) => { const n = z ? k.items.filter(x => vNum(x[z]) === "").length : 0; return z && !n && zf !== z ? "" : `<button type="button" data-cz="${z}" class="${zf === z ? "on" : ""}">${t}${z ? ` <b data-czn="${z}">${n}</b>` : ""}</button>`; }).join("")}</div>` : ""}
       <div class="conc-resumen" id="cRes">${resumenConc(k.items)}</div>` : ""}
     <div class="clista" id="cTab">${k.items.length ? lista : `<div class="card muted">Sin productos. Toca ＋ para agregarlos.</div>`}</div>
-    ${esc && !hist ? botonGuardar("cerrar", "Guardar conciliación") : ""}
+    ${esc && !hist ? botonGuardar("cerrar", "Guardar conciliación", puedoEliminar(k.conc.abiertoPor) ? "ccancelar" : "", "Cancelar conciliación") : ""}
     ${esc ? fab("agregarc", "Agregar producto") : ""}`;
   el.innerHTML = html;
   el.onclick = e => {
@@ -2420,7 +2427,7 @@ async function onConcClick(e) {
       <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(horC(n))}</span></button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="caP"><span>Precargar los <b>pocos</b> (columna Minimo)</span></label>
       <label class="check"><input type="checkbox" id="caE"><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (y usar esos conteos)</span></label>
-      ${(k.anteriores || []).length ? `<label class="field"><span>📋 Copiar los productos de una conciliación anterior (sin sus valores)</span><select id="caC"><option value="">No copiar</option>${k.anteriores.map(x => `<option value="${h(x.id)}">${h(x.texto)} · ${x.productos} productos</option>`).join("")}</select></label>` : ""}
+      ${(k.anteriores || []).length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><p class="muted small">Solo los productos, con los valores en blanco para contarlos.</p>${listaCopiar("caC", k.anteriores, true)}</details>` : ""}
       <h2 style="margin-top:14px">📌 Pre-conciliación (${pend.length})</h2>
       ${pend.length ? pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}"><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("") : `<p class="muted small">No hay productos anotados.</p>`}
       <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="caOk">Abrir conciliación</button></div>`, { wide: true });
@@ -2428,7 +2435,7 @@ async function onConcClick(e) {
     $("#caOk", c).onclick = async () => {
       const btn = $("#caOk", c); ocupado(btn, true, "Abriendo…");
       try {
-        const r = await api("webConcAbrir", { numero: num, pocos: $("#caP", c).checked, entrega: $("#caE", c).checked, pre: $$("input[data-pre]:checked", c).map(x => x.dataset.pre), copiar: $("#caC", c) ? $("#caC", c).value : "" });
+        const r = await api("webConcAbrir", { numero: num, pocos: $("#caP", c).checked, entrega: $("#caE", c).checked, pre: $$("input[data-pre]:checked", c).map(x => x.dataset.pre), copiar: cpElegida(c, "caC") });
         ocupado(btn, false); cerrarModal(true); S.conc = r.estado; ls.setJ("conc", S.conc);
         toast(`Conciliación del turno ${r.resultado.numero} abierta con ${r.resultado.productos} productos${r.resultado.conteoDe ? ` (conteos de ${r.resultado.conteoDe})` : ""}`, "ok", 6000); pintarConc();
       } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
@@ -2449,7 +2456,7 @@ async function onConcClick(e) {
   if (a === "agregarc") {
     const ants = k.anteriores || [];
     const c = abrirModal(`<h3>Agregar a la conciliación</h3><div class="buscador"><div class="bq-fila"><input type="search" id="cAdd" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div><p class="muted small">Escoge el producto de la lista. Si la entrega del turno anterior lo contó, se trae ese conteo. Si ya está, se abre para sumar.</p>
-      ${ants.length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><div class="form-row" style="margin:8px 0 0"><label class="field"><span>Conciliación</span><select id="cCp">${ants.map(x => `<option value="${h(x.id)}">${h(x.texto)} · ${x.productos} productos</option>`).join("")}</select></label><button class="btn sm primary" id="cCpOk">Copiar</button></div><p class="muted small">Solo los productos, con los valores en blanco para contarlos. Los que ya están no se tocan.</p></details>` : ""}
+      ${ants.length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><p class="muted small">Solo los productos, con los valores en blanco para contarlos. Los que ya están no se tocan.</p>${listaCopiar("cCp", ants, false)}<div class="cp-acc"><button class="btn sm primary" id="cCpOk">📋 Copiar</button></div></details>` : ""}
       <div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`);
     autoSku($("#cAdd", c), async p => {
       // Si ya está en la conciliación se abre de una vez para sumar o corregir
@@ -2464,7 +2471,7 @@ async function onConcClick(e) {
     }, { limpiar: true });
     if ($("#cCpOk", c)) $("#cCpOk", c).onclick = async () => {
       const btn = $("#cCpOk", c); ocupado(btn, true, "Copiando…");
-      try { const r = await api("webConcCopiar", $("#cCp", c).value, S.concId || ""); S.conc = r.estado; ocupado(btn, false); cerrarModal(true); toast(`${r.resultado.agregados} producto(s) copiados${r.resultado.yaEstaban ? ` · ${r.resultado.yaEstaban} ya estaban` : ""}`, "ok", 5000); pintarConc(); }
+      try { const r = await api("webConcCopiar", cpElegida(c, "cCp"), S.concId || ""); S.conc = r.estado; ocupado(btn, false); cerrarModal(true); toast(`${r.resultado.agregados} producto(s) copiados${r.resultado.yaEstaban ? ` · ${r.resultado.yaEstaban} ya estaban` : ""}`, "ok", 5000); pintarConc(); }
       catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
     };
     return;
@@ -2932,11 +2939,11 @@ VISTAS.canales = async (el, p, vigente) => {
   const pintar = () => {
     el.innerHTML = cab("🚦 Canales (días mínimos)", "Reglas por defecto. Si un SKU tiene su propio valor en la hoja Sku (columnas T1, T2, KA), ese manda.",
         admin ? `<button class="btn" data-a="add">＋ Regla</button><button class="btn primary" data-a="guardar">Guardar</button>` : "") +
-      `<div class="note ayuda">Orden de prioridad: <b>columna del SKU</b> → la primera regla <b>Familia/Contiene</b> que coincida → la regla <b>General</b> del canal. «Familia» compara con la familia del WMS (RETORNABLE no incluye NO RETORNABLE); «Contiene» busca la palabra en el nombre del producto. Mínimo de estibas para «pocos» sin valor en Sku: <b>${d.defecto}</b>.</div>
-      <table class="tabla resp"><thead><tr><th>Canal</th><th>Tipo</th><th>Valor</th><th class="num">Días mínimos</th><th>Nota</th><th></th></tr></thead><tbody>
+      `<div class="note ayuda">Orden de prioridad: <b>columna del SKU</b> → la primera regla <b>Familia/Contiene</b> que coincida → la regla <b>General</b> del canal. «Familia» compara con la <b>presentación de la hoja Sku</b> (PET, Lata, Retornable, TW, Barril); si el SKU no la tiene, se deduce del nombre y solo al final se usa la familia del WMS. «Contiene» busca la palabra en el nombre del producto. Mínimo de estibas para «pocos» sin valor en Sku: <b>${d.defecto}</b>.</div>
+      <datalist id="presL">${PRES_ORDEN.map(x => `<option value="${x}">`).join("")}</datalist><table class="tabla resp"><thead><tr><th>Canal</th><th>Tipo</th><th>Valor</th><th class="num">Días mínimos</th><th>Nota</th><th></th></tr></thead><tbody>
       ${filas.map((r, k) => admin ? `<tr data-k="${k}"><td data-l="Canal"><select data-f="canal">${["T1", "T2", "KA"].map(c => `<option ${c === r.canal ? "selected" : ""}>${c}</option>`).join("")}</select></td>
         <td data-l="Tipo"><select data-f="tipo">${["General", "Familia", "Contiene"].map(c => `<option ${norm(c) === norm(r.tipo) ? "selected" : ""}>${c}</option>`).join("")}</select></td>
-        <td data-l="Valor"><input type="text" data-f="valor" value="${h(r.valor)}" style="text-align:left;max-width:none"></td><td data-l="Días" class="num"><input type="text" inputmode="numeric" data-f="dias" value="${h(r.dias)}"></td>
+        <td data-l="Valor"><input type="text" data-f="valor" value="${h(r.valor)}" list="presL" placeholder="${norm(r.tipo) === "familia" ? "PET, LATA, RETORNABLE, TW, BARRIL" : ""}" style="text-align:left;max-width:none"></td><td data-l="Días" class="num"><input type="text" inputmode="numeric" data-f="dias" value="${h(r.dias)}"></td>
         <td data-l="Nota"><input type="text" data-f="nota" value="${h(r.nota)}" style="text-align:left;max-width:none"></td><td class="acc"><button class="btn sm del" data-a="del" data-k="${k}">${ICO_DEL}</button></td></tr>`
         : `<tr><td data-l="Canal"><b>${h(r.canal)}</b></td><td data-l="Tipo">${h(r.tipo)}</td><td data-l="Valor">${h(r.valor || "—")}</td><td data-l="Días" class="num"><b>${h(r.dias)}</b></td><td data-l="Nota" class="small">${h(r.nota)}</td><td></td></tr>`).join("")}</tbody></table>`;
   };

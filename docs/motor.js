@@ -1219,7 +1219,9 @@ function esFamiliaRetornable(fam) {
   let f = String(fam || "").toUpperCase().trim();
   return f.includes("RETORNABLE") && !f.includes("NO RETORNABLE");
 }
-function esProductoRetornable(fam, prod) {
+// Con el SKU se usa la presentación de la hoja Sku (el WMS a veces trae la familia mal)
+function esProductoRetornable(fam, prod, sku) {
+  if (sku) { const pr = familiaDeSku_(sku, prod); if (pr !== "OTROS") return pr === "RETORNABLE"; }
   let p = String(prod || "").toUpperCase();
   return esFamiliaRetornable(fam) || (p.includes("RETORNABLE") && !p.includes("NO RETORNABLE")) || /(?:^|\s)RET(?:$|\s)/.test(p);
 }
@@ -1305,6 +1307,8 @@ function migrarKa12026_() {
 // Prioridad: columna del SKU (T1/T2/KA en Sku) → regla Familia/Contiene de la
 // pestaña Canales (la primera que coincida, en el orden de la hoja) → regla
 // General de Canales → respaldo del código (90/30/120, KA 45 retornable/PET/malta).
+// «Familia» se compara con la PRESENTACIÓN de la hoja Sku (PET, LATA, RETORNABLE, TW, BARRIL);
+// si el SKU no la tiene se deduce del nombre, y solo si tampoco así se usa la familia del WMS.
 // ---------------------------------------------------------
 const CANALES_DEF = {
   libro: "MAIN", nombre: "Canales", cab: ["Canal", "Tipo", "Valor", "Dias_minimos", "Nota"], texto: [1, 2, 3, 5],
@@ -1333,7 +1337,8 @@ function diasMinimos_(canal, fam, sku, prod) {
   const s = skuInfo_(sku);
   const k = canal === "T1" ? "t1" : canal === "T2" ? "t2" : "ka";
   if (s && s[k] !== null && s[k] >= 0) return s[k];
-  const f = normalizarTexto(String(fam || "")).toUpperCase();
+  const pres = familiaDeSku_(sku, prod);
+  const f = pres !== "OTROS" ? pres : normalizarTexto(String(fam || "")).toUpperCase();
   const p = normalizarTexto(String(prod || "")).toUpperCase();
   let reglas = [];
   try { reglas = leerCanales_().filter(r => r.canal === canal); } catch (e) { reglas = []; }
@@ -1533,7 +1538,7 @@ function obtenerRetornables(pagina) {
   let gr = {};
   inventarios.forEach(i => {
     if (!i.tieneFisico || esZonaOperativa(i)) return;
-    if (esProductoRetornable(i.fam, i.p)) { if (!gr[i.s]) gr[i.s] = { p: i.p, s: i.s, u: [] }; gr[i.s].u.push(i); }
+    if (esProductoRetornable(i.fam, i.p, i.s)) { if (!gr[i.s]) gr[i.s] = { p: i.p, s: i.s, u: [] }; gr[i.s].u.push(i); }
   });
   let lG = Object.keys(gr).map(k => gr[k]).sort((a, b) => a.s.localeCompare(b.s, undefined, { numeric: true }));
   if (lG.length === 0) return { text: `✅ No hay productos retornables en almacenamiento general.\n\n${obtenerEstadoSync()}`, markup: null };
@@ -2581,7 +2586,7 @@ function construirPDFRetornable() {
   let gr = {};
   obtenerInventarioLocal().forEach(i => {
     if (!i.tieneFisico || i.est !== "DISPONIBLE" || esZonaOperativa(i)) return;
-    if (esProductoRetornable(i.fam, i.p)) { if (!gr[i.s]) gr[i.s] = { p: i.p, s: i.s, u: [] }; gr[i.s].u.push(i); }
+    if (esProductoRetornable(i.fam, i.p, i.s)) { if (!gr[i.s]) gr[i.s] = { p: i.p, s: i.s, u: [] }; gr[i.s].u.push(i); }
   });
   const lG = Object.keys(gr).map(k => gr[k]).sort((a, b) => a.s.localeCompare(b.s, undefined, { numeric: true }));
   if (!lG.length) return { error: "No hay retornables disponibles en bodega general." };
@@ -3248,7 +3253,7 @@ const esSi_ = v => v === true || /^(true|si|sí|1)$/i.test(String(v || "").trim(
 // Si el SKU no tiene presentación se deduce del nombre (Pet, Lata, TW, Retornable, Barril); si no, «OTROS».
 const PRES_ORDEN = ["PET", "LATA", "RETORNABLE", "TW", "BARRIL"];
 function presNorm_(t) {
-  const x = normalizarTexto(String(t || "")).toUpperCase();
+  const x = normalizarTexto(String(t || "")).toUpperCase().replace(/NO RETORNABLE/g, " ");
   if (/\bPET\b/.test(x)) return "PET";
   if (/\bLATA/.test(x)) return "LATA";
   if (/RETORNABLE|\bRET\b/.test(x)) return "RETORNABLE";
@@ -3256,9 +3261,14 @@ function presNorm_(t) {
   if (/BARRIL|\bBRRL\b|\bBRL\b/.test(x)) return "BARRIL";
   return "";
 }
+let _PRESC = { ref: null, m: {} };
 function familiaDeSku_(sku, producto) {
+  // (se guarda por SKU y nombre mientras no cambie la hoja Sku: se usa en cada fila del inventario)
+  const ref = leerSku_(); if (_PRESC.ref !== ref) _PRESC = { ref: ref, m: {} };
+  const k = sku + "|" + (producto || "");
+  if (_PRESC.m[k] !== undefined) return _PRESC.m[k];
   const s = skuInfo_(sku);
-  return presNorm_(s && s.pres) || presNorm_(producto || (s && s.prod)) || "OTROS";
+  return (_PRESC.m[k] = presNorm_(s && s.pres) || presNorm_(producto || (s && s.prod)) || "OTROS");
 }
 // Cantidad por zona: vacío = no se contó ahí; el total es la suma de las zonas contadas
 const zonaNum_ = v => { if (v === "" || v === null || v === undefined) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
@@ -5267,7 +5277,7 @@ function inventarioPayload_() {
       prio: i.prio, tpc: i.tpc, reemp: i.reempaque, fis: i.tieneFisico,
       T1: c2.T1, T2: c2.T2, KA: c2.KA, min: c2.min,
       esKA: z === "KA", esPK: z === "PREV" || i.pick, esOp: esZonaOperativa(i), carpa: z === "CARPA",
-      ret: esProductoRetornable(i.fam, i.p), vida: vidaUtilInfo(i.d).clave, emp: obtenerTipoEmpaque(i.p)
+      ret: esProductoRetornable(i.fam, i.p, i.s), vida: vidaUtilInfo(i.d).clave, emp: obtenerTipoEmpaque(i.p)
     };
   });
   const d = { filas: filas, ocupacion: tablaOcupacion_(inv), generado: ahora_() };
@@ -5726,7 +5736,7 @@ function htmlAPdf_(html, nombre) {
 function construirPDFPorTipo_(tipo, id) {
   let r;
   switch (tipo) {
-    case "INFORME": r = construirInformePrioridades(); break;
+    case "INFORME": r = construirInformePrioridades(id || ""); break;
     case "RESUMEN": r = construirPDFResumen(); break;
     case "POCOS": r = construirPDFPocos(); break;
     case "CONSUMO": r = construirPDFConsumo(); break;
@@ -5813,13 +5823,16 @@ function enviarInstructivoPDF(chatId) {
 // =========================================================
 const LOGO_EMPRESA = "data:image/jpeg;base64,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";
 
-function construirInformePrioridades() {
+// id = "riesgo": solo lo más en riesgo (vencidos y hasta 45 días)
+function construirInformePrioridades(id) {
+  const soloRiesgo = String(id || "") === "riesgo";
   const inv = obtenerInventarioLocal();
   if (inv.length === 0) return { error: "No hay datos en 'WMS_Base'. Sincroniza primero." };
   let datos = [];
   inv.forEach(r => {
     if (!r.tieneFisico) return;
     const dias = r.d;
+    if (soloRiesgo && !(dias <= 45)) return;
     const obs = dias < 0 ? "⚠️ Vencido" : (r.est === "DISPONIBLE" ? "✅ Disponible" : "❌ Bloqueado");
     const vu = vidaUtilInfo(dias);
     const accion = { sin: "Sin fecha de vencimiento: verificar en WMS", venc: "Producto vencido, enviar a carpa", rojo: "Negociar venta y enviar a CRM", amar: "Enviar a picking y rotular como prioridad de consumo", vcla: "Apto para consumo", vosc: "Apto para KA y/o T1" }[vu.clave];
@@ -5955,7 +5968,7 @@ function construirInformePrioridades() {
       <!-- Títulos sin fondo -->
       <td rowspan="2" style="width: 50%; padding: 0;">
          <div class="title-box">PRIORIDADES DE CONSUMO / ITAGUI</div>
-         <div class="subtitle-box">Indice de Frescura</div>
+         <div class="subtitle-box">Indice de Frescura${soloRiesgo ? " · Solo en riesgo (hasta 45 días)" : ""}</div>
       </td>
       <td rowspan="2" style="width: 35%; padding: 0;">
          <table class="rules-table">
@@ -5996,7 +6009,7 @@ function construirInformePrioridades() {
     <tbody>${filas}</tbody>
   </table>
 </body></html>`;
-  return { blob: htmlAPdf_(html, `Prioridad_Consumo_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "📊 *Informe: prioridad de consumo*" };
+  return { blob: htmlAPdf_(html, `Prioridad_Consumo_${soloRiesgo ? "Riesgo_" : ""}${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: soloRiesgo ? "🚨 *Informe: prioridad de consumo · solo en riesgo (≤ 45 días)*" : "📊 *Informe: prioridad de consumo*" };
 }
 
 ;

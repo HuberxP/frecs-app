@@ -117,7 +117,7 @@
   const ESCRITURA_TURNO = new Set(["webTurnoAbrir", "webTurnoCerrar", "webTurnoNota", "webTurnoEliminar", "webTurnoRestaurar",
     "webValAgregar", "webValInicial", "webValQuitar", "webValRegistrar", "webValEditar", "webValAnular", "webValDestino",
     "webEntPrecargar", "webEntGuardar", "webEntQuitar", "webEntQuitarSeccion", "webEntNota", "webEntNotaEditar", "webEntNotaQuitar",
-    "webConcAbrir", "webConcAgregar", "webConcGuardar", "webConcQuitar", "webConcCerrar", "webConcNota", "webConcEliminar", "webConcRestaurar",
+    "webConcAbrir", "webConcAgregar", "webConcCopiar", "webConcGuardar", "webConcQuitar", "webConcCerrar", "webConcNota", "webConcEliminar", "webConcRestaurar",
     "webPreAgregar", "webPreQuitar", "webPreLimpiar"]);
   const txt = v => (v === null || v === undefined) ? "" : String(v).trim();
   const nul = v => { const t = txt(v); return t === "" ? null : t; };
@@ -402,7 +402,7 @@
       if (opts.pdf === false && !opts.telegram) return res;
       if (fn === "webTurnoCerrar") {
         const id = r.data.resultado.id;
-        const pdfs = [await pdfDe("VALIDACION", id), await pdfDe("ENTREGA", id)];
+        const pdfs = [await pdfDe("VALIDACION", opts.valTodo ? id + "|todo" : id), await pdfDe("ENTREGA", id)];
         if (opts.telegram) { r.data.telegram = true; for (const p of pdfs) { try { await pdfATelegram(tk, p); } catch (e) { r.data.telegram = false; } } }
         r.data.pdfs = opts.pdf === false ? [] : pdfs;
       } else {

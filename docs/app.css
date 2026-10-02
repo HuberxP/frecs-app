@@ -1004,7 +1004,47 @@
   html[data-tema="claro"] .cp-ant { background: #eef2f6; }
   html[data-tema="claro"] .cp-lista button { background: #e3f1fb; }
   html[data-tema="claro"] .cp-lista button:nth-child(even) { background: #ffffff; }
-  html[data-tema="claro"] .cp-lista button.on { background: #dff3ea; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .cp-lista button.on { background: #dff3ea; }
+  /* ============ Lote 02/10 ============ */
+  /* Abajo: cancelar pequeño a la izquierda (pide PIN) · guardar a la derecha, verde */
+  .fin-acc { justify-content: space-between; align-items: center; }
+  .btn.b-verde { background: var(--ok); border-color: var(--ok); color: #04210f; min-height: 42px; padding: 0 22px; font-size: 15px; font-weight: 800; box-shadow: 0 4px 14px rgba(57,255,136,.25); }
+  .btn.b-verde:hover { background: var(--ok); filter: brightness(1.08); }
+  .btn.b-rojo { min-height: 30px !important; padding: 0 10px !important; font-size: 12px !important; }
+  html[data-tema="claro"] .btn.b-verde { color: #fff; box-shadow: 0 3px 10px rgba(19,122,76,.25); }
+  /* cj / est al lado de la etiqueta de cada cantidad */
+  .un-t { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); font-size: 11px; font-weight: 800; text-transform: none; letter-spacing: 0; vertical-align: middle; cursor: pointer; }
+  .un-t.on { background: var(--cyan); border-color: var(--cyan); color: #04131f; }
+  .un-eq { display: block; font-size: 11px; color: var(--cyan); font-weight: 700; margin-top: 2px; }
+  .cc-campo > span, .f-zona > span, .f-cant > span { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+  .cz-in { position: relative; flex-wrap: nowrap; }
+  .cz-in .un-eq { position: absolute; right: 0; bottom: -14px; }
+  .cz-row .sub b { color: var(--ok); }
+  html[data-tema="claro"] .un-t { background: #fff; } html[data-tema="claro"] .un-t.on { color: #fff; }
+  /* Desplegables (select) de toda la página */
+  select { -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 36px !important; font-weight: 600;
+    background-image: linear-gradient(45deg, transparent 50%, var(--cyan) 50%), linear-gradient(135deg, var(--cyan) 50%, transparent 50%), linear-gradient(to right, var(--line2), var(--line2));
+    background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%, calc(100% - 30px) 50%; background-size: 5px 5px, 5px 5px, 1px 60%; background-repeat: no-repeat; }
+  select:hover { border-color: var(--cyan); }
+  select option { background: #0b162d; color: var(--ink); padding: 8px; }
+  select option:nth-child(even) { background: #12203d; }
+  select option:checked { background: var(--brand-soft); color: var(--brand); }
+  html[data-tema="claro"] select { background-color: #fff; background-image: linear-gradient(45deg, transparent 50%, var(--cyan) 50%), linear-gradient(135deg, var(--cyan) 50%, transparent 50%), linear-gradient(to right, var(--line2), var(--line2));
+    background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%, calc(100% - 30px) 50%; background-size: 5px 5px, 5px 5px, 1px 60%; background-repeat: no-repeat; }
+  html[data-tema="claro"] select option { background: #fff; color: var(--ink); } html[data-tema="claro"] select option:nth-child(even) { background: #eef4fa; }
+  details > summary { cursor: pointer; }
+  /* Consumo: único módulo con el producto (amarillo claro) */
+  .lote.unico { background: rgba(255,232,140,.14) !important; outline: 2px solid #f3dc86 !important; }
+  .pill.unico-p { background: rgba(255,232,140,.18); color: #f6dc7a; border-color: rgba(243,220,134,.6); font-size: 11.5px; margin-top: 3px; }
+  .cons-card.unico { border-color: #f3dc86; }
+  html[data-tema="claro"] .lote.unico { background: #fff8d9 !important; outline-color: #e6c84f !important; }
+  html[data-tema="claro"] .pill.unico-p { background: #fff3c4; color: #7a5a00; border-color: #e6c84f; }
+  /* Perfil: última sincronización (sobre todo en el celular, donde no se ve arriba) */
+  .ficha.sync-f { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .ficha.sync-f span { grid-column: 1 / -1; font-size: 12.5px; } .ficha.sync-f b { grid-column: 1 / -1; margin-top: -4px; }
+  /* Entrega: ＋ otra cantidad */
+  .ent-acc .mas { color: var(--ok); border-color: var(--ok); font-weight: 900; }
+  .cc-col-b { display: flex; flex-direction: column; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

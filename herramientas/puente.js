@@ -445,6 +445,8 @@
         datos = null;
         return ok({ token: r.token, usuario: r.usuario });
       }
+      // Confirmar el PIN antes de cancelar un turno o una conciliación
+      if (fn === "webVerificarPin") { const r = await rpc("verificar_pin", { p_token: args[0], p_pin: String(args[1] || "") }); return r && r.ok ? ok(true) : fallo((r && r.error) || "PIN incorrecto."); }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);

@@ -2232,13 +2232,15 @@ function calcularConsumo() {
     let orden = general.concat(bloq, operativa);
     orden.forEach(l => { l.sel = l.m === elegido && l.disp && !l.esOp; });
     orden.sort((a, b) => (b.sel ? 1 : 0) - (a.sel ? 1 : 0));
+    // Si el producto está en un solo módulo (disponible, sin KA ni PREV) queda en observación
+    const unico = new Set(general.map(l => l.m)).size === 1;
     let estado = "ok";
     if (!locs.length) estado = "sin_fisico";
     else if (!general.length) estado = bloq.length ? "solo_bloqueado" : "solo_operativa";
     return {
       sku: x.sku, nom: x.nom || (skuInfo_(x.sku) || {}).prod || "Desconocido", locs: orden, elegido: elegido, auto: auto,
       modo: manualValido ? "manual" : "auto", elegidoPor: manualValido ? x.por : "", elegidoEn: manualValido ? x.en : "",
-      manualVencido: !!(x.elegido && !manualValido), estado: estado
+      manualVencido: !!(x.elegido && !manualValido), estado: estado, unico: unico
     };
   });
 }
@@ -2266,6 +2268,7 @@ function obtenerConsumo(pagina) {
     if (x.estado === "solo_bloqueado") msj += `❌ Todos los módulos están bloqueados.\n`;
     if (x.estado === "solo_operativa") msj += `⚠️ Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.\n`;
     if (x.modo === "manual") msj += `✋ Elegido a mano por ${escapeMd(x.elegidoPor)} (${fechaCorta_(x.elegidoEn)})\n`;
+    if (x.unico) msj += `⚠️ _Observación: es el único módulo con este producto_\n`;
     msj += "\n";
     const lb = x.locs.filter(l => !l.esOp);
     lb.slice(0, 5).forEach(l => {
@@ -2345,31 +2348,36 @@ function construirPDFConsumo() {
   if (datos === null) return { error: "Falta la pestaña 'Consumo'." };
   let cuerpo = "";
   datos.forEach(x => {
-    cuerpo += `<div class="bloque"><div class="bloque-t">${escHtml_(x.sku)} · ${escHtml_(x.nom)}${x.modo === "manual" ? ` <span class="sm">(elegido a mano por ${escHtml_(x.elegidoPor)})</span>` : ""}</div>`;
+    cuerpo += `<div class="bloque"><div class="bloque-t">${escHtml_(x.sku)} · ${escHtml_(x.nom)}${x.modo === "manual" ? ` <span class="sm">(elegido a mano por ${escHtml_(x.elegidoPor)})</span>` : ""}</div>${x.unico ? `<div class="obs-u">Observación: es el único módulo con este producto.</div>` : ""}`;
     const lb = x.locs.filter(l => !l.esOp);
     if (!lb.length) { cuerpo += `<div class="vacio caja">${x.locs.length ? "Solo hay en KA / PREV (ya surtido para despacho)." : "Sin existencias físicas en bodega."}</div></div>`; return; }
     cuerpo += `<table class="t"><thead><tr><th>Módulo</th><th>Estado</th><th>Vence</th><th>Estibas</th><th>Cajas</th><th>Unidades</th><th>Módulo lleno</th><th>Acción</th></tr></thead><tbody>`;
     lb.forEach(l => {
-      const cls = l.sel ? "sel" : (!l.disp ? "bloq" : "");
+      const cls = l.sel ? (x.unico ? "sel unico" : "sel") : (!l.disp ? "bloq" : "");
       const accion = l.sel ? "<b>CONSUMIR AQUÍ</b>" : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
       cuerpo += `<tr class="${cls}"><td><b>${escHtml_(l.m)}</b>${l.prio ? " [PRIORIDAD]" : ""}</td><td>${l.disp ? "Disponible" : escHtml_(l.est)}</td><td>${fVD(l.v, l.d)}</td><td>${fM(l.e)}</td><td>${fM(l.c)}</td><td>${fM(l.u)}</td><td>${l.lleno === null ? "—" : (l.lleno ? "Lleno" : `Incompleto (${fM(l.usadas)}/${fM(l.capTot)})`)}</td><td>${accion}</td></tr>`;
     });
     cuerpo += `</tbody></table></div>`;
   });
-  const html = pdfDoc_("CONSUMO / PONY GASTO · COMPLETO", `<p class="sm">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el módulo más incompleto. Sin KA ni PREV (se surten desde bodega). <span class="chip sel">Consumir aquí</span> <span class="chip bloq">Bloqueado</span></p>${cuerpo}`, { css: `.bloque{page-break-inside:avoid;margin-bottom:12px}.bloque-t{font-weight:bold;color:#003399;font-size:11.5px;padding:5px 0}.caja{border:1px solid #999;padding:6px}tr.sel td{background:#dbe8ff !important;font-weight:bold}tr.bloq td{background:#ffcccc !important;color:#8e1f19}.chip{padding:1px 6px;border:1px solid #999}.chip.sel{background:#dbe8ff}.chip.bloq{background:#ffcccc}` });
+  const html = pdfDoc_("CONSUMO / PONY GASTO · COMPLETO", `<p class="sm">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el módulo más incompleto. Sin KA ni PREV (se surten desde bodega). <span class="chip sel">Consumir aquí</span> <span class="chip bloq">Bloqueado</span></p>${cuerpo}`, { css: `.bloque{page-break-inside:avoid;margin-bottom:12px}.bloque-t{font-weight:bold;color:#003399;font-size:11.5px;padding:5px 0}.caja{border:1px solid #999;padding:6px}tr.sel td{background:#dbe8ff !important;font-weight:bold}tr.bloq td{background:#ffcccc !important;color:#8e1f19}.chip{padding:1px 6px;border:1px solid #999}.chip.sel{background:#dbe8ff}.chip.bloq{background:#ffcccc}tr.unico td{background:#fff6cc !important}.obs-u{background:#fff6cc;border:1px solid #e6c84f;padding:3px 6px;font-size:10px;margin-bottom:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}` });
   return { blob: htmlAPdf_(html, `Consumo_Completo_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "📄 *Consumo (Pony gasto) · completo*" };
 }
 
-// Solo módulos a consumir: una fila por SKU, para compartir con quien saca el producto
+// Solo módulos a consumir: una fila por SKU, para compartir con quien saca el producto (también va en la Entrega final)
+const CSS_PDF_CONSUMO_SOLO = `.grande td{font-size:12px;padding:8px}.mod{font-size:16px;font-weight:bold;color:#003399}tr.bloq td{background:#ffcccc !important}tr.unico td{background:#fff6cc !important}`;
+function cuerpoPDFConsumoSolo_(datos) {
+  const filas = datos.map(x => {
+    const t = totalesElegido_(x);
+    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : (x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "Sin módulo disponible (bloqueado)")}</td><td></td></tr>`;
+    const obs = [t.prio ? "PRIORIDAD" : "", x.unico ? "Único módulo con este producto" : ""].filter(o => o).join(" · ");
+    return `<tr class="${x.unico ? "unico" : ""}"><td>${escHtml_(x.sku)}</td><td class="izq"><b>${escHtml_(x.nom)}</b></td><td class="mod">${escHtml_(t.m)}</td><td>${cantHtml_(t)}</td><td>${fVD(t.v, t.d)}</td><td>${obs}</td><td>${x.modo === "manual" ? "A mano" : "Automático"}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="vacio">La lista de consumo está vacía.</td></tr>`;
+  return `<table class="t grande"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Módulo</th><th>Cantidades</th><th>Vence</th><th>Observación</th><th>Selección</th></tr></thead><tbody>${filas}</tbody></table>`;
+}
 function construirPDFConsumoSolo() {
   const datos = calcularConsumo();
   if (datos === null) return { error: "Falta la pestaña 'Consumo'." };
-  let filas = datos.map(x => {
-    const t = totalesElegido_(x);
-    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : (x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "Sin módulo disponible (bloqueado)")}</td><td></td></tr>`;
-    return `<tr><td>${escHtml_(x.sku)}</td><td class="izq"><b>${escHtml_(x.nom)}</b></td><td class="mod">${escHtml_(t.m)}</td><td>${cantHtml_(t)}</td><td>${fVD(t.v, t.d)}</td><td>${t.prio ? "PRIORIDAD" : ""}</td><td>${x.modo === "manual" ? "A mano" : "Automático"}</td></tr>`;
-  }).join("");
-  const html = pdfDoc_("CONSUMO · SOLO MÓDULOS A CONSUMIR", `<table class="t grande"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Módulo</th><th>Cantidades</th><th>Vence</th><th>Marca</th><th>Selección</th></tr></thead><tbody>${filas}</tbody></table>`, { css: `.grande td{font-size:12px;padding:8px}.mod{font-size:16px;font-weight:bold;color:#003399}tr.bloq td{background:#ffcccc !important}` });
+  const html = pdfDoc_("CONSUMO · SOLO MÓDULOS A CONSUMIR", cuerpoPDFConsumoSolo_(datos), { css: CSS_PDF_CONSUMO_SOLO });
   return { blob: htmlAPdf_(html, `Consumo_Modulos_${Utilities.formatDate(new Date(), TZ, "yyyyMMdd_HHmm")}.pdf`), caption: "🎯 *Consumo · solo módulos a consumir*" };
 }
 
@@ -5135,7 +5143,7 @@ function sbProbarConexion() {
 // ---------------------------------------------------------
 // Orden: 1) Entrega de turno (su hoja) · 2) Conciliaciones (si hubo) · 3) Validación.
 // Conciliación y validación comparten hoja si caben; si son largas, cada una va en su hoja.
-// id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, V = validación (resumen), W = validación con zonas y destinos)
+// id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, V = validación (resumen), W = validación con zonas y destinos, C = consumo / pony gasto)
 // =========================================================
 
 // La conciliación va en la entrega final solo si es del mismo turno (mismo número y fecha, o ligada a él) y de la misma persona
@@ -5163,6 +5171,7 @@ function finalOpciones_(turnoId, u) {
     r.turno = { id: t.id, texto: turnoTexto_(t), estado: t.estado };
     try { const d = entLeerTurno_(t.id); r.ent = { items: ["BODEGA", "PK", "TPC", "KA"].reduce((a, s) => a + (d.secciones[s] || []).length, 0), notas: d.notas.length, eliminada: parteEliminada_(t, "ENT") }; } catch (e) { r.ent = { items: 0, notas: 0, error: e.message }; }
     try { const v = valDatosTurno_(t.id); r.val = { productos: v.productos.length, registros: v.registros.length, eliminada: parteEliminada_(t, "VAL") }; } catch (e) { r.val = { productos: 0, registros: 0, error: e.message }; }
+    try { r.consumo = (calcularConsumo() || []).length; } catch (e) { r.consumo = 0; }
   }
   return r;
 }
@@ -5175,7 +5184,7 @@ function construirPDFEntregaFinal(id) {
   const partes = (p[2] === undefined ? "EV" : p[2]).toUpperCase();
   const concs = (p[1] || "").split(",").filter(x => x).map(cid => listarConc_().find(c => c.id === cid)).filter(c => c);
   if (concs.some(c => !concDelTurno_(c, t))) throw new Error("La entrega final solo puede llevar conciliaciones del mismo turno y de la misma persona.");
-  if (!partes.includes("E") && !partes.includes("V") && !partes.includes("W") && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
+  if (!/[EVWC]/.test(partes) && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
 
   const bloques = [];   // [{ html, filas }] cada uno es una parte; se decide dónde va el salto de hoja
   if (partes.includes("E")) bloques.push({ entrega: true, html: `<div class="parte-t">📋 Entrega de turno</div>` + cuerpoPDFEntrega_(t, entLeerTurno_(t.id)) });
@@ -5183,6 +5192,11 @@ function construirPDFEntregaFinal(id) {
   if (partes.includes("V") || partes.includes("W")) {
     const dt = valDatosTurno_(t.id);
     bloques.push({ filas: dt.productos.length + 6, html: `<div class="parte-t">📝 Validación de facturación · ${escHtml_(turnoTexto_(t))}</div>` + cuerpoPDFVal_(dt, true, partes.includes("W")) });
+  }
+  // Consumo / pony gasto (si lo pidieron): los módulos a consumir de la lista actual
+  if (partes.includes("C")) {
+    const dc = calcularConsumo() || [];
+    bloques.push({ filas: dc.length + 4, html: `<div class="parte-t">🥤 Consumo / pony gasto · módulos a consumir</div>` + cuerpoPDFConsumoSolo_(dc) });
   }
   // La entrega va sola en su hoja. Lo demás se acomoda junto mientras quepa (≈ 52 filas por hoja).
   const CABEN = 52;
@@ -5197,7 +5211,7 @@ function construirPDFEntregaFinal(id) {
     html += `<div class="parte${salto ? " salto" : ""}">${b.html}</div>`;
   });
   html += `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
-  const css = CSS_PDF_ENTREGA + CSS_PDF_CONC + CSS_PDF_VAL +
+  const css = CSS_PDF_ENTREGA + CSS_PDF_CONC + CSS_PDF_VAL + CSS_PDF_CONSUMO_SOLO +
     `.parte.salto{page-break-before:always;break-before:page}.parte+.parte:not(.salto){margin-top:14px}
      .parte-t{font-size:12.5px;font-weight:bold;color:#fff;background:#003399;padding:4px 8px;border-radius:3px;margin:0 0 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}`;
   const doc = pdfDoc_("ENTREGA FINAL", html, { css: css });
@@ -5262,6 +5276,7 @@ function webPublico() { return webResp_(() => usrPublico_()); }
 function webSetup(nombre, pin) { return webResp_(() => usrSetupCore_(nombre, pin)); }
 function webLogin(nombre, pin) { return webResp_(() => usrLoginCore_(nombre, pin)); }
 function webLogout(tk) { return webResp_(() => usrLogout_(tk)); }
+function webVerificarPin(tk, pin) { return webAuth_(tk, L_, u => usrVerificarPinCore_(u.nombre, pin)); }
 function webCambiarPin(tk, actual, nuevo) { return webAuth_(tk, L_, u => usrCambiarPinCore_(u.nombre, actual, nuevo)); }
 
 // Todo lo que la página necesita al abrir, en un solo viaje
@@ -5354,7 +5369,7 @@ function webConsumo(tk) {
   return webAuth_(tk, L_, () => {
     const datos = calcularConsumo();
     if (datos === null) throw new Error("Crea la pestaña 'Consumo' en el Excel.");
-    return datos.map(x => ({ sku: x.sku, nom: x.nom, elegido: x.elegido, auto: x.auto, modo: x.modo, elegidoPor: x.elegidoPor, elegidoEn: x.elegidoEn, manualVencido: x.manualVencido, estado: x.estado,
+    return datos.map(x => ({ sku: x.sku, nom: x.nom, elegido: x.elegido, auto: x.auto, modo: x.modo, elegidoPor: x.elegidoPor, elegidoEn: x.elegidoEn, manualVencido: x.manualVencido, estado: x.estado, unico: x.unico,
       locs: x.locs.map(l => Object.assign(miniLote_(l), { esOp: l.esOp, sel: l.sel, pct: l.pct, lleno: l.lleno, capTot: l.capTot, usadas: l.usadas })) }));
   });
 }
@@ -5594,6 +5609,18 @@ function usrLoginCore_(nombre, pin) {
   cache.remove(kIntentos);
   try { tEscribir_(USR_DEF, u.fila, 7, [ahora_()]); } catch (e) {}
   return { token: crearSesion_(u), usuario: { nombre: u.nombre, rol: u.rol } };
+}
+
+// Confirmar el PIN de quien ya está dentro (p. ej. antes de cancelar un turno). Mismo límite de intentos que el ingreso.
+function usrVerificarPinCore_(nombre, pin) {
+  const cache = CacheService.getScriptCache();
+  const kIntentos = "pinerr_" + String(nombre || "").trim().toLowerCase();
+  const intentos = parseInt(cache.get(kIntentos) || "0", 10);
+  if (intentos >= 5) throw new Error("Demasiados intentos. Espera 10 minutos.");
+  const u = usrBuscar_(nombre);
+  if (!u || u.hash !== hashPin_(u.nombre, String(pin || ""))) { cache.put(kIntentos, String(intentos + 1), 600); throw new Error("PIN incorrecto."); }
+  cache.remove(kIntentos);
+  return true;
 }
 
 function usrLogout_(token) { if (token) CacheService.getScriptCache().remove("ses_" + token); return true; }

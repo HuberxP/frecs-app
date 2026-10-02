@@ -494,12 +494,13 @@ function entrar(r) {
   $("#login").classList.add("hidden");
   arrancar();
 }
-// ---------- Confirmar con el PIN (antes de cancelar un turno o una conciliación) ----------
+// ---------- Confirmar con el PIN general (antes de cancelar un turno o una conciliación) ----------
+const PIN_CANCELAR = "0000";
 function pedirPin(titulo, texto, boton) {
   return new Promise(res => {
     let listo = false;
     const c = abrirModal(`<h3>${titulo}</h3><div class="small">${texto}</div>
-      <label class="field" style="margin-top:12px"><span>Tu PIN para confirmar</span><input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" id="ppP" autocomplete="off"></label>
+      <label class="field" style="margin-top:12px"><span>PIN para confirmar</span><input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" id="ppP" autocomplete="off"></label>
       <div class="err hidden" id="ppE" style="margin-top:10px"></div>
       <div class="modal-actions"><button class="btn" data-x>Volver</button><button class="btn danger" id="ppOk" disabled>${h(boton || "Confirmar")}</button></div>`, { onClose: () => { if (!listo) res(false); } });
     const i = $("#ppP", c), b = $("#ppOk", c);
@@ -507,36 +508,49 @@ function pedirPin(titulo, texto, boton) {
     i.onkeydown = e => { if (e.key === "Enter" && !b.disabled) b.click(); };
     b.onclick = async () => {
       ocupado(b, true, "Revisando…");
-      try { await api("webVerificarPin", i.value); listo = true; ocupado(b, false); cerrarModal(true); res(true); }
-      catch (e) { ocupado(b, false); $("#ppE", c).textContent = e.red ? "Sin conexión: no se pudo revisar el PIN." : e.message; $("#ppE", c).classList.remove("hidden"); i.value = ""; b.disabled = true; i.focus(); }
+      // PIN general para cancelar (no depende de la sesión ni de la conexión)
+      if (i.value === PIN_CANCELAR) { listo = true; ocupado(b, false); cerrarModal(true); res(true); }
+      else { ocupado(b, false); $("#ppE", c).textContent = "PIN incorrecto."; $("#ppE", c).classList.remove("hidden"); i.value = ""; b.disabled = true; i.focus(); }
     };
     setTimeout(() => i.focus(), 60);
   });
 }
 // ---------- Cajas o estibas en los cuadros de cantidad ----------
-// Botón pequeño «cj / est» al lado de la etiqueta. Con «est», lo escrito se convierte a cajas con «Cant x Estibas» de Sku.
-const unBtn = cpe => `<button type="button" class="un-t" data-unt="cj" data-cpe="${cpe || 0}" title="${cpe ? `Escribir en cajas o en estibas (1 estiba = ${cpe} cajas)` : "Este producto no tiene «Cant x Estibas» en Sku: solo cajas"}">cj</button>`;
+// Desplegable pequeño al lado de la etiqueta. Con «Estibas», lo escrito se convierte a cajas con «Cant x Estibas» de Sku.
+const unBtn = cpe => `<span class="un-sel" data-unt="cj" data-cpe="${cpe || 0}"><button type="button" class="un-b" title="${cpe ? `Cajas o estibas (1 estiba = ${cpe} cajas)` : "Sin «Cant x Estibas» en Sku: solo cajas"}"><span class="un-t">Cajas</span><span class="un-f" aria-hidden="true">▾</span></button><span class="un-l hidden" role="listbox"><button type="button" data-u="cj" class="on">Cajas</button><button type="button" data-u="est" ${cpe ? "" : "disabled"}>Estibas${cpe ? ` <small>(${cpe} cj)</small>` : ""}</button></span></span>`;
+const unCont = el => el.closest("label, .field, .cz-in") || el.parentNode;
 // Cajas que representa lo escrito en un cuadro (vacío = "")
 function cajasDe(input) {
   const t = String(input.value || "").replace(/\D/g, ""); if (t === "") return "";
-  const b = input.closest("label, .field, .cz-in") && input.closest("label, .field, .cz-in").querySelector(".un-t");
-  return b && b.dataset.unt === "est" ? Number(t) * (Number(b.dataset.cpe) || 0) : Number(t);
+  const u = unCont(input).querySelector(".un-sel");
+  return u && u.dataset.unt === "est" ? Number(t) * (Number(u.dataset.cpe) || 0) : Number(t);
 }
+// Vuelve a «Cajas» (después de guardar lo escrito en estibas)
+function unReset(cont) { const u = cont && cont.querySelector(".un-sel"); if (!u) return; u.dataset.unt = "cj"; $(".un-t", u).textContent = "Cajas"; $$("[data-u]", u).forEach(x => x.classList.toggle("on", x.dataset.u === "cj")); u.classList.remove("est"); const eq = cont.querySelector(".un-eq"); if (eq) eq.remove(); }
 document.addEventListener("click", e => {
-  const b = e.target.closest(".un-t"); if (!b) return;
+  const abiertos = $$(".un-sel .un-l:not(.hidden)");
+  const u = e.target.closest(".un-sel");
+  abiertos.forEach(l => { if (!u || l.parentNode !== u) l.classList.add("hidden"); });
+  if (!u) return;
   e.preventDefault(); e.stopPropagation();
-  if (!Number(b.dataset.cpe)) { toast("Este producto no tiene «Cant x Estibas» en la hoja Sku: escribe en cajas.", "warn", 4000); return; }
-  const est = b.dataset.unt !== "est";
-  b.dataset.unt = est ? "est" : "cj"; b.textContent = est ? "est" : "cj"; b.classList.toggle("on", est);
-  const i = (b.closest("label, .field, .cz-in") || b.parentNode).querySelector("input");
-  if (i) { i.placeholder = est ? "estibas" : (i.dataset.ph || "—"); i.dispatchEvent(new Event("input", { bubbles: true })); i.focus(); }
+  const o = e.target.closest("[data-u]");
+  if (o) {
+    if (o.disabled) return;
+    u.dataset.unt = o.dataset.u; $(".un-t", u).textContent = o.dataset.u === "est" ? "Estibas" : "Cajas"; u.classList.toggle("est", o.dataset.u === "est");
+    $$("[data-u]", u).forEach(x => x.classList.toggle("on", x === o)); $(".un-l", u).classList.add("hidden");
+    const i = unCont(u).querySelector("input");
+    if (i) { i.placeholder = o.dataset.u === "est" ? "estibas" : (i.dataset.ph || "—"); i.dispatchEvent(new Event("input", { bubbles: true })); i.focus(); }
+    return;
+  }
+  if (!Number(u.dataset.cpe)) { toast("Este producto no tiene «Cant x Estibas» en la hoja Sku: escribe en cajas.", "warn", 4000); return; }
+  $(".un-l", u).classList.toggle("hidden");
 }, true);
-// Debajo del cuadro: «= 480 cajas» cuando se escribe en estibas
+// Debajo del cuadro: «= 480 cj» cuando se escribe en estibas
 document.addEventListener("input", e => {
   const i = e.target; if (!(i instanceof HTMLInputElement)) return;
-  const cont = i.closest("label, .field, .cz-in"); const b = cont && cont.querySelector(".un-t"); if (!b) return;
+  const cont = unCont(i); const u = cont && cont.querySelector(".un-sel"); if (!u) return;
   let p = cont.querySelector(".un-eq"); const v = cajasDe(i);
-  if (b.dataset.unt === "est" && v !== "") { if (!p) { p = document.createElement("small"); p.className = "un-eq"; cont.appendChild(p); } p.textContent = `= ${fm(v)} cj`; }
+  if (u.dataset.unt === "est" && v !== "") { if (!p) { p = document.createElement("small"); p.className = "un-eq"; cont.appendChild(p); } p.textContent = `= ${fm(v)} cj`; }
   else if (p) p.remove();
 });
 function pintarUsuario() { $("#userChip").textContent = "👤 " + (S.usuario ? S.usuario.nombre : "…"); }
@@ -1457,13 +1471,9 @@ const porPres = (a, b) => rangoPres(a.familia || famDe(a.sku, a.producto)) - ran
 const NOMBRE_PRES = { PET: "PET", LATA: "Lata", RETORNABLE: "Retornable", TW: "TW", BARRIL: "Barril", OTROS: "Otros" };
 // Grupos por presentación que se recogen y despliegan; se recuerda cuáles cerró el usuario
 S.famCerradas = S.famCerradas || {};
+// Ordena por presentación (PET, Lata, Retornable, TW, Barril, otros), una debajo de la otra y sin títulos
 function gruposFamilia(clave, items, tarjeta, extra, orden) {
-  const grupos = {};
-  items.forEach(x => { const f = x.familia || famDe(x.sku, x.producto); (grupos[f] = grupos[f] || []).push(x); });
-  return Object.keys(grupos).sort((a, b) => rangoPres(a) - rangoPres(b) || a.localeCompare(b, "es")).map(f => {
-    const k = clave + "|" + f, cerr = !!S.famCerradas[k], lis = grupos[f].sort(orden || porNombre);
-    return `<section class="fam-g ${cerr ? "cerrada" : ""}"><button type="button" class="fam-h" data-famtog="${h(k)}" aria-expanded="${!cerr}"><span class="fam-t">${h(NOMBRE_PRES[f] || f)}</span><span class="fam-n">${lis.length}</span>${extra ? extra(lis) : ""}<span class="fam-f" aria-hidden="true">▾</span></button><div class="fam-b">${lis.map(tarjeta).join("")}</div></section>`;
-  }).join("");
+  return items.slice().sort((a, b) => rangoPres(a.familia || famDe(a.sku, a.producto)) - rangoPres(b.familia || famDe(b.sku, b.producto)) || (orden || porNombre)(a, b)).map(tarjeta).join("");
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-famtog]"); if (!b) return;
@@ -1786,7 +1796,7 @@ function cardVal(p, esc, hist, regs) {
     <div class="pl-cuerpo">
       <div class="vc-zonas"><span>Bodega ${z(p.bodega)}</span><span>KA ${z(p.ka)}</span><span>PK ${z(p.pk)}</span><span class="vc-ini">Total <b>${fm(p.inicial)}</b></span></div>
       ${!hayZ && p.inicial ? `<div class="muted small">Sin detalle por zona (cantidad total).</div>` : ""}
-      <div class="vc-cifras"><span class="vc-val">Validado <b>${fm(p.validado)}</b></span><span class="vc-dis">Disponible <b>${fm(p.disponible)}</b></span>${!hist && p.wmsCajas !== undefined ? `<span class="muted small">WMS ${fm(p.wmsCajas)}</span>` : ""}
+      <div class="vc-cifras"><span class="vc-val">Validado <b>${fm(p.validado)}</b></span><span class="vc-dis">Disponible <b>${fm(p.disponible)}</b></span>${vNum(p.final) !== "" ? `<span class="vc-fin" title="Reconteo al entregar el turno">🔁 Al entregar <b>${fm(p.final)}</b></span>` : ""}${!hist && p.wmsCajas !== undefined ? `<span class="muted small">WMS ${fm(p.wmsCajas)}</span>` : ""}
         <button type="button" class="reloj" data-a="horas" title="Ver horas de conteo y de validación" aria-label="Ver horas">🕐</button></div>
       <div class="vc-horas hidden">🕐 Contado: <b>${p.contadoEn ? h(fechaCorta(p.contadoEn)) : "Heredado"}</b> · ✔ Última validación: <b>${ultima ? h(fechaCorta(ultima)) : "—"}</b></div>
       ${p.porConfirmar ? `<div class="vc-alerta">⏳ Cantidad por confirmar: se puede validar, pero confirma el conteo con «✎ Cantidad».</div>` : ""}
@@ -2004,14 +2014,17 @@ async function modalAgregar() {
 // ENTREGA DE TURNO
 // =====================================================================
 const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Cajas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK", un: "Cajas", mod: false } };
-// Sin cantidades = «–» (falta contar, sin color) · un 0 contado se ve igual que cualquier número («0 Cajas»)
+// «1 estiba», «4 estibas», «1 caja», «30 cajas»
+const UN_PAL = { Estibas: ["estiba", "estibas"], Cajas: ["caja", "cajas"], Unidades: ["unidad", "unidades"] };
+const unPal = (n, un) => `${fm(n)} ${(UN_PAL[un] || [un, un])[Number(n) === 1 ? 0 : 1]}`;
+// Total por unidad (2 estibas + 2 estibas = 4 estibas, y aparte la suma de las cajas)
+const totalUn = arr => { const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); }); return ["Estibas", "Cajas", "Unidades"].filter(u => t[u] !== undefined).map(u => unPal(t[u], u)).join(" + "); };
+// Sin cantidades = «–» (falta contar, sin color) · un 0 contado se ve igual que cualquier número («0 cajas»)
 const cantChips = (arr, s) => {
   if (!arr || !arr.length) return `<span class="cant-pend" title="Falta contar">–</span>`;
-  const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); });
-  const us = ["Estibas", "Cajas", "Unidades"].filter(u => t[u] !== undefined);
-  if ((s === "KA" || s === "PK") && arr.length > 1) return `<span class="cant tot"><b>${us.map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span><span class="muted small">(${arr.length} conteos sumados)</span>`;
-  const tot = arr.length > 1 ? `<span class="cant tot">Total: <b>${us.map(u => `${fm(t[u])} ${u}`).join(" + ")}</b></span>` : "";
-  return tot + arr.map(x => `<span class="cant"><b>${fm(x.n)}</b> ${h(x.un)}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("");
+  if ((s === "KA" || s === "PK") && arr.length > 1) return `<span class="cant tot"><b>${totalUn(arr)}</b></span><span class="muted small">(${arr.length} conteos sumados)</span>`;
+  const tot = arr.length > 1 ? `<span class="cant tot">Total: <b>${totalUn(arr)}</b></span>` : "";
+  return tot + arr.map(x => `<span class="cant">${unPal(x.n, x.un).replace(/^([\d.]+)/, "<b>$1</b>")}${x.m ? ` ${modChip(x.m)}` : ""}</span>`).join("");
 };
 // Lo que vino de una conciliación y nadie ha revisado (al editarlo deja de estar marcado)
 const esHeredadoEnt = x => /^Conciliación/.test(x.origen || "");
@@ -2086,6 +2099,7 @@ function pintarEnt(el) {
       <div class="row"><button class="btn sm" data-a="cpno">No, gracias</button><button class="btn sm primary" data-a="cptraer">Traer</button></div></section>` : ""}
     ${hist ? "" : `<div class="seg seg-sm ent-zona" id="entZ"><span class="ez-l">📍 Estoy en</span>${[["", "Todo"], ["BODEGA", "Bodega"], ["KA", "KA"], ["PK", "PK"]].map(([k, t]) => `<button type="button" data-ez="${k}" class="${zona === k ? "on" : ""}">${t}</button>`).join("")}</div>`}
     ${zona ? sec(zona) : `<div class="grid2"><div class="col-sec">${sec("BODEGA")}${sec("TPC")}</div><div class="col-sec">${sec("KA")}${sec("PK")}</div></div>`}
+    ${seccionReconteo(en, esc)}
     <section class="card notas-card plegable ${abN ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entn|notas" role="button" tabindex="0" aria-expanded="${abN}"><h3>🗒️ Notas del turno <span class="sec-n">${en.notas.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo"><ol class="notas-l">${en.notas.map(n => `<li><div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><span>${h(n.texto)}${n.pendiente ? ` <span class="pill warn">guardando…</span>` : ""}</span>${esc && n.id ? `<span class="row" style="flex-wrap:nowrap"><button class="btn sm icon" data-a="nedit" data-id="${h(n.id)}">✎</button><button class="btn sm icon del" data-a="ndel" data-id="${h(n.id)}">${ICO_DEL}</button></span>` : ""}</div><div class="sub">${h(soloHora(n.hora))} · ${h(n.usuario)}</div></li>`).join("")}</ol>
       ${esc ? `<div class="form-row" style="margin:10px 0 0"><label class="field"><span>Nueva novedad</span><input type="text" id="nNota" placeholder="Ej: llegó producto nuevo de Club Colombia 850"></label><button class="btn primary sm" data-a="nota">Agregar</button></div>` : ""}</div></section>
@@ -2101,6 +2115,27 @@ function pintarEnt(el) {
     onEntClick(e);
   };
 }
+
+// Reconteo de los validados al entregar el turno: debe quedar (inicial − validado) contra lo que se cuenta
+const difRec = v => { if (vNum(v.final) === "") return ""; const d = Number(v.final) - Number(v.disponible); return d ? `<span class="rc-dif ${d < 0 ? "neg" : "pos"}">${d > 0 ? "+" : ""}${fm(d)}</span>` : `<span class="rc-dif ok">✓ cuadra</span>`; };
+function seccionReconteo(en, esc) {
+  const vs = en.validados || [];
+  if (!vs.length) return "";
+  const ab = abierto("entr", "rec"), hechos = vs.filter(v => vNum(v.final) !== "").length;
+  return `<section class="card rec-card plegable ${ab ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entr|rec" role="button" tabindex="0" aria-expanded="${ab}"><h3>🔁 Reconteo de validados <span class="sec-n">${hechos}/${vs.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo"><p class="muted small" style="margin-top:0">Cuenta lo que queda de cada producto validado. Se compara con lo que debería quedar (inicial − validado) y sale en el PDF de la validación.</p>
+    <div class="rec-list">${vs.map(v => `<div class="rec-row" data-rsku="${h(v.sku)}"><div class="rec-p">${skuTxt(v.sku, v.producto)}<div class="rec-c"><span class="r-ini">Inicial <b>${fm(v.inicial)}</b></span><span>Validado <b>${fm(v.validado)}</b></span><span class="r-deb">Debe quedar <b>${fm(v.disponible)}</b></span><span data-rdif>${difRec(v)}</span></div></div>
+      ${esc ? `<label class="field rec-in"><span>Contado ${unBtn(cpeDe(v.sku))}</span><input type="text" inputmode="numeric" data-rec="${h(v.sku)}" value="${h(vNum(v.final))}" placeholder="—"></label>` : `<div class="rec-in"><span class="muted small">Contado</span> <b>${vNum(v.final) === "" ? "—" : fm(v.final)}</b></div>`}</div>`).join("")}</div></div></section>`;
+}
+document.addEventListener("change", e => {
+  const i = e.target.closest("input[data-rec]"); if (!i || S.vista !== "entrega") return;
+  const sku = i.dataset.rec, n = cajasDe(i);
+  const cont = i.closest("label"); if (cont && cont.querySelector(".un-sel").dataset.unt === "est") { unReset(cont); if (n !== "") toast(`= ${fm(n)} cajas`, "", 2500); }
+  i.value = n === "" ? "" : n;
+  const v = (S.ent.validados || []).find(x => x.sku === sku); if (v) v.final = n;
+  const row = i.closest(".rec-row"); if (row && v) row.querySelector("[data-rdif]").innerHTML = difRec(v);
+  enviarOptimista("webValFinal", [sku, n === "" ? "" : String(n), S.entTurno || ""], `Reconteo ${sku}`, r => { if (r && r.estado) { S.ent = r.estado; if (!S.entTurno) ls.setJ("ent", S.ent); } });
+});
 
 // Guardar sin esperar: se pinta ya y el servidor confirma por detrás
 function guardarEntRapido(fn, args, desc, okMsg) {
@@ -2194,7 +2229,7 @@ function modalEntItem(s, item, elegir, otra) {
   const pintarCant = () => {
     $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}"><span class="cant-n">${k + 1}</span>
       <input type="text" inputmode="decimal" data-f="n" value="${h(x.n)}" placeholder="Cantidad">
-      <select data-f="un">${["Estibas", "Cajas", "Unidades"].map(u => `<option ${u === x.un ? "selected" : ""}>${u}</option>`).join("")}</select>
+      ${miniSel("eu" + k, ["Estibas", "Cajas", "Unidades"], x.un).replace('class="mini-sel"', 'class="mini-sel ms-un" data-f="un"')}
       ${cfg.mod ? `<input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo">` : ""}
       <button class="btn sm icon" data-q="${k}" title="Quitar">✕</button></div>`).join("");
   };
@@ -2218,7 +2253,7 @@ function modalEntItem(s, item, elegir, otra) {
     alLimpiar($("#eiP", c), () => { prodSel = null; });
   }
   $("#eiC", c).addEventListener("input", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k][e.target.dataset.f] = e.target.value; });
-  $("#eiC", c).addEventListener("change", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k][e.target.dataset.f] = e.target.value; });
+  $("#eiC", c).addEventListener("elegido", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k].un = e.target.dataset.v; });
   $("#eiC", c).addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; cant.splice(+q.dataset.q, 1); if (!cant.length) cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); });
   $("#eiMas", c).onclick = () => { cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); };
   $("#eiOk", c).onclick = () => {
@@ -2405,8 +2440,8 @@ function onConcCampo(e) {
   }
   // Lo escrito puede estar en estibas (cj / est): se guarda en cajas
   const n = f === "fact" ? (i.value.replace(/\D/g, "") === "" ? "" : Number(i.value.replace(/\D/g, ""))) : cajasDe(i);
-  const cont = i.closest("label, .cz-in"), ub = cont && cont.querySelector(".un-t");
-  if (ub && ub.dataset.unt === "est") { ub.dataset.unt = "cj"; ub.textContent = "cj"; ub.classList.remove("on"); const eq = cont.querySelector(".un-eq"); if (eq) eq.remove(); i.placeholder = i.dataset.ph || "—"; if (n !== "") toast(`= ${fm(n)} cajas`, "", 2500); }
+  const cont = i.closest("label, .cz-in"), ub = cont && cont.querySelector(".un-sel");
+  if (ub && ub.dataset.unt === "est") { unReset(cont); i.placeholder = i.dataset.ph || "—"; if (n !== "") toast(`= ${fm(n)} cajas`, "", 2500); }
   const row = i.closest(".cz-row");
   const valor = n === "" ? "" : String(n);
   // Modo «Falta …» en lo ya contado: lo escrito se suma
@@ -2441,8 +2476,7 @@ function modalConcCant(x) {
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="kok">Guardar</button></div>`);
   const val = id => cajasDe($("#" + id, c));
   const llenar = () => {
-    $$(".un-t", c).forEach(b => { b.dataset.unt = "cj"; b.textContent = "cj"; b.classList.remove("on"); });
-    $$(".un-eq", c).forEach(q => q.remove());
+    $$(".f-zona", c).forEach(unReset);
     $("#kB", c).value = modo === "fijar" ? vNum(x.bodega) : ""; $("#kK", c).value = modo === "fijar" ? vNum(x.ka) : ""; $("#kP", c).value = modo === "fijar" ? vNum(x.pk) : "";
   };
   const upd = () => {

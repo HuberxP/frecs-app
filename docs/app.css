@@ -1012,15 +1012,10 @@
   .btn.b-verde:hover { background: var(--ok); filter: brightness(1.08); }
   .btn.b-rojo { min-height: 30px !important; padding: 0 10px !important; font-size: 12px !important; }
   html[data-tema="claro"] .btn.b-verde { color: #fff; box-shadow: 0 3px 10px rgba(19,122,76,.25); }
-  /* cj / est al lado de la etiqueta de cada cantidad */
-  .un-t { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); font-size: 11px; font-weight: 800; text-transform: none; letter-spacing: 0; vertical-align: middle; cursor: pointer; }
-  .un-t.on { background: var(--cyan); border-color: var(--cyan); color: #04131f; }
-  .un-eq { display: block; font-size: 11px; color: var(--cyan); font-weight: 700; margin-top: 2px; }
   .cc-campo > span, .f-zona > span, .f-cant > span { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
   .cz-in { position: relative; flex-wrap: nowrap; }
   .cz-in .un-eq { position: absolute; right: 0; bottom: -14px; }
   .cz-row .sub b { color: var(--ok); }
-  html[data-tema="claro"] .un-t { background: #fff; } html[data-tema="claro"] .un-t.on { color: #fff; }
   /* Desplegables (select) de toda la página */
   select { -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 36px !important; font-weight: 600;
     background-image: linear-gradient(45deg, transparent 50%, var(--cyan) 50%), linear-gradient(135deg, var(--cyan) 50%, transparent 50%), linear-gradient(to right, var(--line2), var(--line2));
@@ -1044,7 +1039,48 @@
   .ficha.sync-f span { grid-column: 1 / -1; font-size: 12.5px; } .ficha.sync-f b { grid-column: 1 / -1; margin-top: -4px; }
   /* Entrega: ＋ otra cantidad */
   .ent-acc .mas { color: var(--ok); border-color: var(--ok); font-weight: 900; }
-  .cc-col-b { display: flex; flex-direction: column; }/* ============ Versión web (Supabase) ============ */
+  .cc-col-b { display: flex; flex-direction: column; }
+  /* ============ Lote 02/10 (b) ============ */
+  /* Cajas / Estibas: desplegable pequeño al lado de la etiqueta */
+  .un-sel { position: relative; display: inline-flex; margin-left: 6px; vertical-align: middle; text-transform: none; letter-spacing: 0; }
+  .un-b { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); font-size: 11.5px; font-weight: 700; cursor: pointer; }
+  .un-b .un-f { color: var(--cyan); font-size: 10px; }
+  .un-sel.est .un-b { border-color: var(--cyan); background: var(--cyan-soft, rgba(34,211,238,.12)); color: var(--cyan); }
+  .un-l { position: absolute; left: 0; top: calc(100% + 4px); z-index: 90; min-width: 128px; display: flex; flex-direction: column; padding: 4px; border-radius: 10px; border: 1px solid var(--line2); background: var(--card2); box-shadow: 0 12px 26px rgba(0,0,0,.45); }
+  .un-l button { text-align: left; border: 0; background: none; color: var(--ink); padding: 8px 10px; border-radius: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .un-l button:nth-child(even) { background: rgba(200,210,225,.06); }
+  .un-l button.on { background: var(--brand-soft); color: var(--brand); }
+  .un-l button:disabled { opacity: .45; }
+  .un-l small { color: var(--muted); font-weight: 600; }
+  .un-eq { display: block; font-size: 11px; color: var(--cyan); font-weight: 700; margin-top: 2px; }
+  .cz-in .un-l { left: auto; right: 0; }
+  html[data-tema="claro"] .un-b { background: #fff; } html[data-tema="claro"] .un-l { background: #fff; box-shadow: 0 10px 24px rgba(20,30,50,.15); }
+  html[data-tema="claro"] .un-l button:nth-child(even) { background: #f1f4f8; }
+  /* Entrega: unidad de cada cantidad con el mismo desplegable propio */
+  .cant-ed .ms-un .ms-b { min-height: 44px; font-weight: 700; }
+  .cant-ed .ms-un .ms-l { min-width: 140px; }
+  .cant-ed .ms-un .ms-l button:nth-child(even) { background: rgba(200,210,225,.06); }
+  /* Reconteo de validados al entregar */
+  .rec-card .pl-cab h3 { margin: 0; color: #a78bfa; }
+  .rec-list { display: flex; flex-direction: column; gap: 8px; }
+  .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); }
+  .rec-row:nth-child(even) { background: var(--card); }
+  .rec-p { min-width: 0; font-size: 13.5px; }
+  .rec-c { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+  .rec-c > span { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line2); }
+  .rec-c b { color: var(--ink); }
+  .rec-c .r-ini { border-color: #b79cf5; background: rgba(183,156,245,.14); }
+  .rec-c .r-deb { border-color: var(--ok); }
+  .rec-c > span[data-rdif] { border: 0; padding: 0; }
+  .rc-dif { font-weight: 800; padding: 1px 7px; border-radius: 999px; }
+  .rc-dif.neg { color: var(--bad); background: var(--bad-soft); } .rc-dif.pos { color: var(--cyan); background: rgba(34,211,238,.12); } .rc-dif.ok { color: var(--ok); background: var(--ok-soft); }
+  .rec-in { flex: none; width: 150px; }
+  .rec-in input { text-align: center; font-size: 17px; font-weight: 800; border-color: #5b8def; }
+  @media (max-width: 520px) { .rec-row { flex-direction: column; align-items: stretch; } .rec-in { width: 100%; } }
+  .vc-fin { padding: 2px 8px; border-radius: 8px; border: 1px solid #5b8def; color: #9cc0ff; font-size: 12.5px; } .vc-fin b { color: #cfe0ff; }
+  html[data-tema="claro"] .rec-card .pl-cab h3 { color: #6d3fc7; }
+  html[data-tema="claro"] .rec-row { background: #fff; } html[data-tema="claro"] .rec-row:nth-child(even) { background: #f3f6fa; }
+  html[data-tema="claro"] .vc-fin { color: #0b4f9c; } html[data-tema="claro"] .vc-fin b { color: #0b3d91; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

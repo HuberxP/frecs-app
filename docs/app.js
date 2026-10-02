@@ -724,11 +724,11 @@ $("#syncBtn").onclick = async () => {
 };
 
 // ---------- PDFs ----------
-// Íconos de los botones de PDF, WhatsApp y Telegram (dibujos sencillos con el color de cada uno)
+// Íconos de los botones de PDF, WhatsApp y Telegram (WhatsApp y Telegram: las imágenes que mandó el usuario, en 64 px)
 const ICO = {
   pdf: `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 2.5h7.5l4.5 4.5v13a1.5 1.5 0 0 1-1.5 1.5h-10.5a1.5 1.5 0 0 1-1.5-1.5v-16a1.5 1.5 0 0 1 1.5-1.5z" fill="#fff" stroke="#d32f2f" stroke-width="1.5"/><path d="M14 2.5v4.5h4.5" fill="none" stroke="#d32f2f" stroke-width="1.5"/><rect x="2.5" y="11.5" width="15" height="7" rx="1.6" fill="#d32f2f"/><text x="10" y="17" text-anchor="middle" font-size="5.4" font-weight="700" fill="#fff" font-family="Arial,Helvetica,sans-serif">PDF</text></svg>`,
-  wa: `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#22a447"/><rect x="5.8" y="6.3" width="12.4" height="8.8" rx="2.6" fill="#fff"/><path d="M8.3 14.6v3.6l3.6-3.6z" fill="#fff"/><circle cx="9" cy="10.7" r="1.05" fill="#22a447"/><circle cx="12" cy="10.7" r="1.05" fill="#22a447"/><circle cx="15" cy="10.7" r="1.05" fill="#22a447"/></svg>`,
-  tg: `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#2a95d6"/><path d="M6.5 12h9.5M12.5 7.8l4.2 4.2-4.2 4.2" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  wa: `<img class="ico" src="data:image/webp;base64,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" alt="" aria-hidden="true">`,
+  tg: `<img class="ico" src="data:image/webp;base64,UklGRoYEAABXRUJQVlA4WAoAAAAQAAAAPwAAPwAAQUxQSA8BAAABgFtbe9vmk341XMXUDo6jGOokT4LjIbJbcgDlAKp1nEQJwKec/trnRAQbt20kSXNtt2X0BWwUAFVj3/KOK8bFxrE71pFrZU/WpFs/u6sgqQ0mPKuTjkkge/bdJ8ngfTiT3geSn3c7q4IHchEiz2oMC7KOyta7weCpoA/rJRBcRh+pYvS8gpSSPwYqGfiXlGC4oJoLGpRd9Hr4WMjFjKrOUsOgSeC9pdfE8/FJm49c+yNvadN32hTquP/fFOpzS0ebVq5N9qY9Nz5ZbazR/jCp+twuyt3gRL9b9LtJcE3FbruG6HZjAwJAUFft1q11q9vNgCAx3XN3+6CWHAh/IDX2KWuO3KmOinb+Zk0V2N4AAFZQOCBQAwAA0BQAnQEqQABAAD4xGIpDoiGhEgUkIAMEtgBkpL6/Xfxu1knkH4b/sZ/jOrB3C7Z8cicjqw/F/cZ2gPE2/m32idwDzAfpt+u/YQ9AD+bf1HrFPQA/aP0x/Yj/bf9nvgE/Ur/qNIFaDoc2oLGT6Aebv6d9gj9W+rd6Ff7VJedRY+Z6pKzWeJt1p3/+0vZn/6QagPLSdj1/7qQpmXGcINdy2V3M+IROKL3QR9PhJd0aAAD9Z8L3iGMd66lXg/MtVKptHbxbkHd4pJ37/FZ619PMN2sVF+ClPIIP+lTeX5EsHp3qC2i8jDGLytSCdU2p/FYgvQFnu3F8coX2Mm0zH2+P2dmcP0nuIAyYMNnvmElQ8lW2SbhehLQl6KTGEAhOqeea9y/g1bT6SeYGpgi1ya+r7uPB0K7LROJLL01RqIZu6Eko9/xbate/RzT2l1VZC1o8KV1FpYS/HDd+b1X9KUYjkRTLXJugWmcKZf+Y7stmeXce0GMiYo5F//tD0xxKpfMUn1txe6xCNIPKQxDkjmYFtmN/K+KeJ7xH4ext9Ihh6jZSaP4fR4Fy5ij+//f4U/08Rly6YVRrEGNbUlN/me/dYXdRIQUf4DWR+Ze4erhyLWswA6hvavHTSW/kZol4fq/PyGgWddhOGtTG+GTTZd37/m8caoRP8YJ4ipA/7USVHlgSYrafo70AGEna9HrkoeqphDFvObVy15z02DWNrjeiWMQUz69lto9V6CgPco2dF0sRxiv+UnglueI6Ujyxj10D9H4lik3Ag326e6ZWG0MbpTNPskkG8Ntdq9w3yW8ex1Lb/I8WTf0oCWvruWwW9XPHaOIsgSA13XoTZdwbagrXPwuV40iVBxcMDhiWvbjlie4/OLR++p3ixF9S9l0GEvQy6WdySnsvr37vFLW8AvE8x4vl0dSGnKe+2GNMxIfvMaZK0MLtfBzgTeEMKR+zCs4Dw36UBK71PyjXFMlyDHT6WrDJ6ipBVbLpEnQ+sUmezVMeteDmqZ4DTHINL3YQXU5SG1zDE9KG7Cx3z3QMgIXRL8a/wyzoL5nhp/4oBj29fvriKqQAjBIhNauT4ceHbGowHAczQyROgcbKNG2eSpb6HkDnQS6D4hTKF0qrJsyNQAA=" alt="" aria-hidden="true">`
 };
 // La validación sale en resumen (inicial, validado y disponible) o completa («Ver todo»: cada zona y cada destino)
 const idPdf = (tipo, id) => tipo === "VALIDACION" && ls.get("valTodo", "") === "1" ? (id || "") + "|todo" : (id || "");
@@ -2089,7 +2089,7 @@ function pintarEnt(el) {
       </div></section>`;
   };
   // Si ya se está agregando a mano, la precarga se bloquea (llenaría todo por error)
-  const aMano = ["BODEGA", "TPC", "KA", "PK"].some(s2 => en.secciones[s2].some(x => !/^(WMS|Conciliación)/.test(x.origen || "")));
+  const aMano = ["BODEGA", "TPC", "KA", "PK"].some(s2 => en.secciones[s2].some(x => !/^(WMS|Conciliación|Validación)/.test(x.origen || "")));
   S.entAMano = aMano;
   const botonesTurno = (esc && !hist ? `<button class="btn sm" data-a="precargar" title="Precargar (pocos o tu conciliación)"><span class="ic">⤓</span><span class="txt">Precargar</span></button>` : "") + botonesPDF("ENTREGA", "PDF", en.turno.id);
   const abN = abierto("entn", "notas");
@@ -2106,6 +2106,11 @@ function pintarEnt(el) {
     ${esc && !hist ? botonGuardar("gturno", "Guardar", puedoEliminar(en.turno.abiertoPor) ? "cturno" : "", "Cancelar") : ""}
     ${esc ? fab("add", "Agregar a la entrega") : ""}`;
   el.innerHTML = html;
+  // Lo validado que aún no está en la entrega se trae solo (una vez por turno), sin valor, para recontarlo
+  if (!hist && esc && (en.validados || []).some(v => !v.enEntrega) && S.entSync !== en.turno.id) {
+    S.entSync = en.turno.id;
+    api("webEntTraerValidados").then(r => { if (r && r.estado) { S.ent = r.estado; ls.setJ("ent", S.ent); if (S.vista === "entrega" && !modalAbierto()) pintarEnt(); } }).catch(() => { S.entSync = null; });
+  }
   if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA");
   else pintarBarra($("#tb", el), en.turnoInfo, false, botonesTurno);
   const nn = $("#nNota", el); if (nn) nn.onkeydown = e => { if (e.key === "Enter") agregarNota(); };
@@ -2116,26 +2121,26 @@ function pintarEnt(el) {
   };
 }
 
-// Reconteo de los validados al entregar el turno: debe quedar (inicial − validado) contra lo que se cuenta
-const difRec = v => { if (vNum(v.final) === "") return ""; const d = Number(v.final) - Number(v.disponible); return d ? `<span class="rc-dif ${d < 0 ? "neg" : "pos"}">${d > 0 ? "+" : ""}${fm(d)}</span>` : `<span class="rc-dif ok">✓ cuadra</span>`; };
+// Reconteo de los validados: lo contado en la entrega (Bodega + KA + PK + TPC, en cajas) contra lo que debería quedar
+// (inicial − validado). No se escribe aquí: sale solo de lo que se cuenta en cada zona de la entrega.
+const recUn = () => ls.get("recUn", "cj");
+const enUn = (n, cpe) => recUn() === "est" && cpe ? (Math.round(n / cpe * 10) / 10) : n;
+const fmUn = (n, cpe) => n === null || n === undefined ? "—" : fm(enUn(n, cpe));
+const difRec = v => { if (v.diferencia === null || v.diferencia === undefined) return `<span class="muted">—</span>`; const d = v.diferencia; return d ? `<span class="rc-dif ${d < 0 ? "neg" : "pos"}">${d > 0 ? "+" : ""}${fmUn(d, v.cpe)}</span>` : `<span class="rc-dif ok">✓ cuadra</span>`; };
 function seccionReconteo(en, esc) {
   const vs = en.validados || [];
   if (!vs.length) return "";
-  const ab = abierto("entr", "rec"), hechos = vs.filter(v => vNum(v.final) !== "").length;
-  return `<section class="card rec-card plegable ${ab ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entr|rec" role="button" tabindex="0" aria-expanded="${ab}"><h3>🔁 Reconteo de validados <span class="sec-n">${hechos}/${vs.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
-    <div class="pl-cuerpo"><p class="muted small" style="margin-top:0">Cuenta lo que queda de cada producto validado. Se compara con lo que debería quedar (inicial − validado) y sale en el PDF de la validación.</p>
-    <div class="rec-list">${vs.map(v => `<div class="rec-row" data-rsku="${h(v.sku)}"><div class="rec-p">${skuTxt(v.sku, v.producto)}<div class="rec-c"><span class="r-ini">Inicial <b>${fm(v.inicial)}</b></span><span>Validado <b>${fm(v.validado)}</b></span><span class="r-deb">Debe quedar <b>${fm(v.disponible)}</b></span><span data-rdif>${difRec(v)}</span></div></div>
-      ${esc ? `<label class="field rec-in"><span>Contado ${unBtn(cpeDe(v.sku))}</span><input type="text" inputmode="numeric" data-rec="${h(v.sku)}" value="${h(vNum(v.final))}" placeholder="—"></label>` : `<div class="rec-in"><span class="muted small">Contado</span> <b>${vNum(v.final) === "" ? "—" : fm(v.final)}</b></div>`}</div>`).join("")}</div></div></section>`;
+  const ab = abierto("entr", "rec"), listos = vs.filter(v => v.contado !== null && !v.faltan.length).length;
+  const un = recUn() === "est" ? "estibas" : "cajas";
+  return `<section class="card rec-card plegable ${ab ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entr|rec" role="button" tabindex="0" aria-expanded="${ab}"><h3>🔁 Reconteo de validados <span class="sec-n">${listos}/${vs.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo"><div class="rec-top"><p class="muted small">Se suma solo lo contado en <b>Bodega, KA, PK y TPC</b> de esta entrega y se compara con lo que debería quedar (inicial − validado).</p>
+      <label class="rec-un"><span>Ver en</span>${miniSel("recU", ["Cajas", "Estibas"], recUn() === "est" ? "Estibas" : "Cajas").replace('class="mini-sel"', 'class="mini-sel ms-un"')}</label></div>
+    <div class="rec-tabla"><div class="rec-h"><span>Producto</span><span>Inicial</span><span>Validado</span><span>Debe quedar</span><span>Contado</span><span>Diferencia</span></div>
+    ${vs.map(v => `<div class="rec-row ${v.faltan.length ? "falta" : ""}"><div class="rec-p">${skuTxt(v.sku, v.producto)}${v.faltan.length ? `<span class="z-falta">falta ${h(v.faltan.join(", "))}</span>` : ""}${recUn() === "est" && !v.cpe ? `<span class="muted small"> (sin «Cant x Estibas»: en cajas)</span>` : ""}</div>
+      <span class="r-ini" data-l="Inicial"><b>${fmUn(v.inicial, v.cpe)}</b></span><span data-l="Validado"><b>${fmUn(v.validado, v.cpe)}</b></span><span class="r-deb" data-l="Debe quedar"><b>${fmUn(v.disponible, v.cpe)}</b></span><span class="r-cont" data-l="Contado"><b>${fmUn(v.contado, v.cpe)}</b></span><span data-l="Diferencia">${difRec(v)}</span></div>`).join("")}</div>
+    <p class="muted small" style="margin-bottom:0">En ${un}. ${vs.some(v => v.faltan.length) ? "«Falta» = zonas donde el producto está en la entrega pero todavía no se contó." : ""}</p></div></section>`;
 }
-document.addEventListener("change", e => {
-  const i = e.target.closest("input[data-rec]"); if (!i || S.vista !== "entrega") return;
-  const sku = i.dataset.rec, n = cajasDe(i);
-  const cont = i.closest("label"); if (cont && cont.querySelector(".un-sel").dataset.unt === "est") { unReset(cont); if (n !== "") toast(`= ${fm(n)} cajas`, "", 2500); }
-  i.value = n === "" ? "" : n;
-  const v = (S.ent.validados || []).find(x => x.sku === sku); if (v) v.final = n;
-  const row = i.closest(".rec-row"); if (row && v) row.querySelector("[data-rdif]").innerHTML = difRec(v);
-  enviarOptimista("webValFinal", [sku, n === "" ? "" : String(n), S.entTurno || ""], `Reconteo ${sku}`, r => { if (r && r.estado) { S.ent = r.estado; if (!S.entTurno) ls.setJ("ent", S.ent); } });
-});
+document.addEventListener("elegido", e => { if (e.target.id !== "recU") return; ls.set("recUn", e.target.dataset.v === "Estibas" ? "est" : "cj"); if (S.vista === "entrega") pintarEnt(); });
 
 // Guardar sin esperar: se pinta ya y el servidor confirma por detrás
 function guardarEntRapido(fn, args, desc, okMsg) {
@@ -2668,20 +2673,34 @@ VISTAS.consumo = async (el, p, vigente) => {
   // KA y PREV se surten desde bodega (ya están listos para despachar): se ocultan salvo que se pidan
   const verOp = ls.get("consVerOp", "") === "1";
   const visibles = x => x.locs.filter(l => verOp || !l.esOp);
-  el.innerHTML = cab("🥤 Consumo / Pony gasto", "Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.",
-      botonesPDF("CONSUMO", "PDF completo") + botonesPDF("CONSUMO_SOLO", "Solo módulos a consumir")) +
-    (esc ? `<div class="card" style="margin-bottom:14px"><div style="max-width:520px">${campoAuto("ca", "Agregar a la lista: nombre o SKU")}</div></div>` : "") +
-    (lis.length ? `<div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${lis.length} productos</span></div><div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
-      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : (x.estado === "sin_fisico" ? "❌ Sin existencias" : x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "❌ Sin módulo disponible")}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+  const sinTxt = x => x.estado === "sin_fisico" ? `❌ Sin existencias <span class="muted">· quizás haya en PK o KA</span>` : x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "❌ Sin módulo disponible";
+  // Tres tarjetas desplegables: la lista (agregar / quitar), los módulos a consumir y los módulos completos
+  const abP = !!(S.abiertos.consv && S.abiertos.consv.panel), abS = S.abiertos.consv ? !!S.abiertos.consv.solo : true, abT = !!(S.abiertos.consv && S.abiertos.consv.todo);
+  const tarjetaV = (k, ab, tit, cuerpo) => `<section class="card plegable cons-sec ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="consv|${k}" role="button" tabindex="0" aria-expanded="${ab}"><h3>${tit}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div><div class="pl-cuerpo">${cuerpo}</div></section>`;
+  const fila = x => { const t = x.locs.filter(l => l.sel); const l = t[0];
+    return `<div class="cs-row ${x.unico ? "unico" : ""} ${l ? "" : "sin"}"><div class="cs-p">${skuTxt(x.sku, x.nom)}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}${x.modo === "manual" ? ` <span class="pill">✋ a mano</span>` : ""}</div>
+      ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
+  const panel = `<p class="small muted" style="margin-top:0">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
+    ${esc ? `<div style="max-width:520px">${campoAuto("ca", "Agregar a la lista: nombre o SKU")}</div>` : ""}
+    ${lis.length ? `<div class="cs-chips">${lis.map(x => `<span class="chip cs-chip">${h(x.sku)} · ${h(x.nom)}${esc ? `<button type="button" class="cs-x" data-del="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar ${h(x.sku)} de la lista">✕</button>` : ""}</span>`).join("")}</div>` : ""}
+    <label class="toggle" style="margin-top:10px"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV en los módulos completos</label>`;
+  const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
+  const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
+    <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button></div>
+    <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
+      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
-      ${esc ? `<div class="row" style="justify-content:flex-end"><button class="btn sm icon del" data-del="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar de la lista">${ICO_DEL}</button></div>` : ""}
       <div class="sub" style="margin:4px 0 8px">${x.modo === "manual" ? `✋ Elegido a mano por <b>${h(x.elegidoPor)}</b> · ${h(fechaCorta(x.elegidoEn))} ${esc ? `<button class="link" data-auto="${h(x.sku)}">volver a automático</button>` : ""}` : "⚙️ Automático (criterios)"}${x.manualVencido ? ` · <span style="color:var(--warn)">el módulo elegido a mano se vació</span>` : ""}</div>
-      ${x.estado === "sin_fisico" ? `<div class="mini">❌ Sin existencias físicas en bodega.</div>` : ""}
+      ${x.estado === "sin_fisico" ? `<div class="mini">❌ Sin existencias físicas en bodega. Quizás haya en PK o KA.</div>` : ""}
       ${x.estado === "solo_bloqueado" ? `<div class="note warn">Todos los módulos están bloqueados.</div>` : ""}
       ${x.estado === "solo_operativa" ? `<div class="note warn">Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.</div>` : ""}
-      <div class="mini-list">${visibles(x).map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>` : vacio("La lista de consumo está vacía.", "🛒"));
+      <div class="mini-list">${visibles(x).map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>`;
+  el.innerHTML = cab("🥤 Consumo / Pony gasto") +
+    tarjetaV("panel", abP, `⚙️ Lista de consumo <span class="sec-n">${lis.length}</span>`, panel) +
+    (lis.length ? tarjetaV("solo", abS, "🎯 Módulos a consumir", solo) + tarjetaV("todo", abT, "📦 Módulos completos", todo) : vacio("La lista de consumo está vacía. Agrégala desde «Lista de consumo».", "🛒"));
   const todas = abrir => { S.abiertos.cons = {}; lis.forEach(x => { S.abiertos.cons[x.sku] = abrir; }); $$(".cons-card", el).forEach(c => c.classList.toggle("abierto", abrir)); };
-  if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); $("#cOp", el).onchange = e => { ls.set("consVerOp", e.target.checked ? "1" : ""); ir("consumo"); }; }
+  if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); }
+  if ($("#cOp", el)) $("#cOp", el).onchange = e => { ls.set("consVerOp", e.target.checked ? "1" : ""); ir("consumo"); };
   const ca = $("#ca", el);
   if (ca) autoSku(ca, async c => {
     try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista`, "ok"); ir("consumo"); } catch (e) { toast(e.message, "bad", 6000); }
@@ -2815,7 +2834,7 @@ async function modalArchivar(alTerminar) {
 // ENTREGA FINAL: un solo PDF con la entrega, las conciliaciones y la validación de un turno
 // =====================================================================
 VISTAS.final = async (el, p, vigente) => {
-  el.innerHTML = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), las conciliaciones (si hubo), la validación y, si quieres, el consumo / pony gasto. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.") + loader("Buscando turnos…");
+  el.innerHTML = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), el reconteo de validados, las conciliaciones (si hubo), la validación detallada y, si quieres, el consumo / pony gasto. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.") + loader("Buscando turnos…");
   let base;
   try { base = await api("webFinal", ""); } catch (e) { if (vigente()) el.insertAdjacentHTML("beforeend", errBox(e)); return; }
   if (!vigente()) return;
@@ -2825,7 +2844,7 @@ VISTAS.final = async (el, p, vigente) => {
   await pintarFinal(el, base, vigente);
 };
 async function pintarFinal(el, base, vigente) {
-  const cabF = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), las conciliaciones (si hubo), la validación y, si quieres, el consumo / pony gasto. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.");
+  const cabF = cab("📦 Entrega final", "Une en un solo PDF lo del turno que escojas, en este orden: la entrega de turno (en su hoja), el reconteo de validados, las conciliaciones (si hubo), la validación detallada y, si quieres, el consumo / pony gasto. Conciliación y validación van juntas si caben; si son largas, cada una en su hoja.");
   const selT = `<label class="field"><span>Turno</span><select id="fnT">${base.turnos.map(t => `<option value="${h(t.id)}" ${t.id === S.finalTurno ? "selected" : ""}>${h(t.texto)}${t.estado === "ABIERTO" ? " (en curso)" : ""}</option>`).join("")}</select></label>`;
   el.innerHTML = cabF + `<section class="card fin-card"><h3>1 · Turno</h3>${selT}</section>` + loader("Revisando el turno…");
   $("#fnT", el).onchange = e => { S.finalTurno = e.target.value; pintarFinal(el, base, vigente); };
@@ -2838,12 +2857,13 @@ async function pintarFinal(el, base, vigente) {
   el.innerHTML = cabF + `<section class="card fin-card"><h3>1 · Turno</h3>${selT}</section>
     <section class="card fin-card"><h3>2 · Qué va en el PDF</h3>
       <label class="check"><input type="checkbox" id="fnE" ${ent.items || ent.notas ? "checked" : ""}><span>📋 <b>Entrega de turno</b><br><span class="sub">${ent.items || 0} productos · ${ent.notas || 0} notas${ent.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>
+      <label class="check"><input type="checkbox" id="fnR" ${val.productos ? "checked" : ""}><span>🔁 <b>Reconteo de validados</b><br><span class="sub">Lo contado en la entrega contra lo que debía quedar de cada producto validado</span></span></label>
       <div class="fin-sub">Conciliaciones</div>
       ${sug.length ? sug.map(c => chkConc(c, true)).join("") : `<p class="muted small">No hay conciliación tuya de este mismo turno.</p>`}
       ${otras.length ? `<details class="fin-otras"><summary>Ver otras conciliaciones (${otras.length})</summary>${otras.map(c => chkConc(c, false)).join("")}</details>` : ""}
       <div class="fin-sub">Validación</div>
       <label class="check"><input type="checkbox" id="fnV" ${val.productos || val.registros ? "checked" : ""}><span>📝 <b>Validación de facturación</b><br><span class="sub">${val.productos || 0} productos · ${val.registros || 0} validaciones${val.eliminada ? " · ⚠️ eliminada" : ""}</span></span></label>
-      <label class="check sub-check"><input type="checkbox" id="fnW" ${ls.get("valTodo", "") === "1" ? "checked" : ""}><span>Con lo contado en cada zona y lo validado a cada destino</span></label>
+      <label class="check sub-check"><input type="checkbox" id="fnW" checked><span>Detallada: con lo contado en cada zona y lo validado a cada destino</span></label>
       <div class="fin-sub">Consumo</div>
       <label class="check"><input type="checkbox" id="fnC"><span>🥤 <b>Consumo / pony gasto</b> (módulos a consumir)<br><span class="sub">${d.consumo || 0} productos en la lista</span></span></label>
     </section>
@@ -2851,8 +2871,8 @@ async function pintarFinal(el, base, vigente) {
   $("#fnT", el).onchange = e => { S.finalTurno = e.target.value; pintarFinal(el, base, vigente); };
   const actualizar = () => {
     const concs = $$("input[data-fc]:checked", el).map(x => x.dataset.fc);
-    const partes = ($("#fnE", el).checked ? "E" : "") + ($("#fnV", el).checked ? ($("#fnW", el).checked ? "W" : "V") : "") + ($("#fnC", el).checked ? "C" : "");
-    const orden = [partes.includes("E") && "Entrega de turno", concs.length && (concs.length > 1 ? `${concs.length} conciliaciones` : "Conciliación"), (partes.includes("V") || partes.includes("W")) && "Validación", partes.includes("C") && "Consumo"].filter(x => x);
+    const partes = ($("#fnE", el).checked ? "E" : "") + ($("#fnR", el).checked ? "R" : "") + ($("#fnV", el).checked ? ($("#fnW", el).checked ? "W" : "V") : "") + ($("#fnC", el).checked ? "C" : "");
+    const orden = [partes.includes("E") && "Entrega de turno", partes.includes("R") && "Reconteo de validados", concs.length && (concs.length > 1 ? `${concs.length} conciliaciones` : "Conciliación"), (partes.includes("V") || partes.includes("W")) && "Validación", partes.includes("C") && "Consumo"].filter(x => x);
     $("#fnRes", el).textContent = orden.length ? "Orden: " + orden.join(" → ") : "Escoge al menos una parte.";
     $("#fnB", el).innerHTML = orden.length ? botonesPDF("FINAL", "Descargar PDF", `${S.finalTurno}|${concs.join(",")}|${partes}`) : "";
   };

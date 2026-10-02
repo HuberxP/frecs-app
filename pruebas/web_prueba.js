@@ -223,9 +223,13 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(() => api("webValDestino", "quitar", "Destino Web"));
   if (q("select count(*) from destinos where nombre='Destino Web'") !== "0") errores.push("destino quitado sigue");
   // Entrega
+  // (lo validado ya está en la entrega sin contar: la precarga llena esas filas en vez de repetirlas)
+  const antesEnt = +q(`select count(*) from ent_items where turno_id='${T}'`);
+  const pendVal = +q(`select count(*) from ent_items where turno_id='${T}' and cantidades::text = '[]'`);
   const pre = await P.evaluate(() => api("webEntPrecargar", ["BODEGA", "TPC", "KA", "PK"]));
-  const nEnt = +q(`select count(*) from ent_items where turno_id='${T}'`);
-  if (!nEnt || nEnt !== Object.values(pre.resultado).reduce((a, b) => a + b, 0)) errores.push(`precarga: ${nEnt} en Supabase, ${JSON.stringify(pre.resultado)} en la página`);
+  const nEnt = +q(`select count(*) from ent_items where turno_id='${T}'`), sumaPre = Object.values(pre.resultado).reduce((a, b) => a + b, 0);
+  if (!nEnt || nEnt - antesEnt > sumaPre || nEnt - antesEnt < sumaPre - pendVal) errores.push(`precarga: ${antesEnt} → ${nEnt} en Supabase, ${JSON.stringify(pre.resultado)} en la página (pendientes de la validación: ${pendVal})`);
+  if (antesEnt < 3) errores.push("lo validado no quedó en la entrega para recontarlo: " + antesEnt);
   await P.evaluate(() => api("webEntGuardar", "BODEGA", "2222", "Pony", [{ n: 3, un: "Estibas", m: "a1" }, { n: 5, un: "Cajas", m: "" }]));
   const cj = q(`select cantidades::text || '|' || origen from ent_items where turno_id='${T}' and seccion='BODEGA' and sku='2222'`);
   if (cj !== '[{"m": "A1", "n": 3, "un": "Estibas"}, {"m": "", "n": 5, "un": "Cajas"}]|Usuario') errores.push("entrega guardada mal: " + cj);

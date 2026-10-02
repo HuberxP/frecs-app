@@ -1080,7 +1080,50 @@
   .vc-fin { padding: 2px 8px; border-radius: 8px; border: 1px solid #5b8def; color: #9cc0ff; font-size: 12.5px; } .vc-fin b { color: #cfe0ff; }
   html[data-tema="claro"] .rec-card .pl-cab h3 { color: #6d3fc7; }
   html[data-tema="claro"] .rec-row { background: #fff; } html[data-tema="claro"] .rec-row:nth-child(even) { background: #f3f6fa; }
-  html[data-tema="claro"] .vc-fin { color: #0b4f9c; } html[data-tema="claro"] .vc-fin b { color: #0b3d91; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .vc-fin { color: #0b4f9c; } html[data-tema="claro"] .vc-fin b { color: #0b3d91; }
+  /* ============ Lote 02/10 (c) ============ */
+  /* Etiqueta arriba y el desplegable de Cajas / Estibas debajo (no se cruzan) */
+  .cc-campo > span, .f-zona > span, .f-cant > span, .rec-in > span { flex-direction: column; align-items: flex-start !important; gap: 4px !important; white-space: normal; }
+  .cc-campo > span .un-sel, .f-zona > span .un-sel, .f-cant > span .un-sel { margin-left: 0; }
+  .un-b { height: 26px; }
+  /* Reconteo de validados: tabla (en el celular, cada producto en su tarjeta) */
+  .rec-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; margin-bottom: 8px; }
+  .rec-top p { margin: 0; flex: 1 1 260px; }
+  .rec-un { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .rec-un .mini-sel { width: 120px; }
+  .rec-tabla { display: flex; flex-direction: column; gap: 6px; }
+  .rec-h, .rec-tabla .rec-row { display: grid; grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(70px, 1fr)); gap: 8px; align-items: center; }
+  .rec-h { font-size: 11.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; padding: 0 12px; }
+  .rec-h span:not(:first-child), .rec-tabla .rec-row > span { text-align: center; }
+  .rec-tabla .rec-row { padding: 9px 12px; }
+  .rec-tabla .rec-row > span { font-size: 15px; }
+  .rec-tabla .rec-row.falta { border-color: rgba(255,210,63,.55); }
+  .rec-tabla .r-ini b { color: #c4b0ff; } .rec-tabla .r-cont b { color: #8db8ff; } .rec-tabla .r-deb b { color: var(--ok); }
+  .rec-p .z-falta { margin-left: 6px; }
+  @media (max-width: 760px) {
+    .rec-h { display: none; }
+    .rec-tabla .rec-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .rec-tabla .rec-p { grid-column: 1 / -1; }
+    .rec-tabla .rec-row > span { display: flex; flex-direction: column; gap: 1px; font-size: 14px; }
+    .rec-tabla .rec-row > span::before { content: attr(data-l); font-size: 10.5px; color: var(--muted); font-weight: 700; }
+  }
+  html[data-tema="claro"] .rec-tabla .r-ini b { color: #6d3fc7; } html[data-tema="claro"] .rec-tabla .r-cont b { color: #0b4f9c; }
+  /* Pony de consumo: tres tarjetas desplegables */
+  .cons-sec { margin-bottom: 12px; }
+  .cons-sec > .pl-cab h3 { margin: 0; }
+  .cs-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .cs-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; font-size: 12.5px; }
+  .cs-x { border: 0; background: var(--bad-soft); color: var(--bad); width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 900; cursor: pointer; }
+  .cs-lista { display: flex; flex-direction: column; gap: 6px; }
+  .cs-row { display: grid; grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); font-size: 13.5px; }
+  .cs-row:nth-child(even) { background: var(--card); }
+  .cs-row.unico { background: rgba(255,232,140,.12) !important; border-color: #f3dc86; }
+  .cs-row.sin { grid-template-columns: minmax(0, 2fr) minmax(0, 2fr); }
+  .cs-sin { color: var(--bad); font-weight: 700; font-size: 13px; }
+  .cs-v { font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 600px) { .cs-row { grid-template-columns: auto minmax(0, 1fr); } .cs-row .cs-p, .cs-row .cs-sin { grid-column: 1 / -1; } .cs-row.sin { grid-template-columns: 1fr; } }
+  html[data-tema="claro"] .cs-row { background: #fff; } html[data-tema="claro"] .cs-row:nth-child(even) { background: #f3f6fa; } html[data-tema="claro"] .cs-row.unico { background: #fff8d9 !important; }
+  img.ico { object-fit: contain; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

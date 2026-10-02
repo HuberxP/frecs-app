@@ -3359,6 +3359,8 @@ function valAgregarProductosCore_(items, usuario, turnoId) {
     });
     tAgregar_(cx.prod, filas);
     if (filas.length) valTrasEditar_(cx, usuario);
+    // Lo que se valida queda en la entrega del turno (sin valor) para recontarlo al entregar
+    if (filas.length && !cx.cerrado) entAsegurarValidados_(cx.t.id, filas.map(f => ({ sku: f[1], producto: f[2] })), usuario);
     return { agregados: filas.length, omitidos: omitidos };
   });
 }
@@ -3531,6 +3533,7 @@ function valHeredar_(nuevoId, prev, usuario, blanco) {
     nuevas.push([nuevoId, sku, txt_(r[2]), blanco ? 0 : Math.max(Number(r[5]) || 0, 0), ahora_(), `Heredado${blanco ? " (en blanco)" : ""} de turno ${prev.numero || "?"} de ${nombreCorto_(prev.cerradoPor)}`, ""]);
   });
   tAgregar_(VAL_T.productos, nuevas);
+  entAsegurarValidados_(nuevoId, nuevas.map(f => ({ sku: f[1], producto: f[2] })), usuario);
   return nuevas.length;
 }
 
@@ -3570,7 +3573,7 @@ function construirPDFValidacion(id) {
 }
 const CSS_PDF_VAL = ".anulado td{color:#888;text-decoration:line-through}.conflicto td{background:#ffcccc !important}tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px;padding-top:5px}.pc{color:#b35c00;font-size:8.5px;font-weight:bold}" +
   "td.ini{background:#ece0ff !important}tr.tot td.ini{background:#ddc9fb !important}td.fin{background:#cfe2ff !important;color:#0b3d91}tr.tot td.fin{background:#b9d3fb !important}" +
-  ".dif{font-size:.8em;font-weight:bold}.dif.neg{color:#b8243a}.dif.pos{color:#0b6aa2}.dif.ok{color:#137a4c}" +
+  ".falta{color:#b35c00;font-size:9.5px;font-weight:bold}.dif{font-size:.8em;font-weight:bold}.dif.neg{color:#b8243a}.dif.pos{color:#0b6aa2}.dif.ok{color:#137a4c}" +
   "table.val.grande td,table.val.grande th{font-size:12.5px;padding:5px 6px}table.val.grande td b{font-size:13px}";
 // Orden por presentación (PET, Lata, Retornable, TW, Barril y lo demás) y luego por nombre (A-Z)
 const rangoPres_ = f => { const k = PRES_ORDEN.indexOf(String(f || "")); return k === -1 ? PRES_ORDEN.length : k; };
@@ -3585,7 +3588,9 @@ function cuerpoPDFVal_(dt, parteDeFinal, todo) {
   let usados = new Set();
   dt.productos.forEach(p => Object.keys(p.porDestino).forEach(d => usados.add(d)));
   const cols = todo ? orden.filter(d => usados.has(d)).concat(Array.from(usados).filter(d => !orden.includes(d))) : [];
-  const prods = dt.productos.slice().sort(ordenFamilia_);
+  // «Contado al entregar» = lo contado en la entrega de turno (Bodega + KA + PK + TPC, en cajas)
+  const rec = {}; entValidados_(t.id).forEach(v => { rec[v.sku] = v; });
+  const prods = dt.productos.slice().sort(ordenFamilia_).map(p => Object.assign({}, p, { final: rec[p.sku] && rec[p.sku].contado !== null ? rec[p.sku].contado : "", faltan: rec[p.sku] ? rec[p.sku].faltan : [] }));
   const suma = k => prods.reduce((a, p) => a + (Number(p[k]) || 0), 0);
   const hayFinal = prods.some(p => p.final !== "" && p.final !== null && p.final !== undefined);
   const z = v => v === "" || v === null || v === undefined ? "—" : fM(v);
@@ -3596,13 +3601,13 @@ function cuerpoPDFVal_(dt, parteDeFinal, todo) {
     return `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}</td>` +
       (todo ? `<td>${z(p.bodega)}</td><td>${z(p.ka)}</td><td>${z(p.pk)}</td>` : "") + `<td class="ini"><b>${fM(p.inicial)}</b></td>` +
       cols.map(d => `<td>${p.porDestino[d] ? fM(p.porDestino[d]) : "—"}</td>`).join("") +
-      `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td><td class="fin"><b>${z(p.final)}</b>${dif(p)}</td></tr>`;
+      `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td><td class="fin"><b>${z(p.final)}</b>${dif(p)}${p.faltan && p.faltan.length ? `<div class="falta">falta ${escHtml_(p.faltan.join(", "))}</div>` : ""}</td></tr>`;
   }).join("");
   if (!filas) filas = `<tr><td colspan="${nCol}" class="vacio">No hubo productos en validación en este turno.</td></tr>`;
   return (parteDeFinal ? "" : infoTurnoHtml_(t)) +
     `<h3>Saldo por producto (cajas)</h3><table class="t val${todo ? "" : " grande"}"><thead><tr><th>SKU</th><th class="izq">Producto</th>${todo ? "<th>Bodega</th><th>KA</th><th>PK</th>" : ""}<th>Inicial</th>${cols.map(d => `<th>${escHtml_(d)}</th>`).join("")}<th>Validado</th><th>Debe quedar</th><th>Contado al entregar</th></tr></thead><tbody>${filas}
     ${prods.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td>${todo ? "<td></td><td></td><td></td>" : ""}<td class="ini">${fM(suma("inicial"))}</td>${cols.map(d => `<td>${fM(prods.reduce((a, p) => a + (p.porDestino[d] || 0), 0))}</td>`).join("")}<td>${fM(suma("validado"))}</td><td>${fM(suma("disponible"))}</td><td class="fin">${hayFinal ? fM(suma("final")) : "—"}</td></tr>` : ""}</tbody></table>
-    ${hayFinal ? "" : `<p class="sm">«Contado al entregar»: todavía no se ha hecho el reconteo de los validados (se hace en la entrega de turno).</p>`}
+    <p class="sm">«Contado al entregar» = lo contado en la entrega de turno (Bodega + KA + PK + TPC, las estibas en cajas con «Cant x Estibas» de Sku).${hayFinal ? "" : " Todavía no se ha contado en la entrega."}</p>
     ${parteDeFinal ? "" : `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`}`;
 }
 
@@ -3760,15 +3765,16 @@ function entConcPropia_(turno, usuario) {
     .sort((a, b) => mismoN(b) - mismoN(a) || (a.inicio < b.inicio ? 1 : -1))[0] || null;
 }
 // Lo que se traería de esa conciliación (lo contado en Bodega, KA y PK que aún no está en la entrega)
+// (lo que está en la entrega sin contar, «–», también se llena: p. ej. lo que vino de la validación)
 function entConcPorTraer_(c, actuales, secciones) {
-  const ya = new Set();
-  ENT_SECCIONES.forEach(s => (actuales[s] || []).forEach(x => ya.add(s + "|" + x.sku)));
+  const ya = new Set(), vacias = {};
+  ENT_SECCIONES.forEach(s => (actuales[s] || []).forEach(x => { if (x.cant && x.cant.length) ya.add(s + "|" + x.sku); else vacias[s + "|" + x.sku] = x.fila; }));
   const lis = [];
   concItems_(c.id).forEach(x => {
     [["BODEGA", "bodega"], ["KA", "ka"], ["PK", "pk"]].forEach(([s, campo]) => {
       if ((secciones && !secciones.includes(s)) || x[campo] === "" || ya.has(s + "|" + x.sku)) return;
       ya.add(s + "|" + x.sku);
-      lis.push({ s: s, sku: x.sku, producto: x.producto, n: x[campo] });
+      lis.push({ s: s, sku: x.sku, producto: x.producto, n: x[campo], fila: vacias[s + "|" + x.sku] || 0 });
     });
   });
   return lis;
@@ -3780,9 +3786,12 @@ function entPrecargarConcCore_(secciones, usuario) {
     if (!c) throw new Error(`No hay una conciliación tuya de este turno o de esta fecha para traer.`);
     const origen = `Conciliación T${c.numero} (${nombreCorto_(c.abiertoPor)})`;
     let agregados = { BODEGA: 0, TPC: 0, KA: 0, PK: 0 };
-    const nuevas = entConcPorTraer_(c, entLeerTurno_(turno.id).secciones, secciones).map(x => {
+    const nuevas = [];
+    entConcPorTraer_(c, entLeerTurno_(turno.id).secciones, secciones).forEach(x => {
       agregados[x.s]++;
-      return [turno.id, x.s, x.sku, x.producto, JSON.stringify([{ n: x.n, un: "Cajas", m: "" }]), ahora_(), usuario, origen];
+      const cant = JSON.stringify([{ n: x.n, un: "Cajas", m: "" }]);
+      if (x.fila) tEscribir_(ENT_T.items, x.fila, 5, [cant, ahora_(), usuario, origen]);   // estaba sin contar
+      else nuevas.push([turno.id, x.s, x.sku, x.producto, cant, ahora_(), usuario, origen]);
     });
     tAgregar_(ENT_T.items, nuevas);
     return agregados;
@@ -3816,11 +3825,59 @@ function entLeerTurno_(turnoId) {
   return { secciones: sec, notas: notas };
 }
 
-// Productos de la validación del turno, para recontarlos al entregar (lo que debería quedar vs. lo que hay)
-function entValidados_(turnoId) {
+// ---------------------------------------------------------
+// RECONTEO DE LOS VALIDADOS
+// Lo que se valida en el turno queda en la entrega (Bodega, KA y PK sin valor) para recontarlo al
+// entregar. El reconteo es la suma de lo contado en la entrega (Bodega + KA + PK + TPC, las estibas
+// pasadas a cajas con «Cant x Estibas» de Sku) y se compara con lo que debería quedar (inicial − validado).
+// ---------------------------------------------------------
+const ENT_REC_SECC = ["BODEGA", "KA", "PK"];
+const ENT_ORIGEN_VAL = "Validación (recontar)";
+// Cajas por estiba según la hoja Sku (si no tiene, la del WMS)
+function cpeSku_(sku) { const s = skuInfo_(sku); const n = s ? parseInt(s.cantEst, 10) : 0; return n > 0 ? n : cpeDeSku_(sku); }
+
+// Agrega a la entrega (sin cantidades) los productos de la validación que aún no están. Se llama dentro del lock.
+function entAsegurarValidados_(turnoId, lista, usuario) {
+  if (!turnoId || !lista || !lista.length) return 0;
+  const ya = new Set();
+  tLeer_(ENT_T.items).forEach(r => { if (txt_(r[0]) === turnoId) ya.add(txt_(r[1]).toUpperCase() + "|" + txt_(r[2])); });
+  const filas = [];
+  lista.forEach(x => ENT_REC_SECC.forEach(s => {
+    if (!x.sku || ya.has(s + "|" + x.sku)) return;
+    ya.add(s + "|" + x.sku);
+    filas.push([turnoId, s, x.sku, x.producto || (skuInfo_(x.sku) || {}).prod || ("SKU " + x.sku), "[]", ahora_(), usuario || "", ENT_ORIGEN_VAL]);
+  }));
+  tAgregar_(ENT_T.items, filas);
+  return filas.length;
+}
+function entTraerValidadosCore_(usuario) {
+  return conLock_(() => {
+    const t = turnoAbiertoObligatorio_();
+    const prods = valDatosTurno_(t.id).productos.map(p => ({ sku: p.sku, producto: p.producto }));
+    return entAsegurarValidados_(t.id, prods, usuario);
+  });
+}
+
+// Reconteo de cada producto validado del turno
+function entValidados_(turnoId, secciones) {
   try {
-    return valDatosTurno_(turnoId).productos.sort(ordenFamilia_).map(p => ({ sku: p.sku, producto: p.producto, inicial: p.inicial, validado: p.validado, disponible: p.disponible, final: p.final, finalEn: p.finalEn, familia: p.familia, porConfirmar: p.porConfirmar }));
-  } catch (e) { return []; }
+    const sec = secciones || entLeerTurno_(turnoId).secciones;
+    const NOMB = { BODEGA: "Bodega", KA: "KA", PK: "PK", TPC: "TPC" };
+    return valDatosTurno_(turnoId).productos.sort(ordenFamilia_).map(p => {
+      let contado = 0, alguno = false; const faltan = [], en = [];
+      ["BODEGA", "KA", "PK", "TPC"].forEach(s => {
+        const it = (sec[s] || []).find(x => x.sku === p.sku);
+        if (!it) return;
+        en.push(s);
+        if (!it.cant || !it.cant.length) { faltan.push(NOMB[s]); return; }
+        alguno = true;
+        contado += entACajas_(it.cant, cpeSku_(p.sku));
+      });
+      contado = Math.round(contado);
+      return { sku: p.sku, producto: p.producto, inicial: p.inicial, validado: p.validado, disponible: p.disponible, familia: p.familia, porConfirmar: p.porConfirmar,
+        contado: alguno ? contado : null, faltan: faltan, enEntrega: en.length > 0, diferencia: alguno ? contado - p.disponible : null, cpe: cpeSku_(p.sku) };
+    });
+  } catch (e) { console.error("entValidados_: " + e.message); return []; }
 }
 
 function entEstadoCore_(turnoId, usuario) {
@@ -3828,7 +3885,7 @@ function entEstadoCore_(turnoId, usuario) {
   if (turnoId) {
     const t = turnoParaEditar_(turnoId);
     const d = entLeerTurno_(t.id);
-    return { historial: true, cerrado: t.estado !== "ABIERTO", turno: Object.assign({ texto: turnoTexto_(t), horario: HORARIO_TURNOS[t.numero] || "" }, t), secciones: d.secciones, notas: d.notas, validados: entValidados_(t.id) };
+    return { historial: true, cerrado: t.estado !== "ABIERTO", turno: Object.assign({ texto: turnoTexto_(t), horario: HORARIO_TURNOS[t.numero] || "" }, t), secciones: d.secciones, notas: d.notas, validados: entValidados_(t.id, d.secciones) };
   }
   const te = turnoEstadoCore_();
   if (!te.turno) return { turnoInfo: te, turno: null, secciones: { BODEGA: [], TPC: [], KA: [], PK: [] }, notas: [] };
@@ -3842,7 +3899,7 @@ function entEstadoCore_(turnoId, usuario) {
       if (n) concPropia = { id: c.id, numero: c.numero, estado: c.estado, porTraer: n };
     } catch (e) { console.error("concPropia: " + e.message); }
   }
-  return { turnoInfo: te, turno: te.turno, secciones: d.secciones, notas: d.notas, concPropia: concPropia, validados: entValidados_(te.turno.id) };
+  return { turnoInfo: te, turno: te.turno, secciones: d.secciones, notas: d.notas, concPropia: concPropia, validados: entValidados_(te.turno.id, d.secciones) };
 }
 
 // ---------------------------------------------------------
@@ -3855,16 +3912,19 @@ function entPrecargarCore_(secciones, usuario, opts) {
   return conLock_(() => {
     const turno = turnoAbiertoObligatorio_();
     const actuales = entLeerTurno_(turno.id).secciones;
-    const ya = new Set();
-    ENT_SECCIONES.forEach(s => actuales[s].forEach(x => ya.add(s + "|" + x.sku)));
+    const ya = new Set(), vacias = {};
+    // Lo que está sin contar («–», p. ej. lo que vino de la validación) se llena con la precarga
+    ENT_SECCIONES.forEach(s => actuales[s].forEach(x => { if (x.cant && x.cant.length) ya.add(s + "|" + x.sku); else vacias[s + "|" + x.sku] = x.fila; }));
     const pocos = calcularPocos() || [];
     const inv = obtenerInventarioLocal().filter(i => i.tieneFisico && i.est === "DISPONIBLE");
     const conc = concConteosTurno_(turno.numero, turno.fecha);
     const origenConc = "Conciliación T" + turno.numero;
     let nuevas = [], agregados = { BODEGA: 0, TPC: 0, KA: 0, PK: 0 };
     const agregar = (s, sku, prod, cant, origen) => {
-      if (ya.has(s + "|" + sku)) return;
-      ya.add(s + "|" + sku);
+      const k = s + "|" + sku;
+      if (ya.has(k)) return;
+      if (vacias[k]) { if (!cant.length) return; ya.add(k); tEscribir_(ENT_T.items, vacias[k], 5, [JSON.stringify(cant), ahora_(), usuario, origen]); agregados[s]++; return; }
+      ya.add(k);
       nuevas.push([turno.id, s, sku, prod, JSON.stringify(cant), ahora_(), usuario, origen]);
       agregados[s]++;
     };
@@ -4032,6 +4092,21 @@ function cuerpoPDFEntrega_(t, d, sinFirmas) {
     (sinFirmas ? "" : `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`);
 }
 
+// Tabla del reconteo de validados (va en la Entrega final debajo de la entrega)
+const CSS_PDF_RECONTEO = "table.rec td,table.rec th{font-size:12px;padding:5px 6px}table.rec td.ini{background:#ece0ff !important}table.rec td.fin{background:#cfe2ff !important;color:#0b3d91}" +
+  "table.rec .neg{color:#b8243a;font-weight:bold}table.rec .pos{color:#0b6aa2;font-weight:bold}table.rec .ok{color:#137a4c;font-weight:bold}table.rec .falta{color:#b35c00;font-size:10px;font-weight:bold}";
+function cuerpoPDFReconteo_(turnoId) {
+  const vs = entValidados_(turnoId);
+  if (!vs.length) return `<p class="vacio">No hubo productos en validación en este turno.</p>`;
+  const filas = vs.map(v => {
+    const dif = v.diferencia === null ? "—" : (v.diferencia ? `<span class="${v.diferencia < 0 ? "neg" : "pos"}">${v.diferencia > 0 ? "+" : ""}${fM(v.diferencia)}</span>` : `<span class="ok">✓</span>`);
+    return `<tr><td>${escHtml_(v.sku)}</td><td class="izq"><b>${escHtml_(v.producto)}</b></td><td class="ini"><b>${fM(v.inicial)}</b></td><td>${fM(v.validado)}</td><td><b>${fM(v.disponible)}</b></td>` +
+      `<td class="fin"><b>${v.contado === null ? "—" : fM(v.contado)}</b>${v.faltan.length ? `<div class="falta">falta ${escHtml_(v.faltan.join(", "))}</div>` : ""}</td><td>${dif}</td></tr>`;
+  }).join("");
+  return `<table class="t rec"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Inicial</th><th>Validado</th><th>Debe quedar</th><th>Contado en la entrega</th><th>Diferencia</th></tr></thead><tbody>${filas}</tbody></table>
+    <p class="sm">Todo en cajas. «Contado en la entrega» = Bodega + KA + PK + TPC de la entrega de turno (las estibas, en cajas con «Cant x Estibas» de Sku). Diferencia = contado − debe quedar.</p>`;
+}
+
 function construirPDFEntrega(turnoId) {
   prepararTurnos_();
   const t = turnoId ? turnoPorId_(turnoId) : turnoAbierto_(true);
@@ -4138,6 +4213,7 @@ function conteosEntregaDe_(numero) {
   let mapa = {};
   [["BODEGA", "bodega"], ["KA", "ka"], ["PK", "pk"]].forEach(([s, campo]) => {
     sec[s].forEach(x => {
+      if (!x.cant || !x.cant.length) return;   // sin contar («–»): no es un 0
       mapa[x.sku] = mapa[x.sku] || { producto: x.producto, bodega: "", ka: "", pk: "" };
       mapa[x.sku][campo] = Math.round(entACajas_(x.cant, cpeDeSku_(x.sku)));
     });
@@ -5152,9 +5228,9 @@ function sbProbarConexion() {
 // =========================================================
 // 27 · ENTREGA FINAL: un solo PDF con la entrega de turno, las conciliaciones y la validación
 // ---------------------------------------------------------
-// Orden: 1) Entrega de turno (su hoja) · 2) Conciliaciones (si hubo) · 3) Validación.
+// Orden: 1) Entrega de turno (su hoja) · 2) Reconteo de validados · 3) Conciliaciones (si hubo) · 4) Validación.
 // Conciliación y validación comparten hoja si caben; si son largas, cada una va en su hoja.
-// id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, V = validación (resumen), W = validación con zonas y destinos, C = consumo / pony gasto)
+// id del PDF = "<turnoId>|<concId,concId>|<partes>"  (partes: E = entrega, R = reconteo de validados, V = validación (resumen), W = validación con zonas y destinos, C = consumo / pony gasto)
 // =========================================================
 
 // La conciliación va en la entrega final solo si es del mismo turno (mismo número y fecha, o ligada a él) y de la misma persona
@@ -5195,10 +5271,11 @@ function construirPDFEntregaFinal(id) {
   const partes = (p[2] === undefined ? "EV" : p[2]).toUpperCase();
   const concs = (p[1] || "").split(",").filter(x => x).map(cid => listarConc_().find(c => c.id === cid)).filter(c => c);
   if (concs.some(c => !concDelTurno_(c, t))) throw new Error("La entrega final solo puede llevar conciliaciones del mismo turno y de la misma persona.");
-  if (!/[EVWC]/.test(partes) && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
+  if (!/[ERVWC]/.test(partes) && !concs.length) throw new Error("Escoge al menos una parte para el PDF.");
 
   const bloques = [];   // [{ html, filas }] cada uno es una parte; se decide dónde va el salto de hoja
   if (partes.includes("E")) bloques.push({ entrega: true, html: `<div class="parte-t">📋 Entrega de turno</div>` + cuerpoPDFEntrega_(t, entLeerTurno_(t.id)) });
+  if (partes.includes("R")) bloques.push({ filas: valDatosTurno_(t.id).productos.length + 5, html: `<div class="parte-t">🔁 Reconteo de validados</div>` + cuerpoPDFReconteo_(t.id) });
   concs.forEach(c => bloques.push({ filas: concItems_(c.id).length + 8, html: `<div class="parte-t">⚖️ Conciliación con facturación</div>` + cuerpoPDFConc_(c, true) }));
   if (partes.includes("V") || partes.includes("W")) {
     const dt = valDatosTurno_(t.id);
@@ -5222,7 +5299,7 @@ function construirPDFEntregaFinal(id) {
     html += `<div class="parte${salto ? " salto" : ""}">${b.html}</div>`;
   });
   html += `<table class="firmas"><tr><td><div class="linea">Entrega</div></td><td><div class="linea">Recibe</div></td></tr></table>`;
-  const css = CSS_PDF_ENTREGA + CSS_PDF_CONC + CSS_PDF_VAL + CSS_PDF_CONSUMO_SOLO +
+  const css = CSS_PDF_ENTREGA + CSS_PDF_RECONTEO + CSS_PDF_CONC + CSS_PDF_VAL + CSS_PDF_CONSUMO_SOLO +
     `.parte.salto{page-break-before:always;break-before:page}.parte+.parte:not(.salto){margin-top:14px}
      .parte-t{font-size:12.5px;font-weight:bold;color:#fff;background:#003399;padding:4px 8px;border-radius:3px;margin:0 0 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}`;
   const doc = pdfDoc_("ENTREGA FINAL", html, { css: css });
@@ -5488,6 +5565,8 @@ function webValDestino(tk, accion, destino, turnoId) { return webTurnoAuth_(tk, 
 // ---------------------------------------------------------
 function webEnt(tk, turnoId) { return webAuth_(tk, L_, u => entEstadoCore_(turnoId || "", u && u.nombre)); }
 function webEntPrecargar(tk, secciones, opts) { return webTurnoAuth_(tk, V_, u => ({ resultado: entPrecargarCore_(secciones, u.nombre, opts), estado: entEstadoCore_("", u.nombre) })); }
+// Trae a la entrega (sin valor) los productos de la validación que aún no están
+function webEntTraerValidados(tk) { return webTurnoAuth_(tk, V_, u => ({ resultado: entTraerValidadosCore_(u.nombre), estado: entEstadoCore_("", u.nombre) })); }
 // Reconteo de los validados al entregar el turno (se guarda en la validación; devuelve la entrega)
 function webValFinal(tk, sku, final, turnoId) { return webTurnoAuth_(tk, V_, u => { valConteoFinalCore_(sku, final, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "", u.nombre) }; }); }
 function webEntGuardar(tk, seccion, sku, producto, cantidades, turnoId) { return webTurnoAuth_(tk, V_, u => { entGuardarItemCore_(seccion, sku, producto, cantidades, u.nombre, turnoId || ""); return { estado: entEstadoCore_(turnoId || "", u.nombre) }; }); }
@@ -6072,7 +6151,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

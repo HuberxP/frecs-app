@@ -259,8 +259,10 @@ const loader = txt => `<div class="loader"><div class="spin"></div>${h(txt || "C
 const vacio = (txt, ic) => `<div class="empty"><div class="big">${ic || "✅"}</div><div>${h(txt)}</div></div>`;
 const errBox = e => `<div class="err">⚠️ ${h(e && e.message ? e.message : e)}</div>`;
 // La explicación de cada sección queda detrás del botón «?» (se despliega al tocarlo)
+// El botón «?» muestra / oculta todas las explicaciones de la pantalla (lo que lleva la clase «ayuda»);
+// si la pantalla no tiene ninguna, el botón no se ve (CSS :has)
 function cab(titulo, sub, tools) {
-  return `<div class="vh"><div><h1>${titulo}${sub ? ` <button class="ayuda-btn" data-ayuda title="¿Qué es esto?" aria-label="Ayuda">?</button>` : ""}</h1>${sub ? `<div class="sub ayuda">${sub}</div>` : ""}</div>${tools ? `<div class="tools">${tools}</div>` : ""}</div>`;
+  return `<div class="vh"><div><h1>${titulo} <button class="ayuda-btn" data-ayuda title="Ver la explicación" aria-label="Ver la explicación">?</button></h1>${sub ? `<div class="sub ayuda">${sub}</div>` : ""}</div>${tools ? `<div class="tools">${tools}</div>` : ""}</div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-ayuda]"); if (!b) return; const v = b.closest("#view") || $("#view"); v.classList.toggle("ver-ayuda"); b.classList.toggle("on", v.classList.contains("ver-ayuda")); });
 // Tarjetas desplegables: se abren y cierran al tocar su cabecera; se recuerda cuáles están abiertas
@@ -843,9 +845,11 @@ function botonesPDF(tipo, etiqueta, id) {
   const d = id ? ` data-id="${h(id)}"` : "";
   // Ver (tal cual, sin convertir) y compartir por WhatsApp: solo en la versión web
   const web = !!window.FRECS_WEB;
-  return (web ? `<button class="btn sm" data-verinf="${tipo}"${d} title="Ver el informe"><span class="ic">👁</span><span class="txt">Ver</span></button>` : "") +
-    `<button class="btn sm btn-ico" data-pdf="${tipo}"${d} title="Descargar ${h(etiqueta || "PDF")}"><span class="ic">${ICO.pdf}</span><span class="txt">${h(etiqueta || "PDF")}</span></button>` +
-    (web ? `<button class="btn sm btn-ico btn-wa" data-wa="${tipo}"${d} title="Compartir por WhatsApp"><span class="ic">${ICO.wa}</span><span class="txt">WhatsApp</span></button>` : "") + `${S.grupoTg && puede("validador") ? `<button class="btn sm btn-ico ghost" data-tg="${tipo}"${d} title="Enviar al grupo de Telegram"><span class="ic">${ICO.tg}</span><span class="txt">Telegram</span></button>` : ""}`;
+  // Solo los íconos: el nombre queda en title / aria-label
+  const et = h(etiqueta && !/^(PDF|Descargar( PDF)?)$/i.test(etiqueta) ? etiqueta : "PDF");
+  return (web ? `<button class="btn sm ic-only" data-verinf="${tipo}"${d} title="Ver ${et}" aria-label="Ver ${et}"><span class="ic">👁</span></button>` : "") +
+    `<button class="btn sm btn-ico ic-only" data-pdf="${tipo}"${d} title="Descargar ${et}" aria-label="Descargar ${et}"><span class="ic">${ICO.pdf}</span></button>` +
+    (web ? `<button class="btn sm btn-ico btn-wa ic-only" data-wa="${tipo}"${d} title="Compartir por WhatsApp" aria-label="Compartir ${et} por WhatsApp"><span class="ic">${ICO.wa}</span></button>` : "") + `${S.grupoTg && puede("validador") ? `<button class="btn sm btn-ico ghost ic-only" data-tg="${tipo}"${d} title="Enviar al grupo de Telegram" aria-label="Enviar ${et} al grupo de Telegram"><span class="ic">${ICO.tg}</span></button>` : ""}`;
 }
 // Barras de botones en una sola fila: si no caben con su texto, quedan solo los íconos
 function ajustarBarras(raiz) {
@@ -1217,7 +1221,7 @@ VISTAS.fechas = async (el, p, vigente) => {
   listaInv(el, {
     titulo: `⏳ Fechas cortas (≤ ${dias} días)`, sub: "Producto que vence dentro del plazo indicado",
     tools: `<label class="field" style="width:130px"><span>Días</span><input type="number" min="1" id="fd" value="${dias}"></label><button class="btn" id="fdb" style="align-self:flex-end">Aplicar</button>`,
-    arriba: `<div class="lista-tools"><div class="seg" id="fe">${Object.keys(FC_EST).map(k => `<button data-f="${k}" class="${k === est ? "on" : ""}">${FC_EST[k].t} <span class="sec-n">${n[k]}</span></button>`).join("")}</div></div>${FC_EST[est].nota ? `<div class="note small" style="margin:6px 0 10px">${FC_EST[est].nota}</div>` : ""}`,
+    arriba: `<div class="lista-tools"><div class="seg" id="fe">${Object.keys(FC_EST).map(k => `<button data-f="${k}" class="${k === est ? "on" : ""}">${FC_EST[k].t} <span class="sec-n">${n[k]}</span></button>`).join("")}</div></div>${FC_EST[est].nota ? `<div class="note small ayuda" style="margin:6px 0 10px">${FC_EST[est].nota}</div>` : ""}`,
     items: enPlazo.filter(i => est === "ALL" || (est === "DISP" ? i.disp : !i.disp)).sort(ordPrioD), vacio: FC_EST[est].vacio,
     alMontar: e2 => {
       const ap = () => { const v = parseInt($("#fd", e2).value, 10) || 60; ls.set("ultDias", v); ir("fechas", { dias: v, est: est }); };
@@ -1267,7 +1271,7 @@ VISTAS.resumen = async (el, p, vigente) => {
   if (!vigente()) return;
   const bloq = inv.filter(i => i.fis && !i.disp).sort(cmpMod);
   const fila = (l, n, v) => `<tr><td data-l="Indicador">${l}</td><td data-l="Valor" class="num"><b>${fm(n)}</b></td><td class="acc">${v ? `<button class="btn sm" data-go="${v}">Ver</button>` : ""}</td></tr>`;
-  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", botonesPDF("INFORME", "Informe de prioridad (todos los productos)") + botonesPDF("INFORME", "Solo en riesgo (≤ 45 días)", "riesgo") + botonesPDF("RESUMEN", "PDF resumen (5 págs)")) +
+  el.innerHTML = cab("📊 Resumen gerencial", "Estado general, alertas de calidad y etiquetas activas", [["Prioridad", botonesPDF("INFORME", "Informe de prioridad (todos los productos)")], ["En riesgo", botonesPDF("INFORME", "Solo en riesgo (≤ 45 días)", "riesgo")], ["Resumen", botonesPDF("RESUMEN", "PDF resumen (5 págs)")]].map(([t, b]) => `<div class="pdf-grupo"><span>${t}</span>${b}</div>`).join("")) +
     `<table class="tabla resp"><thead><tr><th>Indicador</th><th class="num">Valor</th><th></th></tr></thead><tbody>
       ${fila("🧯 SKUs bajo su mínimo", r.cPocos, "pocos")}${fila("📦 SKUs críticos (&lt; 3 estibas)", r.c3, "pocos")}${fila("🔀 Módulos con 2+ SKUs", r.cMezcla, "mezclados")}
       ${fila("🌫️ Mercancía en limbo", r.mLimbo, "limbo")}${fila("🥤 SKUs de consumo interno", r.mConsumo, "consumo")}
@@ -1396,7 +1400,7 @@ VISTAS.acomodar = async (el, p) => {
     try {
       const r = await api("webAcomodar", sku, f);
       $("#ar", el).innerHTML = `<div class="card" style="margin-bottom:12px">${skuTxt(r.sku, r.prodName)} · ingreso vence <b>${h(r.fIngTxt)}</b></div>` +
-        (r.opciones.length ? `<div class="note">🔹 FEFO correcto (lo que hay vence igual o después) · 🔸 Taparía mercancía más vieja</div><div class="grid">${r.opciones.map(o => `<article class="card" style="border-left:5px solid ${o.fefoOk ? "var(--cyan)" : "var(--warn)"}">
+        (r.opciones.length ? `<div class="note ayuda">🔹 FEFO correcto (lo que hay vence igual o después) · 🔸 Taparía mercancía más vieja</div><div class="grid">${r.opciones.map(o => `<article class="card" style="border-left:5px solid ${o.fefoOk ? "var(--cyan)" : "var(--warn)"}">
           <div class="row sb"><span style="font-weight:800;font-size:17px">${o.fefoOk ? "🔹" : "🔸"} ${h(o.modulo)}</span><span class="pill ${o.fefoOk ? "info" : "warn"}">${o.fefoOk ? "FEFO correcto" : "Tapa mercancía vieja"}</span></div>
           <div>Caben <b>${fm(o.libres)}</b> estibas de ${fm(o.capTot)}</div><div class="small">Lote existente vence <b>${h(o.vf)}</b> (${o.dias === 9999 ? "sin fecha" : o.dias + " d"})</div><div class="act">Act: ${h(o.actTxt)}</div></article>`).join("")}</div>`
         : `<div class="err">Sin espacio en las ubicaciones actuales del producto.</div><h2>💡 Módulos vacíos sugeridos</h2>${r.vacios.length ? `<div class="vac-grid">${r.vacios.map(m => `<span>${h(m.m)}<br><small class="muted">caben ${fm(m.cap)}</small></span>`).join("")}</div>` : vacio("No hay módulos vacíos.", "❌")}`);
@@ -1436,8 +1440,8 @@ VISTAS.reportes = async el => {
   ];
   if (S.instructivo) pdfs.push(["INSTRUCTIVO", "📘 Instructivo", "Manual de uso del bot"]);
   el.innerHTML = cab("📄 Reportes PDF", "Descárgalos; para enviarlos al grupo de Telegram usa el botón ✈️ de cada uno") +
-    `<div style="display:flex;flex-direction:column;gap:10px">${pdfs.map(p => `<div class="card pdf-row"><div class="t"><b>${p[1]}</b><div class="sub">${p[2]}</div></div><div class="row">${botonesPDF(p[0], "Descargar", p[3])}</div></div>`).join("")}</div>
-    <p class="muted small" style="margin-top:14px">Los PDF de turnos y conciliaciones anteriores están en <button class="link" id="goH">Historial</button>.</p>`;
+    `<div style="display:flex;flex-direction:column;gap:10px">${pdfs.map(p => `<div class="card pdf-row"><div class="t"><b>${p[1]}</b><div class="sub ayuda">${p[2]}</div></div><div class="row">${botonesPDF(p[0], "Descargar", p[3])}</div></div>`).join("")}</div>
+    <p class="muted small ayuda" style="margin-top:14px">Los PDF de turnos y conciliaciones anteriores están en <button class="link" id="goH">Historial</button>.</p>`;
   $("#goH", el).onclick = () => ir("historial");
 };
 
@@ -2150,7 +2154,7 @@ function seccionReconteo(en, esc) {
   const ab = abierto("entr", "rec"), listos = vs.filter(v => v.contado !== null && !v.faltan.length).length;
   const un = recUn() === "est" ? "estibas" : "cajas";
   return `<section class="card rec-card plegable ${ab ? "abierto" : ""}" style="margin-top:14px"><div class="pl-cab" data-plegar="entr|rec" role="button" tabindex="0" aria-expanded="${ab}"><h3>🔁 Reconteo de validados <span class="sec-n">${listos}/${vs.length}</span></h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
-    <div class="pl-cuerpo"><div class="rec-top"><p class="muted small">Se suma solo lo contado en <b>Bodega, KA, PK y TPC</b> de esta entrega y se compara con lo que debería quedar (inicial − validado).</p>
+    <div class="pl-cuerpo"><div class="rec-top"><p class="muted small ayuda">Se suma solo lo contado en <b>Bodega, KA, PK y TPC</b> de esta entrega y se compara con lo que debería quedar (inicial − validado).</p>
       <label class="rec-un"><span>Ver en</span>${miniSel("recU", ["Cajas", "Estibas"], recUn() === "est" ? "Estibas" : "Cajas").replace('class="mini-sel"', 'class="mini-sel ms-un"')}</label></div>
     <div class="rec-tabla"><div class="rec-h"><span>Producto</span><span>Inicial</span><span>Validado</span><span>Debe quedar</span><span>Contado</span><span>Diferencia</span></div>
     ${vs.map(v => `<div class="rec-row ${v.faltan.length ? "falta" : ""}"><div class="rec-p">${skuTxt(v.sku, v.producto)}${v.faltan.length ? `<span class="z-falta">falta ${h(v.faltan.join(", "))}</span>` : ""}${recUn() === "est" && !v.cpe ? `<span class="muted small"> (sin «Cant x Estibas»: en cajas)</span>` : ""}</div>
@@ -2318,7 +2322,7 @@ function pintarConc(el) {
   let html = cab("⚖️ Conciliación con facturación", "Todo en cajas. Rojo: facturación tiene de más (revisar el bloqueo del excedente) · Verde: el conteo cubre la facturación · Azul: tenemos más del 50 % por encima de lo facturado, diferencia grande que hay que revisar.");
   if (!k.conc) {
     html += `<div class="card" style="margin-bottom:14px"><p style="margin-top:0">No hay conciliación abierta.</p>
-      <p class="muted small">Al abrirla escoges el turno (normalmente el 3) y se precargan los pocos, lo que escojas de la pre-conciliación (${pend.length} pendientes), los conteos de la entrega del turno anterior o los productos de una conciliación anterior.</p>
+      <p class="muted small ayuda">Al abrirla escoges el turno (normalmente el 3) y se precargan los pocos, lo que escojas de la pre-conciliación (${pend.length} pendientes), los conteos de la entrega del turno anterior o los productos de una conciliación anterior.</p>
       ${esc ? `<button class="btn primary" data-a="abrir">Abrir conciliación</button>` : ""}</div>
       ${k.ultima ? `<div class="card pdf-row"><div class="t"><b>Última conciliación</b><div class="sub">${h(fechaDMY(k.ultima.fecha))} · cerrada por ${h(k.ultima.cerradoPor)}</div></div>${botonesPDF("CONCILIACION", "PDF", k.ultima.id)}</div>` : ""}`;
     el.innerHTML = html; el.onclick = onConcClick; return;
@@ -2343,7 +2347,7 @@ function pintarConc(el) {
     : `<div class="cc-cols ${inc.length && comp.length ? "" : "una"}">${bloque("⏳ Incompletos", "cc-inc", inc)}${bloque("✅ Completos", "cc-comp", comp)}</div>`;
   html += `${esc && pend.length && !hist ? `<div class="barra-acc barra-mini"><button class="btn sm" data-a="pasarpre" title="Pasar de pre-conciliación"><span class="ic">📌</span><span class="txt">Pre-conciliación (${pend.length})</span></button></div>` : ""}
     ${k.items.length ? `<div class="lista-tools"><input type="search" id="cq" placeholder="Buscar producto (SKU o nombre)…" value="${h(S.concQ || "")}">${zf ? "" : `<button class="btn sm" data-a="cabrir">Abrir todas</button><button class="btn sm" data-a="ccerrar">Cerrar todas</button>`}<span class="count" id="cqc"></span></div>
-      ${esc && (hayFaltas || zf) ? `<div class="seg seg-sm cz-f" id="czf">${[["", "Todo"]].concat(ZONAS_C.map(([z, t]) => [z, "Falta " + t])).map(([z, t]) => { const n = z ? k.items.filter(x => vNum(x[z]) === "").length : 0; return z && !n && zf !== z ? "" : `<button type="button" data-cz="${z}" class="${zf === z ? "on" : ""}">${t}${z ? ` <b data-czn="${z}">${n}</b>` : ""}</button>`; }).join("")}</div>` : ""}
+      ${esc && (hayFaltas || zf) ? `<div class="seg seg-sm cz-f" id="czf">${[["", "Todo"]].concat(ZONAS_C).map(([z, t]) => { const n = z ? k.items.filter(x => vNum(x[z]) === "").length : 0; return z && !n && zf !== z ? "" : `<button type="button" data-cz="${z}" class="${zf === z ? "on" : ""}" ${z ? `title="Falta ${h(t)}" aria-label="Falta ${h(t)}"` : ""}>${t}${z ? ` <b data-czn="${z}">${n}</b>` : ""}</button>`; }).join("")}</div>` : ""}
       <div class="conc-resumen" id="cRes">${resumenConc(k.items)}</div>` : ""}
     <div class="clista" id="cTab">${k.items.length ? lista : `<div class="card muted">Sin productos. Toca ＋ para agregarlos.</div>`}</div>
     ${esc && !hist ? botonGuardar("cerrar", "Guardar", puedoEliminar(k.conc.abiertoPor) ? "ccancelar" : "", "Cancelar") : ""}
@@ -2700,7 +2704,7 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
   const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
   const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
-    <p class="small muted" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
+    <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
     <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label></div>
     <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
@@ -3002,7 +3006,7 @@ VISTAS.capacidad = async (el, p, vigente) => {
       : vacio(q ? "Ningún módulo coincide con la búsqueda." : "Todavía no hay módulos. Agrega los que existen en físico.", "🧱");
     const f = q ? d.faltan.filter(x => norm(x.m).replace(/\s+/g, "").includes(q)) : d.faltan;
     $("#cpF", el).innerHTML = f.length ? `<details class="card cap-faltan" ${q ? "open" : ""}><summary>📡 Módulos del WMS que no están en la lista (${f.length})</summary>
-      <p class="muted small">No se cruzan en huecos, vacíos ni organizar. ${admin ? "Si existen en físico, tócalos para agregarlos." : ""}</p>
+      <p class="muted small ayuda">No se cruzan en huecos, vacíos ni organizar. ${admin ? "Si existen en físico, tócalos para agregarlos." : ""}</p>
       <div class="cap-faltan-lista">${f.map(x => admin ? `<button class="btn sm" data-a="agregar" data-m="${h(x.m)}">＋ ${h(x.m)}${x.ubic ? ` <span class="muted small">· ${x.ubic} con producto</span>` : ""}</button>`
         : `<span class="mod-chip">${h(x.m)}</span>`).join("")}</div></details>` : "";
   };

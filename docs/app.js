@@ -58,7 +58,8 @@ const NAV = [
     { id: "usuarios", ic: "👥", t: "Usuarios y PIN" },
     { id: "skus", ic: "🗃️", t: "Productos (hoja Sku)" },
     { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
-    { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" } ] }
+    { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" },
+    { id: "consumolista", ic: "🥤", t: "Lista de consumo", rol: "validador" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
 
@@ -571,7 +572,9 @@ $("#userChip").onclick = () => {
 
 // ---------- navegación ----------
 function pintarNav() {
-  $("#nav").innerHTML = NAV.filter(g => !g.rol || puede(g.rol)).map(g => `${g.g ? `<h4 class="${g.cls || ""}">${h(g.g)}</h4>` : ""}${g.items.map(i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span>${h(i.t)}</a>`).join("")}`).join("") +
+  // Un ítem puede tener su propio rol (más bajo que el de su grupo): el grupo sale si alguno de sus ítems se puede ver
+  const ver = (g, i) => { const r = i.rol || g.rol; return !r || puede(r); };
+  $("#nav").innerHTML = NAV.filter(g => g.items.some(i => ver(g, i))).map(g => `${g.g ? `<h4 class="${g.cls || ""}">${h(g.g)}</h4>` : ""}${g.items.filter(i => ver(g, i)).map(i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span>${h(i.t)}</a>`).join("")}`).join("") +
     `<h4>Pantalla</h4><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a>`;
   $$("#bottombar button").forEach(b => b.classList.toggle("on", b.dataset.v === S.vista));
 }
@@ -1198,15 +1201,29 @@ VISTAS.fecha = async (el, p, vigente) => {
 // CALIDAD
 // =====================================================================
 VISTAS.vencidos = el => vistaFiltro(el, { titulo: "🛑 Vencidos", sub: "Ubicaciones con producto vencido", filtro: i => i.d < 0, orden: ordPrioD, vacio: "Bodega libre de productos vencidos." });
+// Fechas cortas: disponibles (quizás aún en bodega sin identificar) o bloqueadas (ya identificadas, en carpa esperando vencer)
+const FC_EST = {
+  DISP: { t: "✅ Disponibles", nota: "Fecha corta <b>disponible</b>: puede estar todavía en bodega <b>sin identificar</b>. Revisa, muévela a carpa y bloquéala.", vacio: "No hay fechas cortas disponibles en ese plazo." },
+  BLOQ: { t: "❌ Bloqueadas", nota: "Fecha corta <b>bloqueada</b>: ya está identificada (normalmente en carpa), a la espera de vencer para darla de baja.", vacio: "No hay fechas cortas bloqueadas en ese plazo." },
+  ALL: { t: "Todas", nota: "", vacio: "Cero resultados en ese plazo." }
+};
 VISTAS.fechas = async (el, p, vigente) => {
   const dias = p.dias || +ls.get("ultDias", 60) || 60;
+  const est = FC_EST[p.est] ? p.est : (FC_EST[ls.get("fcEst", "DISP")] ? ls.get("fcEst", "DISP") : "DISP");
   const inv = await cargarInv();
   if (!vigente()) return;
+  const enPlazo = inv.filter(i => i.fis && i.d >= 0 && i.d <= dias);
+  const n = { DISP: enPlazo.filter(i => i.disp).length, BLOQ: enPlazo.filter(i => !i.disp).length, ALL: enPlazo.length };
   listaInv(el, {
     titulo: `⏳ Fechas cortas (≤ ${dias} días)`, sub: "Producto que vence dentro del plazo indicado",
     tools: `<label class="field" style="width:130px"><span>Días</span><input type="number" min="1" id="fd" value="${dias}"></label><button class="btn" id="fdb" style="align-self:flex-end">Aplicar</button>`,
-    items: inv.filter(i => i.fis && i.d >= 0 && i.d <= dias).sort(ordPrioD), vacio: "Cero resultados en ese plazo.",
-    alMontar: e2 => { const ap = () => { const v = parseInt($("#fd", e2).value, 10) || 60; ls.set("ultDias", v); ir("fechas", { dias: v }); }; $("#fdb", e2).onclick = ap; $("#fd", e2).onkeydown = ev => { if (ev.key === "Enter") ap(); }; }
+    arriba: `<div class="lista-tools"><div class="seg" id="fe">${Object.keys(FC_EST).map(k => `<button data-f="${k}" class="${k === est ? "on" : ""}">${FC_EST[k].t} <span class="sec-n">${n[k]}</span></button>`).join("")}</div></div>${FC_EST[est].nota ? `<div class="note small" style="margin:6px 0 10px">${FC_EST[est].nota}</div>` : ""}`,
+    items: enPlazo.filter(i => est === "ALL" || (est === "DISP" ? i.disp : !i.disp)).sort(ordPrioD), vacio: FC_EST[est].vacio,
+    alMontar: e2 => {
+      const ap = () => { const v = parseInt($("#fd", e2).value, 10) || 60; ls.set("ultDias", v); ir("fechas", { dias: v, est: est }); };
+      $("#fdb", e2).onclick = ap; $("#fd", e2).onkeydown = ev => { if (ev.key === "Enter") ap(); };
+      $("#fe", e2).onclick = ev => { const b = ev.target.closest("[data-f]"); if (!b) return; ls.set("fcEst", b.dataset.f); ir("fechas", { dias: dias, est: b.dataset.f }); };
+    }
   });
 };
 VISTAS.bloqueados = el => vistaFiltro(el, { titulo: "❌ Bloqueados", sub: "Ubicaciones con estado distinto a DISPONIBLE", filtro: i => !i.disp, orden: ordPrioModD, vacio: "No hay productos bloqueados." });
@@ -2664,8 +2681,9 @@ VISTAS.consumo = async (el, p, vigente) => {
   const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
   if (!vigente()) return;
   const esc = puede("validador");
-  const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
-      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b><br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${modChip(l.m)}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
+  // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
+  const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
+      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
@@ -2674,19 +2692,16 @@ VISTAS.consumo = async (el, p, vigente) => {
   const verOp = ls.get("consVerOp", "") === "1";
   const visibles = x => x.locs.filter(l => verOp || !l.esOp);
   const sinTxt = x => x.estado === "sin_fisico" ? `❌ Sin existencias <span class="muted">· quizás haya en PK o KA</span>` : x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "❌ Sin módulo disponible";
-  // Tres tarjetas desplegables: la lista (agregar / quitar), los módulos a consumir y los módulos completos
-  const abP = !!(S.abiertos.consv && S.abiertos.consv.panel), abS = S.abiertos.consv ? !!S.abiertos.consv.solo : true, abT = !!(S.abiertos.consv && S.abiertos.consv.todo);
+  // Dos tarjetas desplegables: los módulos a consumir y los módulos completos (la lista se edita en Administración)
+  const abS = S.abiertos.consv ? !!S.abiertos.consv.solo : true, abT = !!(S.abiertos.consv && S.abiertos.consv.todo);
   const tarjetaV = (k, ab, tit, cuerpo) => `<section class="card plegable cons-sec ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="consv|${k}" role="button" tabindex="0" aria-expanded="${ab}"><h3>${tit}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div><div class="pl-cuerpo">${cuerpo}</div></section>`;
   const fila = x => { const t = x.locs.filter(l => l.sel); const l = t[0];
     return `<div class="cs-row ${x.unico ? "unico" : ""} ${l ? "" : "sin"}"><div class="cs-p">${skuTxt(x.sku, x.nom)}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}${x.modo === "manual" ? ` <span class="pill">✋ a mano</span>` : ""}</div>
       ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
-  const panel = `<p class="small muted" style="margin-top:0">Criterio: 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
-    ${esc ? `<div style="max-width:520px">${campoAuto("ca", "Agregar a la lista: nombre o SKU")}</div>` : ""}
-    ${lis.length ? `<div class="cs-chips">${lis.map(x => `<span class="chip cs-chip">${h(x.sku)} · ${h(x.nom)}${esc ? `<button type="button" class="cs-x" data-del="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar ${h(x.sku)} de la lista">✕</button>` : ""}</span>`).join("")}</div>` : ""}
-    <label class="toggle" style="margin-top:10px"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV en los módulos completos</label>`;
   const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
   const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
-    <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button></div>
+    <p class="small muted" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
+    <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label></div>
     <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
@@ -2695,23 +2710,14 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${x.estado === "solo_bloqueado" ? `<div class="note warn">Todos los módulos están bloqueados.</div>` : ""}
       ${x.estado === "solo_operativa" ? `<div class="note warn">Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.</div>` : ""}
       <div class="mini-list">${visibles(x).map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>`;
-  el.innerHTML = cab("🥤 Consumo / Pony gasto") +
-    tarjetaV("panel", abP, `⚙️ Lista de consumo <span class="sec-n">${lis.length}</span>`, panel) +
-    (lis.length ? tarjetaV("solo", abS, "🎯 Módulos a consumir", solo) + tarjetaV("todo", abT, "📦 Módulos completos", todo) : vacio("La lista de consumo está vacía. Agrégala desde «Lista de consumo».", "🛒"));
+  const editar = esc ? `<button class="btn sm" data-lista>⚙️ Editar lista (${lis.length})</button>` : "";
+  el.innerHTML = cab("🥤 Consumo / Pony gasto", "", editar) +
+    (lis.length ? tarjetaV("solo", abS, "🎯 Módulos a consumir", solo) + tarjetaV("todo", abT, "📦 Módulos completos", todo) : vacio(`La lista de consumo está vacía.${esc ? " Agrégala desde Administración › Lista de consumo." : ""}`, "🛒"));
   const todas = abrir => { S.abiertos.cons = {}; lis.forEach(x => { S.abiertos.cons[x.sku] = abrir; }); $$(".cons-card", el).forEach(c => c.classList.toggle("abierto", abrir)); };
   if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); }
   if ($("#cOp", el)) $("#cOp", el).onchange = e => { ls.set("consVerOp", e.target.checked ? "1" : ""); ir("consumo"); };
-  const ca = $("#ca", el);
-  if (ca) autoSku(ca, async c => {
-    try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista`, "ok"); ir("consumo"); } catch (e) { toast(e.message, "bad", 6000); }
-  }, { limpiar: true });
   el.onclick = async e => {
-    const d = e.target.closest("[data-del]");
-    if (d) {
-      if (!(await confirmar("Quitar de consumo", `¿Eliminar el SKU <b>${h(d.dataset.del)}</b> de la lista de consumo?`, "Eliminar", true))) return;
-      try { await api("webConsumoEliminar", d.dataset.del); toast("SKU eliminado de la lista", "ok"); ir("consumo"); } catch (er) { toast(er.message, "bad"); }
-      return;
-    }
+    if (e.target.closest("[data-lista]")) return ir("consumolista");
     const s = e.target.closest("[data-el]");
     if (s) { try { await api("webConsumoElegir", s.dataset.sku, s.dataset.el); toast(`Módulo ${s.dataset.el} elegido para consumo`, "ok"); ir("consumo"); } catch (er) { toast(er.message, "bad", 6000); } return; }
     const a = e.target.closest("[data-auto]");
@@ -3069,6 +3075,53 @@ VISTAS.canales = async (el, p, vigente) => {
   };
   pintar();
 };
+
+// ---------- Lista de consumo (Pony gasto): agregar, ver, cambiar el módulo, volver a automático y quitar ----------
+VISTAS.consumolista = async (el, p, vigente) => {
+  const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
+  if (!vigente()) return;
+  const lugar = x => { const t = x.locs.filter(l => l.sel), l = t[0];
+    if (!l) return `<span class="muted">${x.estado === "sin_fisico" ? "Sin existencias" : x.estado === "solo_operativa" ? "Solo en KA / PREV" : "Sin módulo disponible"}</span>`;
+    return `${modChip(l.m)} <span class="small muted">FEFO ${l.fefo || "?"} · vence ${h(l.vf)}</span>`; };
+  el.innerHTML = cab("🥤 Lista de consumo", "Productos que salen en Consumo / Pony gasto. Aquí se agregan, se quitan y se cambia el módulo a consumir.", `<button class="btn sm" data-a="ver">Ver consumo →</button>`) +
+    `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Agregar producto</h3><div style="max-width:520px">${campoAuto("clA", "Nombre o SKU")}</div></div>` +
+    (lis.length ? `<table class="tabla resp"><thead><tr><th>#</th><th>SKU</th><th>Producto</th><th>Módulo a consumir</th><th>Modo</th><th></th></tr></thead><tbody>
+      ${lis.map((x, k) => `<tr><td data-l="#" class="muted">${k + 1}</td><td data-l="SKU" class="sku">${h(x.sku)}</td><td data-l="Producto">${h(x.nom)}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}</td>
+        <td data-l="Módulo">${lugar(x)}</td>
+        <td data-l="Modo">${x.modo === "manual" ? `<span class="pill mano-p">✋ A mano</span> <span class="small muted">${h(x.elegidoPor)} · ${h(fechaCorta(x.elegidoEn))}</span>` : `<span class="small">⚙️ Automático</span>`}${x.manualVencido ? ` <span class="small" style="color:var(--warn)">(el elegido a mano se vació)</span>` : ""}</td>
+        <td class="acc"><button class="btn sm" data-a="mod" data-sku="${h(x.sku)}">Cambiar módulo</button> ${x.modo === "manual" ? `<button class="btn sm" data-a="auto" data-sku="${h(x.sku)}">Automático</button> ` : ""}<button class="btn sm del" data-a="del" data-sku="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar ${h(x.sku)} de la lista">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`
+      : vacio("La lista de consumo está vacía. Agrega un producto arriba.", "🛒"));
+  autoSku($("#clA", el), async c => {
+    try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista de consumo`, "ok"); ir("consumolista"); } catch (e) { toast(e.message, "bad", 6000); }
+  }, { limpiar: true });
+  el.onclick = async e => {
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    if (b.dataset.a === "ver") return ir("consumo");
+    const x = lis.find(y => y.sku === b.dataset.sku); if (!x) return;
+    if (b.dataset.a === "del") {
+      if (!(await confirmar("Quitar de consumo", `¿Quitar ${skuTxt(x.sku, x.nom)} de la lista de consumo?`, "Quitar", true))) return;
+      try { await api("webConsumoEliminar", x.sku); toast("Producto quitado de la lista", "ok"); ir("consumolista"); } catch (er) { toast(er.message, "bad"); }
+    } else if (b.dataset.a === "auto") {
+      try { await api("webConsumoElegir", x.sku, ""); toast("Volvió al cálculo automático", "ok"); ir("consumolista"); } catch (er) { toast(er.message, "bad"); }
+    } else if (b.dataset.a === "mod") modalModuloConsumo(x);
+  };
+};
+function modalModuloConsumo(x) {
+  const ops = x.locs.filter(l => l.disp && !l.esOp);
+  if (!ops.length) return toast("No hay módulos disponibles de este producto en bodega (KA y PREV no cuentan).", "warn", 6000);
+  const m = abrirModal(`<h3>Módulo a consumir</h3><p class="small">${skuTxt(x.sku, x.nom)}</p>
+    <p class="small muted">En orden FEFO. El elegido a mano se resalta en Consumo pero se queda en su puesto.</p>
+    <div class="cl-ops">${ops.map(l => `<label class="cl-op ${l.sel ? "on" : ""}"><input type="radio" name="clM" value="${h(l.m)}" ${l.sel ? "checked" : ""}><span class="fefo-n">${l.fefo}</span>${modChip(l.m)} <span class="small">${qty(l.e, l.c, l.u)} · vence <b>${h(l.vf)}</b>${l.lleno === false ? " · incompleto" : ""}${l.prio ? " · 🚨" : ""}</span>${l.m === x.auto ? ` <span class="pill">automático</span>` : ""}</label>`).join("")}</div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="clOk">Guardar</button></div>`);
+  $$(".cl-op input", m).forEach(i => i.onchange = () => $$(".cl-op", m).forEach(o => o.classList.toggle("on", $("input", o).checked)));
+  $("#clOk", m).onclick = async () => {
+    const r = $("input[name=clM]:checked", m); if (!r) return toast("Escoge un módulo", "warn");
+    const btn = $("#clOk", m); ocupado(btn, true);
+    // Escoger el mismo que da el cálculo automático = volver a automático
+    try { await api("webConsumoElegir", x.sku, r.value === x.auto ? "" : r.value); ocupado(btn, false); cerrarModal(true); toast(`Módulo ${r.value} para consumo`, "ok"); ir("consumolista"); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+  };
+}
 
 // =====================================================================
 // ARRANQUE

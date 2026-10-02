@@ -2208,11 +2208,12 @@ function calcularConsumo() {
     const auto = general.length ? general[0].m : null;
     const manualValido = x.elegido && general.some(l => l.m === x.elegido);
     const elegido = manualValido ? x.elegido : auto;
-    // Orden: el elegido primero, luego los disponibles (criterios), los bloqueados y al final KA / PREV
+    // Orden FEFO (criterios): los disponibles, luego los bloqueados y al final KA / PREV.
+    // El elegido (automático o a mano) se resalta pero se queda en su puesto del FEFO.
     const bloq = locs.filter(l => !l.disp && !l.esOp).sort(cmpConsumo_);
-    let orden = general.concat(bloq, operativa);
+    const orden = general.concat(bloq, operativa);
     orden.forEach(l => { l.sel = l.m === elegido && l.disp && !l.esOp; });
-    orden.sort((a, b) => (b.sel ? 1 : 0) - (a.sel ? 1 : 0));
+    general.forEach((l, k) => { l.fefo = k + 1; });
     // Si el producto está en un solo módulo (disponible, sin KA ni PREV) queda en observación
     const unico = new Set(general.map(l => l.m)).size === 1;
     let estado = "ok";
@@ -2252,12 +2253,13 @@ function obtenerConsumo(pagina) {
     if (x.unico) msj += `⚠️ _Observación: es el único módulo con este producto_\n`;
     msj += "\n";
     const lb = x.locs.filter(l => !l.esOp);
-    lb.slice(0, 5).forEach(l => {
-      const ic = l.sel ? "🎯 *CONSUMIR AQUÍ*\n" : "";
+    const ver = lb.filter((l, k) => k < 5 || l.sel);   // el elegido a mano puede estar más abajo en el FEFO
+    ver.forEach(l => {
+      const ic = l.sel ? `🎯 *CONSUMIR AQUÍ*${x.modo === "manual" ? " _(elegido a mano)_" : ""}\n` : "";
       const marca = !l.disp ? "🔴" : (l.esOp ? "🔹" : "▫️");
       msj += `${ic}${marca} *${escapeMd(l.m)}*${l.prio ? " 🚨" : ""}${l.lleno === false ? " (incompleto)" : ""}\n   ${cantLinea_(l.e, l.c, l.u, l.p)}\n   Vence: ${fVD(l.v, l.d)}${l.disp ? "" : ` · ❌ ${escapeMd(l.est)}`}\n`;
     });
-    if (lb.length > 5) msj += `   _+${lb.length - 5} ubicaciones más en el dashboard_\n`;
+    if (lb.length > ver.length) msj += `   _+${lb.length - ver.length} ubicaciones más en el dashboard_\n`;
     msj += `\n🗑️ _Eliminar:_ /consumo del ${x.sku}\n${SEP_}`;
   });
   let mk = generarBotoneraPaginacion("CONSO", pagina, datos.length, lim) || { inline_keyboard: [] };
@@ -2335,8 +2337,8 @@ function construirPDFConsumo() {
     cuerpo += `<table class="t"><thead><tr><th>Módulo</th><th>Estado</th><th>Vence</th><th>Estibas</th><th>Cajas</th><th>Unidades</th><th>Módulo lleno</th><th>Acción</th></tr></thead><tbody>`;
     lb.forEach(l => {
       const cls = l.sel ? (x.unico ? "sel unico" : "sel") : (!l.disp ? "bloq" : "");
-      const accion = l.sel ? "<b>CONSUMIR AQUÍ</b>" : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
-      cuerpo += `<tr class="${cls}"><td><b>${escHtml_(l.m)}</b>${l.prio ? " [PRIORIDAD]" : ""}</td><td>${l.disp ? "Disponible" : escHtml_(l.est)}</td><td>${fVD(l.v, l.d)}</td><td>${fM(l.e)}</td><td>${fM(l.c)}</td><td>${fM(l.u)}</td><td>${l.lleno === null ? "—" : (l.lleno ? "Lleno" : `Incompleto (${fM(l.usadas)}/${fM(l.capTot)})`)}</td><td>${accion}</td></tr>`;
+      const accion = l.sel ? `<b>CONSUMIR AQUÍ</b>${x.modo === "manual" ? " (a mano)" : ""}` : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
+      cuerpo += `<tr class="${cls}"><td>${l.fefo ? `<span class="sm">${l.fefo}.</span> ` : ""}<b>${escHtml_(l.m)}</b>${l.prio ? " [PRIORIDAD]" : ""}</td><td>${l.disp ? "Disponible" : escHtml_(l.est)}</td><td>${fVD(l.v, l.d)}</td><td>${fM(l.e)}</td><td>${fM(l.c)}</td><td>${fM(l.u)}</td><td>${l.lleno === null ? "—" : (l.lleno ? "Lleno" : `Incompleto (${fM(l.usadas)}/${fM(l.capTot)})`)}</td><td>${accion}</td></tr>`;
     });
     cuerpo += `</tbody></table></div>`;
   });
@@ -5458,7 +5460,7 @@ function webConsumo(tk) {
     const datos = calcularConsumo();
     if (datos === null) throw new Error("Crea la pestaña 'Consumo' en el Excel.");
     return datos.map(x => ({ sku: x.sku, nom: x.nom, elegido: x.elegido, auto: x.auto, modo: x.modo, elegidoPor: x.elegidoPor, elegidoEn: x.elegidoEn, manualVencido: x.manualVencido, estado: x.estado, unico: x.unico,
-      locs: x.locs.map(l => Object.assign(miniLote_(l), { esOp: l.esOp, sel: l.sel, pct: l.pct, lleno: l.lleno, capTot: l.capTot, usadas: l.usadas })) }));
+      locs: x.locs.map(l => Object.assign(miniLote_(l), { esOp: l.esOp, sel: l.sel, fefo: l.fefo || 0, pct: l.pct, lleno: l.lleno, capTot: l.capTot, usadas: l.usadas })) }));
   });
 }
 

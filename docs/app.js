@@ -2998,7 +2998,7 @@ VISTAS.repvacio = async (el, p, vigente) => {
   el.innerHTML = cab("⬜ Reportar módulo vacío", "Escribe el módulo que encontraste vacío (o búscalo en la lista), márcalo y guarda. A los validadores les llega un aviso para ponerlo en cero en el WMS. Mientras tanto el módulo sale con la etiqueta «Reportado como vacío» y el FEFO lo salta.") +
     `<div class="rep-busca"><input type="search" id="rvQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div>
     <div class="rep-elegidos" id="rvS"></div><div id="rvL"></div>
-    <div class="rep-pie card"><label class="field"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: quedó una estiba rota"></label>
+    <div class="rep-pie card hidden" id="rvP"><label class="field"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: quedó una estiba rota"></label>
       <div class="fin-acc"><span></span><button type="button" class="btn b-verde" id="rvG" disabled>💾 Guardar</button></div></div>`;
   const ya = m => repVacio(m) ? `Ya reportado vacío por ${repDe(m).v.por}` : null;
   const pintar = () => {
@@ -3006,6 +3006,8 @@ VISTAS.repvacio = async (el, p, vigente) => {
     $("#rvS", el).innerHTML = sel.size ? `<span class="small muted">Marcados como vacíos:</span> ${[...sel].map(m => `<span class="chip rep-chip">${h(m)}<button type="button" class="cs-x" data-x="${h(m)}" aria-label="Quitar ${h(m)}">✕</button></span>`).join("")}` : "";
     $("#rvL", el).innerHTML = listaModulos(mods, q, sel, { ya }) || vacio(q ? `Ningún módulo con producto coincide con «${h($("#rvQ", el).value.trim())}». Si el aplicativo ya lo muestra vacío, no hace falta reportarlo.` : "No hay módulos con producto.", "🔎");
     const b = $("#rvG", el); b.disabled = !sel.size; b.textContent = sel.size ? `💾 Guardar (${sel.size})` : "💾 Guardar";
+    // La nota y Guardar aparecen solo cuando hay módulos marcados (en el celular ocupan mucho)
+    $("#rvP", el).classList.toggle("hidden", !sel.size);
   };
   const q0 = $("#rvQ", el);
   q0.oninput = pintar;

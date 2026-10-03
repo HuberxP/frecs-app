@@ -43,7 +43,7 @@ let llamadasSb = 0, sinRed = false;
   for (const v of vistas) {
     await page.evaluate(v2 => ir(v2), v); await page.waitForTimeout(250);
     const t = await page.$eval("#view", el => el.innerText.slice(0, 120).replace(/\n/g, " "));
-    if (/⚠️/.test(t) && !/⚠️ (Mal|Ojo|Cui|FE)/.test(t)) errores.push(`vista ${v}: ${t}`);
+    if (/⚠️/.test(t) && !/⚠️ (Mal|Ojo|Cui|FE|Reportar)/.test(t)) errores.push(`vista ${v}: ${t}`);
     if (["stock", "pocos", "carpa", "consumo", "resumen"].includes(v)) await page.screenshot({ path: `/tmp/w_${v}.png` });
   }
   // Stock de un SKU
@@ -434,6 +434,62 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_validacion.png" });
   await P.evaluate(() => ir("entrega")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_entrega.png" });
   await cel.page.evaluate(() => ir("validacion")); await cel.page.waitForTimeout(1500); await cel.page.screenshot({ path: "/tmp/m_w_validacion.png" });
+  // --- Menú desplegable, «por confirmar», sugerencias del WMS y reportes de módulos ---
+  const navG = await P.evaluate(() => { const g = [...document.querySelectorAll("#nav .nav-g")].find(x => !x.classList.contains("abierto")); if (!g) return null; g.querySelector("[data-navg]").click(); return g.classList.contains("abierto"); });
+  if (navG !== true) errores.push("menú: la sección no se despliega al tocarla");
+  if (!(await P.evaluate(() => $("#nav a.on") && $("#nav a.on").closest(".nav-g.abierto") !== null || S.vista === "inicio"))) errores.push("menú: la sección de la pantalla actual no está abierta");
+  await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800);
+  const pc = await P.evaluate(async () => {
+    if (!S.val || !S.val.productos.length) return "sin productos";
+    modalInicial(S.val.productos[0]); await new Promise(r => setTimeout(r, 200));
+    const i = $("#iC"); if (!i) return "sin casilla";
+    const antes = i.checked; $("#modal .solo-cuadro span").click(); $("#modal .m-cifras").click();
+    const r = i.checked === antes && !i.closest("label") ? "ok" : "se marca sin tocar el cuadrito";
+    cerrarModal(true); return r;
+  });
+  if (pc !== "ok") errores.push("por confirmar: " + pc);
+  const wms0 = await P.evaluate(() => /WMS \d/.test($("#view").innerText));
+  await P.evaluate(async () => { S.usuario.prefs = await api("webPref", "wmsSug", true); repintar(); }); await P.waitForTimeout(800);
+  const wms1 = await P.evaluate(() => /WMS \d/.test($("#view").innerText));
+  if (wms0 || !wms1) errores.push(`sugerencias del WMS: por defecto ${wms0 ? "se ven" : "ocultas"}, activadas ${wms1 ? "se ven" : "no se ven"}`);
+  if (q("select prefs->>'wmsSug' from perfiles where nombre='Huber'") !== "true") errores.push("la preferencia no se guardó en Supabase");
+  await P.evaluate(async () => { S.usuario.prefs = await api("webPref", "wmsSug", false); });
+  // Verificador (celular): solo sus pantallas, reporta un vacío
+  const tkAdm = JSON.parse(psql("select ingresar('Huber','1234')::text;", "anon")).token;
+  psql("delete from perfiles where nombre='Vero'; delete from reportes_modulo;", "postgres");
+  psql(`select usuario_guardar(${lit(tkAdm)}, '', 'Vero', 'verificador', '2468', true);`, "anon");
+  const ve = await nueva({ width: 390, height: 844 }, "verificador"), V = ve.page;
+  await V.goto("http://127.0.0.1:8766/"); await V.waitForSelector("#lgN");
+  await V.selectOption("#lgN", "Vero"); await V.fill("#lgP", "2468"); await V.click("#lgB");
+  await V.waitForSelector("#rvQ", { timeout: 15000 });
+  const navV = await V.evaluate(() => $$("#nav a[data-v]").map(a => a.dataset.v).sort().join(","));
+  if (navV !== "modulo,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
+  const barV = await V.evaluate(() => $$("#bottombar button").map(b => b.dataset.v).join(","));
+  if (barV !== "repvacio,repconflicto,repgen,stock") errores.push("verificador: barra de abajo " + barV);
+  await V.evaluate(() => ir("validacion")); await V.waitForTimeout(300);
+  if (await V.evaluate(() => S.vista) !== "repvacio") errores.push("el verificador pudo abrir validación");
+  const modV = q("select modulo from wms_base where coalesce(estibas,0)+coalesce(cajas,0)+coalesce(unidades,0) > 0 and modulo ~ '^[A-J][0-9]+$' order by modulo limit 1");
+  await V.fill("#rvQ", modV); await V.press("#rvQ", "Enter"); await V.waitForTimeout(200);
+  await V.screenshot({ path: "/tmp/m_w_repvacio.png" });
+  await V.click("#rvG"); await V.waitForSelector("#cfOk"); await V.waitForTimeout(500); await V.click("#cfOk");
+  await V.waitForFunction(() => /Reportado vacío|No se|rror/.test($("#toasts").innerText), null, { timeout: 15000 }).catch(() => {});
+  if (q(`select tipo || '|' || reportado_por || '|' || estado from reportes_modulo where modulo='${modV}'`) !== "VACIO|Vero|PENDIENTE") errores.push("reporte de vacío no llegó: " + q("select to_jsonb(r) from reportes_modulo r") + " · " + (await V.$eval("#toasts", e => e.innerText)) + " · " + modV);
+  await V.evaluate(m => ir("repconflicto", { m: m }), modV); await V.waitForTimeout(500);
+  if (!(await V.$("#rcP"))) errores.push("conflicto: no abrió el formulario del módulo");
+  await V.screenshot({ path: "/tmp/m_w_repconflicto.png" });
+  await V.evaluate(() => ir("repgen")); await V.waitForTimeout(800); await V.screenshot({ path: "/tmp/m_w_reportes.png" });
+  if (await V.$("[data-ok]")) errores.push("el verificador ve «Marcar completado»");
+  // El módulo reportado sale con su etiqueta y sin puesto FEFO; el administrador lo completa
+  await P.evaluate(() => api("webReportes").then(d => guardarRep(d.lista)));
+  await P.evaluate(m => ir("modulo", { mod: m }), modV); await P.waitForTimeout(700);
+  if (!(await P.$(".tag.t-rv"))) errores.push("el módulo reportado no muestra «Reportado como vacío»");
+  const nBadge = await P.evaluate(() => ($("#nav .nav-n") || {}).textContent);
+  if (nBadge !== "1") errores.push("contador de reportes pendientes: " + nBadge);
+  await P.evaluate(() => ir("repgen")); await P.waitForTimeout(800); await P.screenshot({ path: "/tmp/w_repgen.png" });
+  if (await P.$("[data-ok]")) { await P.click("[data-ok]"); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1000); }
+  else errores.push("reportes generados (admin): sin «Marcar completado»: " + (await P.$eval("#view", e => e.innerText.slice(0, 80))) + " · " + (await P.evaluate(() => api("webReportes").then(d => JSON.stringify(d).slice(0, 300), e => "ERR " + e.message))) + " · BD " + q("select count(*) from reportes_modulo"));
+  if (q(`select estado || '|' || completado_por || '|' || cierre from reportes_modulo where modulo='${modV}'`) !== "COMPLETADO|Huber|MANUAL") errores.push("completar reporte falló");
+  psql("delete from reportes_modulo; delete from perfiles where nombre='Vero';", "postgres");
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

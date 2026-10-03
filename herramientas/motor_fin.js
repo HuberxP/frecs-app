@@ -6,7 +6,7 @@ let __usuario = null;
 usrSesion_ = function (tk, rolMinimo) {
   if (!__usuario) throw new Error("SESION: Ingresa con tu nombre y PIN.");
   if ((ROLES[__usuario.rol] || 0) < (ROLES[rolMinimo] || 1)) throw new Error(`No tienes permiso para esto (se necesita rol ${rolMinimo}).`);
-  return { nombre: __usuario.nombre, rol: __usuario.rol };
+  return { nombre: __usuario.nombre, rol: __usuario.rol, prefs: __usuario.prefs || {} };
 };
 
 // PDF: aquí no hay conversor de Apps Script; se devuelve el HTML y la página lo pasa a PDF
@@ -33,6 +33,7 @@ function __cargar(d) {
   main.poner("Capacidad_Bodega", [["Modulo", "Caras", "Capacidad"]].concat(d.capacidad || []));
   main.poner("Consumo", [CONSUMO_DEF.cab].concat(d.consumo || []));
   main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte"]].concat(d.limbo || []));
+  main.poner(REP_DEF.nombre, [REP_DEF.cab].concat(d.reportes || []));
   main.poner("Usuarios", [USR_DEF.cab]);
 
   __cargarTurnos(d);
@@ -64,6 +65,11 @@ function __cargarTurnos(d) {
 return {
   cargar: __cargar,
   cargarTurnos: __cargarTurnos,
+  // Reportes de módulos recién leídos de Supabase (sin volver a cargar todo)
+  cargarReportes(filas) {
+    SpreadsheetApp.openById(SHEET_ID).poner(REP_DEF.nombre, [REP_DEF.cab].concat(filas || []));
+    delete _THOJAS["MAIN|" + REP_DEF.nombre];
+  },
   llamar(fn, args) {
     const f = __EXPORTAR[fn];
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });

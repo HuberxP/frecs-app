@@ -142,5 +142,21 @@ ok((await psql(`select count(*) from consumo where sku='${skuC}'`, "postgres")) 
   r = await (await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "pdf_telegram", token: tk, b64: btoa("<html>") }) }))).json();
   ok(!r.ok && /no es un PDF/.test(r.error), "solo PDF"); }
 
+// Reporte de módulos → aviso al grupo (solo lo que esa persona acaba de reportar)
+{ const tk = JSON.parse(await psql("select ingresar('Ana María','5555')::text;", "anon")).token;
+  await psql("delete from reportes_modulo;", "postgres");
+  const c = JSON.parse(await psql(`select reporte_crear(${lit(tk)}, ${lit([{ tipo: "VACIO", modulo: "b12", sku_sistema: "2222", producto_sistema: "Pony 330" }, { tipo: "CONFLICTO", modulo: "A7", sku_encontrado: "3617", producto_encontrado: "Costeñita", nota: "tiene etiqueta nueva" }])})::text;`, "anon"));
+  ok(c.creados.length === 2, "reportes creados: " + JSON.stringify(c.creados));
+  const antes = tg.length;
+  let r = await (await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "reporte", token: tk, ids: c.creados }) }))).json();
+  const m = tg.slice(antes).find(x => x.metodo === "sendMessage" && String(x.chat_id) === "-100");
+  ok(r.ok && m && /B12 — reportado VACÍO/.test(m.text) && /A7 — CONFLICTO/.test(m.text) && /Ana María/.test(m.text) && /3617/.test(m.text), "aviso del reporte al grupo: " + (m && m.text));
+  r = await (await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "reporte", token: "malo", ids: c.creados }) }))).json();
+  ok(!r.ok && r.sesion, "reporte sin sesión no avisa");
+  const tk2 = JSON.parse(await psql("select ingresar('Huber','1234')::text;", "anon")).token;
+  r = await (await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "reporte", token: tk2, ids: c.creados }) }))).json();
+  ok(!r.ok, "otra persona no puede reenviar el aviso de reportes ajenos");
+  await psql("delete from reportes_modulo;", "postgres"); }
+
 console.log(fallos ? `${fallos} FALLOS` : "TODO OK");
 Deno.exit(fallos ? 1 : 0);

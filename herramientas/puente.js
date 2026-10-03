@@ -426,6 +426,34 @@
     return ok(await rpc("usuarios_listar", { p_token: tk }));
   }
 
+  // ---------- reportes de módulos (vacío / conflicto): funciones de Supabase ----------
+  // La lista fresca se pasa al motor (consumo y FEFO se saltan los reportados vacíos)
+  async function reportes(fn, args, ok) {
+    const tk = args[0];
+    await cargarDatos(tk);
+    let filas, extra = {};
+    if (fn === "webReporteCrear") {
+      const r = await rpc("reporte_crear", { p_token: tk, p_items: args[1] || [] });
+      filas = r.reportes; extra = { creados: r.creados || [], repetidos: r.repetidos || [] };
+      if (extra.creados.length) extra.telegram = await avisoReporte(tk, extra.creados);
+    } else if (fn === "webReporteCerrar") filas = await rpc("reporte_cerrar", { p_token: tk, p_id: Number(args[1]), p_accion: String(args[2] || "") });
+    else filas = await rpc("reportes_listar", { p_token: tk });
+    datos.reportes = filas || [];
+    MOTOR.cargarReportes(datos.reportes); guardarLS();
+    const r = JSON.parse(MOTOR.llamar("webReportes", [tk]));
+    if (!r.ok) return JSON.stringify(r);
+    return ok(Object.assign(r.data, extra));
+  }
+  // Aviso al grupo de Telegram (lo arma Supabase con lo que se acaba de reportar). No frena el reporte si falla.
+  async function avisoReporte(tk, ids) {
+    if (!URL_BOT) return false;
+    try {
+      const rb = await fetch(URL_BOT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "reporte", token: tk, ids: ids }) });
+      const jb = await rb.json();
+      return !!jb.ok;
+    } catch (e) { return false; }
+  }
+
   // Una escritura a la vez (en orden), para que cada una parta de lo que guardó la anterior
   let cadena = Promise.resolve();
   function escribirEnOrden(fn, args, ok, fallo) {
@@ -450,6 +478,13 @@
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
+      if (["webReportes", "webReporteCrear", "webReporteCerrar"].includes(fn)) return await reportes(fn, args, ok);
+      // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
+      if (fn === "webPref") {
+        const p = await rpc("pref_guardar", { p_token: args[0], p_clave: String(args[1] || ""), p_valor: args[2] === undefined ? null : args[2] });
+        if (datos && datos.usuario) { datos.usuario.prefs = p; guardarLS(); }
+        return ok(p);
+      }
       const nuevoExtra = pideExtras(args);
       if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await despuesDeEscribir(fn, args, await escribirEnOrden(fn, args, ok, fallo));
       if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos") {
@@ -477,7 +512,7 @@
       const m = String((e && e.message) || e);
       if (m.indexOf("SESION:") === 0) { datos = null; return fallo(m.replace("SESION:", "").trim(), { sesion: true }); }
       if (e && e.red) throw e;
-      return fallo(m);
+      return fallo(m.replace(/^PERMISO:\s*/, ""));
     }
   }
 

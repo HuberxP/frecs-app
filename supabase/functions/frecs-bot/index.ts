@@ -9,6 +9,7 @@
 // Pedidos que atiende (POST):
 //   · Telegram (cabecera X-Telegram-Bot-Api-Secret-Token)
 //   · { accion: "pdf_telegram", token, nombre, b64, caption }  → desde la página (validador)
+//   · { accion: "reporte", token, ids }                        → aviso de módulos reportados (vacío / conflicto)
 //   · { accion: "alerta", secreto }                           → alerta de las 6 a.m. y 2 p.m. (pg_cron)
 // Secretos de la función: TELEGRAM_TOKEN. El resto viene de frecs_config (sb_bot_config).
 // =====================================================================
@@ -198,6 +199,22 @@ export async function manejar(req: Request): Promise<Response> {
       const cap = String(cuerpo.caption || "📄 PDF").slice(0, 800) + `\n_Enviado desde el dashboard por ${String(u.nombre).replace(/[_*[\]`]/g, "\\$&")}_`;
       const ok = await tgDocumento(cfg.bot_grupo, bytes, /\.pdf$/i.test(nombre) ? nombre : nombre + ".pdf", cap);
       return respuesta(ok ? { ok: true } : { ok: false, error: "Telegram no aceptó el archivo." });
+    } catch (e) { return respuesta({ ok: false, error: (e as Error).message }); }
+  }
+
+  // Reporte de módulos (vacío / conflicto) → grupo de Telegram. El texto lo arma Supabase (reporte_aviso):
+  // solo lo que esa persona acaba de reportar, así que no sirve para mandar mensajes arbitrarios.
+  if (cuerpo.accion === "reporte") {
+    try {
+      if (!cfg.bot_grupo) return respuesta({ ok: false, error: "No está configurado el grupo de Telegram." });
+      const ids = (Array.isArray(cuerpo.ids) ? cuerpo.ids : []).map((x: unknown) => Number(x)).filter((x: number) => Number.isInteger(x) && x > 0).slice(0, 60);
+      if (!ids.length) return respuesta({ ok: false, error: "Sin reportes." });
+      let texto = "";
+      try { texto = String((await rpc("reporte_aviso", { p_token: String(cuerpo.token || ""), p_ids: ids })) || ""); }
+      catch (e) { const m = String((e as Error).message); return respuesta(/SESION:/.test(m) ? { ok: false, sesion: true, error: m.replace(/^.*SESION:\s*/, "") } : { ok: false, error: m }); }
+      if (!texto) return respuesta({ ok: false, error: "No hay reportes nuevos para avisar." });
+      const ok = await tgMensaje("sendMessage", { chat_id: cfg.bot_grupo, text: texto });
+      return respuesta(ok ? { ok: true } : { ok: false, error: "Telegram no aceptó el mensaje." });
     } catch (e) { return respuesta({ ok: false, error: (e as Error).message }); }
   }
 

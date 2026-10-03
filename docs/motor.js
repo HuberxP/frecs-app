@@ -2194,16 +2194,18 @@ function calcularConsumo() {
   const inv = obtenerInventarioLocal();
   const cap = obtenerCapacidadesBodega();
   const occ = ocupacionModulos(inv);
+  const rep = reportesAbiertos_();
   let ag = {};
   inv.forEach(i => {
     if (!skus.has(i.s) || !i.tieneFisico) return;
     const o = capacidadModulo_(i.m, occ[i.m], cap);
-    const l = Object.assign({}, i, { esOp: esZonaOperativa(i), disp: i.est === "DISPONIBLE", pct: o ? Math.round(o.pct * 1000) / 1000 : null, lleno: o ? o.lleno : null, capTot: o ? o.capTot : null, usadas: o ? o.usadas : null });
+    const l = Object.assign({}, i, { esOp: esZonaOperativa(i), disp: i.est === "DISPONIBLE", rv: rep.vacio.has(String(i.m).toUpperCase()), pct: o ? Math.round(o.pct * 1000) / 1000 : null, lleno: o ? o.lleno : null, capTot: o ? o.capTot : null, usadas: o ? o.usadas : null });
     (ag[i.s] = ag[i.s] || []).push(l);
   });
   return lista.map(x => {
     const locs = ag[x.sku] || [];
-    const general = locs.filter(l => l.disp && !l.esOp).sort(cmpConsumo_);
+    const general = locs.filter(l => l.disp && !l.esOp && !l.rv).sort(cmpConsumo_);
+    const reportados = locs.filter(l => l.disp && !l.esOp && l.rv).sort(cmpConsumo_);   // reportados vacíos: sin puesto FEFO
     const operativa = locs.filter(l => l.esOp).sort(cmpConsumo_);   // KA / PREV: solo información
     const auto = general.length ? general[0].m : null;
     const manualValido = x.elegido && general.some(l => l.m === x.elegido);
@@ -2211,14 +2213,14 @@ function calcularConsumo() {
     // Orden FEFO (criterios): los disponibles, luego los bloqueados y al final KA / PREV.
     // El elegido (automático o a mano) se resalta pero se queda en su puesto del FEFO.
     const bloq = locs.filter(l => !l.disp && !l.esOp).sort(cmpConsumo_);
-    const orden = general.concat(bloq, operativa);
+    const orden = general.concat(reportados, bloq, operativa);
     orden.forEach(l => { l.sel = l.m === elegido && l.disp && !l.esOp; });
     general.forEach((l, k) => { l.fefo = k + 1; });
     // Si el producto está en un solo módulo (disponible, sin KA ni PREV) queda en observación
     const unico = new Set(general.map(l => l.m)).size === 1;
     let estado = "ok";
     if (!locs.length) estado = "sin_fisico";
-    else if (!general.length) estado = bloq.length ? "solo_bloqueado" : "solo_operativa";
+    else if (!general.length) estado = reportados.length ? "solo_reportado" : (bloq.length ? "solo_bloqueado" : "solo_operativa");
     return {
       sku: x.sku, nom: x.nom || (skuInfo_(x.sku) || {}).prod || "Desconocido", locs: orden, elegido: elegido, auto: auto,
       modo: manualValido ? "manual" : "auto", elegidoPor: manualValido ? x.por : "", elegidoEn: manualValido ? x.en : "",
@@ -2249,6 +2251,7 @@ function obtenerConsumo(pagina) {
     if (x.estado === "sin_fisico") { msj += `❌ Sin existencias físicas en bodega.\n${SEP_}`; return; }
     if (x.estado === "solo_bloqueado") msj += `❌ Todos los módulos están bloqueados.\n`;
     if (x.estado === "solo_operativa") msj += `⚠️ Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.\n`;
+    if (x.estado === "solo_reportado") msj += `🟠 Solo hay en módulos reportados vacíos.\n`;
     if (x.modo === "manual") msj += `✋ Elegido a mano por ${escapeMd(x.elegidoPor)} (${fechaCorta_(x.elegidoEn)})\n`;
     if (x.unico) msj += `⚠️ _Observación: es el único módulo con este producto_\n`;
     msj += "\n";
@@ -2257,7 +2260,7 @@ function obtenerConsumo(pagina) {
     ver.forEach(l => {
       const ic = l.sel ? `🎯 *CONSUMIR AQUÍ*${x.modo === "manual" ? " _(elegido a mano)_" : ""}\n` : "";
       const marca = !l.disp ? "🔴" : (l.esOp ? "🔹" : "▫️");
-      msj += `${ic}${marca} *${escapeMd(l.m)}*${l.prio ? " 🚨" : ""}${l.lleno === false ? " (incompleto)" : ""}\n   ${cantLinea_(l.e, l.c, l.u, l.p)}\n   Vence: ${fVD(l.v, l.d)}${l.disp ? "" : ` · ❌ ${escapeMd(l.est)}`}\n`;
+      msj += `${ic}${marca} *${escapeMd(l.m)}*${l.rv ? " 🟠 _reportado vacío_" : ""}${l.prio ? " 🚨" : ""}${l.lleno === false ? " (incompleto)" : ""}\n   ${cantLinea_(l.e, l.c, l.u, l.p)}\n   Vence: ${fVD(l.v, l.d)}${l.disp ? "" : ` · ❌ ${escapeMd(l.est)}`}\n`;
     });
     if (lb.length > ver.length) msj += `   _+${lb.length - ver.length} ubicaciones más en el dashboard_\n`;
     msj += `\n🗑️ _Eliminar:_ /consumo del ${x.sku}\n${SEP_}`;
@@ -2315,6 +2318,7 @@ function elegirModuloConsumoCore_(sku, modulo, usuario) {
       const lotes = obtenerInventarioLocal().filter(i => i.s === sku && i.m === modulo && i.tieneFisico && i.est === "DISPONIBLE");
       if (lotes.length && lotes.every(i => esZonaOperativa(i))) throw new Error(`${modulo} es KA / PREV: de ahí no se consume (ya está surtido para despacho).`);
       if (!lotes.length) throw new Error(`En ${modulo} no hay producto disponible del SKU ${sku}. Solo se puede elegir un módulo disponible.`);
+      if (moduloReportadoVacio_(modulo)) throw new Error(`${modulo} está reportado como vacío: no se puede elegir para consumo.`);
     }
     tEscribir_(CONSUMO_DEF, it.fila, 3, modulo ? [modulo, usuario, ahora_()] : ["", "", ""]);
     sbEspejo_("consumo");
@@ -2337,7 +2341,7 @@ function construirPDFConsumo() {
     cuerpo += `<table class="t"><thead><tr><th>Módulo</th><th>Estado</th><th>Vence</th><th>Estibas</th><th>Cajas</th><th>Unidades</th><th>Módulo lleno</th><th>Acción</th></tr></thead><tbody>`;
     lb.forEach(l => {
       const cls = l.sel ? (x.unico ? "sel unico" : "sel") : (!l.disp ? "bloq" : "");
-      const accion = l.sel ? `<b>CONSUMIR AQUÍ</b>${x.modo === "manual" ? " (a mano)" : ""}` : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
+      const accion = l.sel ? `<b>CONSUMIR AQUÍ</b>${x.modo === "manual" ? " (a mano)" : ""}` : l.rv ? "Reportado vacío" : (!l.disp ? "Bloqueado" : (l.esOp ? "Operativo (KA/PREV)" : "Reserva"));
       cuerpo += `<tr class="${cls}"><td>${l.fefo ? `<span class="sm">${l.fefo}.</span> ` : ""}<b>${escHtml_(l.m)}</b>${l.prio ? " [PRIORIDAD]" : ""}</td><td>${l.disp ? "Disponible" : escHtml_(l.est)}</td><td>${fVD(l.v, l.d)}</td><td>${fM(l.e)}</td><td>${fM(l.c)}</td><td>${fM(l.u)}</td><td>${l.lleno === null ? "—" : (l.lleno ? "Lleno" : `Incompleto (${fM(l.usadas)}/${fM(l.capTot)})`)}</td><td>${accion}</td></tr>`;
     });
     cuerpo += `</tbody></table></div>`;
@@ -2351,7 +2355,7 @@ const CSS_PDF_CONSUMO_SOLO = `.grande td{font-size:12px;padding:8px}.mod{font-si
 function cuerpoPDFConsumoSolo_(datos) {
   const filas = datos.map(x => {
     const t = totalesElegido_(x);
-    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : (x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : "Sin módulo disponible (bloqueado)")}</td><td></td></tr>`;
+    if (!t) return `<tr class="bloq"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.nom)}</td><td colspan="4">${x.estado === "sin_fisico" ? "Sin existencias" : (x.estado === "solo_operativa" ? "Solo en KA / PREV (ya surtido)" : x.estado === "solo_reportado" ? "Solo en módulos reportados vacíos" : "Sin módulo disponible (bloqueado)")}</td><td></td></tr>`;
     const obs = [t.prio ? "PRIORIDAD" : "", x.unico ? "Único módulo con este producto" : ""].filter(o => o).join(" · ");
     return `<tr class="${x.unico ? "unico" : ""}"><td>${escHtml_(x.sku)}</td><td class="izq"><b>${escHtml_(x.nom)}</b></td><td class="mod">${escHtml_(t.m)}</td><td>${cantHtml_(t)}</td><td>${fVD(t.v, t.d)}</td><td>${obs}</td><td>${x.modo === "manual" ? "A mano" : "Automático"}</td></tr>`;
   }).join("") || `<tr><td colspan="7" class="vacio">La lista de consumo está vacía.</td></tr>`;
@@ -5309,6 +5313,53 @@ function construirPDFEntregaFinal(id) {
 }
 
 ;
+// ===== 28_Reportes_Modulos.gs =====
+// =========================================================
+// 28 · REPORTES DE MÓDULOS (vacío y conflicto)
+// ---------------------------------------------------------
+// Los crea cualquiera con sesión (rol verificador en adelante) desde la página nueva y
+// viven en Supabase (reportes_modulo). Aquí solo se leen (pestaña Reportes_Modulos que
+// arma la página con los datos de Supabase), para:
+//   · que el FEFO y el consumo se salten los módulos reportados vacíos (siguen a la vista,
+//     con su etiqueta, hasta que el WMS los muestre vacíos);
+//   · la lista de «Reportes generados» y el contador de pendientes.
+// En Apps Script la pestaña no existe: todo funciona igual, sin reportes.
+// =========================================================
+const REP_DEF = {
+  libro: "MAIN", nombre: "Reportes_Modulos",
+  cab: ["Id", "Tipo", "Modulo", "Sku_sistema", "Producto_sistema", "Detalle_sistema", "Sku_encontrado", "Producto_encontrado", "Nota",
+    "Reportado_por", "Reportado_en", "Estado", "Completado_por", "Completado_en", "Cierre"]
+};
+
+function reportesModulos_() {
+  if (!hoja_(REP_DEF.nombre)) return [];
+  return tLeer_(REP_DEF).map(r => ({
+    id: txt_(r[0]), tipo: txt_(r[1]).toUpperCase(), m: txt_(r[2]).toUpperCase(), skuSis: txt_(r[3]), prodSis: txt_(r[4]), detSis: txt_(r[5]),
+    skuEnc: txt_(r[6]), prodEnc: txt_(r[7]), nota: txt_(r[8]), por: txt_(r[9]), en: txt_(r[10]),
+    estado: txt_(r[11]).toUpperCase() || "PENDIENTE", cerroPor: txt_(r[12]), cerroEn: txt_(r[13]), cierre: txt_(r[14]).toUpperCase()
+  })).filter(x => x.id && x.m);
+}
+
+// Módulos con un reporte pendiente: { vacio: Set, conflicto: Set }
+function reportesAbiertos_() {
+  const v = new Set(), c = new Set();
+  reportesModulos_().forEach(x => { if (x.estado === "PENDIENTE") (x.tipo === "VACIO" ? v : c).add(x.m); });
+  return { vacio: v, conflicto: c };
+}
+const moduloReportadoVacio_ = (m, abiertos) => (abiertos || reportesAbiertos_()).vacio.has(String(m || "").toUpperCase());
+
+function webReportes(tk) {
+  return webAuth_(tk, "verificador", u => ({
+    lista: reportesModulos_(),
+    puedeCompletar: (ROLES[u.rol] || 0) >= ROLES.validador
+  }));
+}
+// En Apps Script no hay base de reportes: se hacen en la versión nueva (la página de GitHub)
+function webReporteCrear(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Los reportes de módulos se hacen en la versión nueva de Frecs."); }); }
+function webReporteCerrar(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Los reportes de módulos se hacen en la versión nueva de Frecs."); }); }
+function webPref(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Las preferencias se guardan en la versión nueva de Frecs."); }); }
+
+;
 // ===== 30_Web_Api.gs =====
 // =========================================================
 // 30 · DASHBOARD WEB: doGet y funciones que llama la página
@@ -5371,11 +5422,12 @@ function webCambiarPin(tk, actual, nuevo) { return webAuth_(tk, L_, u => usrCamb
 
 // Todo lo que la página necesita al abrir, en un solo viaje
 function webInit(tk) {
-  return webAuth_(tk, L_, u => {
+  return webAuth_(tk, "verificador", u => {
     let correo = "";
     try { correo = Session.getActiveUser().getEmail() || ""; } catch (e) {}
     return {
-      usuario: { nombre: u.nombre, rol: u.rol, correo: correo },
+      usuario: { nombre: u.nombre, rol: u.rol, correo: correo, prefs: u.prefs || {} },
+      reportes: reportesModulos_(),
       sync: estadoSyncWeb_(), grupoTelegram: !!GRUPO_CALIDAD_ID, instructivo: !!INSTRUCTIVO_DRIVE_ID, turnosNueva: turnosEnSupabase_() ? WEB_NUEVA_URL : "",
       turno: turnoEstadoCore_(), inv: inventarioPayload_(), cat: catalogoWeb_()
     };
@@ -5460,7 +5512,7 @@ function webConsumo(tk) {
     const datos = calcularConsumo();
     if (datos === null) throw new Error("Crea la pestaña 'Consumo' en el Excel.");
     return datos.map(x => ({ sku: x.sku, nom: x.nom, elegido: x.elegido, auto: x.auto, modo: x.modo, elegidoPor: x.elegidoPor, elegidoEn: x.elegidoEn, manualVencido: x.manualVencido, estado: x.estado, unico: x.unico,
-      locs: x.locs.map(l => Object.assign(miniLote_(l), { esOp: l.esOp, sel: l.sel, fefo: l.fefo || 0, pct: l.pct, lleno: l.lleno, capTot: l.capTot, usadas: l.usadas })) }));
+      locs: x.locs.map(l => Object.assign(miniLote_(l), { esOp: l.esOp, sel: l.sel, rv: !!l.rv, fefo: l.fefo || 0, pct: l.pct, lleno: l.lleno, capTot: l.capTot, usadas: l.usadas })) }));
   });
 }
 
@@ -5631,7 +5683,8 @@ function webCanalesGuardar(tk, filas) { return webAuth_(tk, A_, () => { canalesG
 // Pestaña Usuarios en el archivo principal.
 // =========================================================
 const USR_DEF = { libro: "MAIN", nombre: "Usuarios", cab: ["Nombre", "PIN_hash", "Rol", "Activo", "Creado", "Creado_por", "Ultimo_acceso"], texto: [1, 2, 3, 5, 6, 7] };
-const ROLES = { lector: 1, validador: 2, administrador: 3 };
+// verificador: solo Stock, Información de producto, Por módulo y los reportes de módulos (lee como un lector)
+const ROLES = { verificador: 1, lector: 1, validador: 2, administrador: 3 };
 const SESION_SEG = 21600; // 6 h (máximo de CacheService); se renueva con el uso
 
 function salPin_() {
@@ -6153,7 +6206,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPublico, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------
@@ -6162,7 +6215,7 @@ let __usuario = null;
 usrSesion_ = function (tk, rolMinimo) {
   if (!__usuario) throw new Error("SESION: Ingresa con tu nombre y PIN.");
   if ((ROLES[__usuario.rol] || 0) < (ROLES[rolMinimo] || 1)) throw new Error(`No tienes permiso para esto (se necesita rol ${rolMinimo}).`);
-  return { nombre: __usuario.nombre, rol: __usuario.rol };
+  return { nombre: __usuario.nombre, rol: __usuario.rol, prefs: __usuario.prefs || {} };
 };
 
 // PDF: aquí no hay conversor de Apps Script; se devuelve el HTML y la página lo pasa a PDF
@@ -6189,6 +6242,7 @@ function __cargar(d) {
   main.poner("Capacidad_Bodega", [["Modulo", "Caras", "Capacidad"]].concat(d.capacidad || []));
   main.poner("Consumo", [CONSUMO_DEF.cab].concat(d.consumo || []));
   main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte"]].concat(d.limbo || []));
+  main.poner(REP_DEF.nombre, [REP_DEF.cab].concat(d.reportes || []));
   main.poner("Usuarios", [USR_DEF.cab]);
 
   __cargarTurnos(d);
@@ -6220,6 +6274,11 @@ function __cargarTurnos(d) {
 return {
   cargar: __cargar,
   cargarTurnos: __cargarTurnos,
+  // Reportes de módulos recién leídos de Supabase (sin volver a cargar todo)
+  cargarReportes(filas) {
+    SpreadsheetApp.openById(SHEET_ID).poner(REP_DEF.nombre, [REP_DEF.cab].concat(filas || []));
+    delete _THOJAS["MAIN|" + REP_DEF.nombre];
+  },
   llamar(fn, args) {
     const f = __EXPORTAR[fn];
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });

@@ -16,7 +16,7 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
     });
     const page = await ctx.newPage();
     await page.goto("http://127.0.0.1:8768/"); await page.waitForSelector("#lgN");
-    await page.selectOption("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
+    await page.fill("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
     await page.evaluate(() => ir("organizar")); await page.waitForTimeout(800);
     await page.fill("#oq", "a"); await page.waitForTimeout(200);
     await page.screenshot({ path: `/tmp/v_${nombre}_organizar.png` });

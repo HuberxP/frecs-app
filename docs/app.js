@@ -493,12 +493,37 @@ function mostrarLogin(msg) {
     } else {
       const ult = ls.get("ultNombre", "");
       body.innerHTML = `${msg ? `<div class="note warn">${h(msg)}</div>` : ""}
-        <label class="field"><span>Nombre</span><select id="lgN"><option value="">Escoge tu nombre…</option>${p.nombres.map(n => `<option ${n === ult ? "selected" : ""}>${h(n)}</option>`).join("")}</select></label>
+        <label class="field"><span>Nombre</span><input type="text" id="lgN" value="${h(ult)}" placeholder="Escribe tu nombre" autocomplete="off" autocapitalize="words" spellcheck="false"></label>
+        <div class="lg-sug hidden" id="lgS" role="listbox"></div>
         <label class="field" style="margin-top:10px"><span>PIN</span><input type="password" inputmode="numeric" class="pin" id="lgP" maxlength="8" autocomplete="current-password"></label>
         <div id="lgE" style="margin-top:10px"></div><button class="btn primary" id="lgB">Entrar</button>`;
+      // Nombres sugeridos mientras se escribe, separados por rol
+      const us = (p.usuarios && p.usuarios.length ? p.usuarios : p.nombres.map(n => ({ n: n, r: "" })));
+      const ROL_T = { administrador: "Administradores", validador: "Validadores", lector: "Lectores", verificador: "Verificadores", "": "Usuarios" };
+      const exacto = v => us.find(u => norm(u.n).trim() === norm(v).trim());
+      const pintarSug = () => {
+        const q = norm($("#lgN").value).trim(), box = $("#lgS");
+        const f = us.filter(u => !q || norm(u.n).split(/\s+/).some(w => w.startsWith(q)) || norm(u.n).includes(q));
+        if (!f.length || (f.length === 1 && exacto($("#lgN").value))) { box.classList.add("hidden"); return; }
+        const grupos = [];
+        f.forEach(u => { let g = grupos.find(x => x.r === u.r); if (!g) grupos.push(g = { r: u.r, l: [] }); g.l.push(u); });
+        box.innerHTML = grupos.map(g => `<div class="lg-g"><div class="lg-gt">${h(ROL_T[g.r] || g.r)} <span>${g.l.length}</span></div>${g.l.map(u => `<button type="button" class="lg-op" data-n="${h(u.n)}">${h(u.n)}</button>`).join("")}</div>`).join("");
+        box.classList.remove("hidden");
+      };
+      const lgN = $("#lgN");
+      lgN.oninput = pintarSug; lgN.onfocus = pintarSug;
+      lgN.onkeydown = e => {
+        if (e.key !== "Enter") return;
+        const ops = $$("#lgS .lg-op"); if (ops.length) { e.preventDefault(); ops[0].click(); }
+      };
+      // pointerdown: elegir antes de que el campo pierda el foco
+      $("#lgS").addEventListener("pointerdown", e => { const b = e.target.closest(".lg-op"); if (!b) return; e.preventDefault(); lgN.value = b.dataset.n; $("#lgS").classList.add("hidden"); $("#lgP").focus(); });
+      $("#lgS").addEventListener("click", e => { const b = e.target.closest(".lg-op"); if (!b) return; lgN.value = b.dataset.n; $("#lgS").classList.add("hidden"); $("#lgP").focus(); });
+      lgN.onblur = () => setTimeout(() => $("#lgS").classList.add("hidden"), 150);
       const ir2 = async () => {
-        const n = $("#lgN").value, p1 = $("#lgP").value.trim();
-        if (!n || !p1) { $("#lgE").innerHTML = errBox("Escoge tu nombre y escribe el PIN."); return; }
+        const u = exacto($("#lgN").value), n = u ? u.n : "", p1 = $("#lgP").value.trim();
+        if (!$("#lgN").value.trim() || !p1) { $("#lgE").innerHTML = errBox("Escribe tu nombre y tu PIN."); return; }
+        if (!u) { $("#lgE").innerHTML = errBox("Ese nombre no está registrado: escoge uno de la lista."); pintarSug(); return; }
         const b = $("#lgB"); b.disabled = true;
         try { const r = await api("webLogin", n, p1); ls.set("ultNombre", n); entrar(r); } catch (e) { $("#lgE").innerHTML = errBox(e); b.disabled = false; $("#lgP").value = ""; }
       };
@@ -2977,9 +3002,15 @@ function listaModulos(mods, q, sel, opts) {
   const grupos = {};
   f.forEach(x => (grupos[x.sec] = grupos[x.sec] || []).push(x));
   return Object.keys(grupos).map(s => `<section class="rep-sec"><h3>${h(nombreSeccion(s))} <span class="sec-n">${grupos[s].length}</span></h3><div class="rep-mods">${grupos[s].map(x => {
-    const ya = opts.ya ? opts.ya(x.m) : null, on = sel.has(x.m), l = x.lotes[0];
-    return `<button type="button" class="rep-mod ${on ? "on" : ""} ${ya ? "ya" : ""}" data-m="${h(x.m)}" ${ya ? `disabled title="${h(ya)}"` : ""}>
-      <span class="rm-n">${h(x.m)}</span><span class="rm-p">${ya ? h(ya) : `${h(l.s)} · ${h(l.p)}`}</span>${x.lotes.length > 1 && !ya ? `<span class="rm-p">+${x.lotes.length - 1} lote${x.lotes.length > 2 ? "s" : ""}</span>` : ""}</button>`;
+    // Verde: con producto disponible · rojo: todo lo que tiene está bloqueado. Se muestra el lote que vence primero.
+    const ya = opts.ya ? opts.ya(x.m) : null, on = sel.has(x.m);
+    const l = x.lotes.slice().sort((a, b) => (b.disp ? 1 : 0) - (a.disp ? 1 : 0) || tV(a.v) - tV(b.v))[0];
+    const disp = x.lotes.some(y => y.disp);
+    return `<button type="button" class="rep-mod ${disp ? "m-disp" : "m-bloq"} ${on ? "on" : ""} ${ya ? "ya" : ""}" data-m="${h(x.m)}" ${ya ? `disabled title="${h(ya)}"` : ""}>
+      <span class="rm-n">${h(x.m)}${disp ? "" : ` <span class="rm-b">BLOQ</span>`}</span>
+      ${ya ? `<span class="rm-p">${h(ya)}</span>` : `<span class="rm-prod">${h(l.p)}</span>
+      <span class="rm-p">Vence <b>${h(l.vf)}</b>${l.d !== 9999 ? ` · ${l.d < 0 ? `vencido hace ${-l.d} d` : `${l.d} d`}` : ""}</span>
+      ${l.actTxt ? `<span class="rm-p">Act: ${h(l.actTxt)}</span>` : ""}${x.lotes.length > 1 ? `<span class="rm-p">+${x.lotes.length - 1} lote${x.lotes.length > 2 ? "s" : ""}</span>` : ""}`}</button>`;
   }).join("")}</div></section>`).join("");
 }
 function avisoGuardado(r, que) {

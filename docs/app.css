@@ -1183,15 +1183,31 @@
   .rep-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; font-weight: 800; border-color: #ff9f43; }
   .cs-x { border: 0; background: var(--bad-soft); color: var(--bad); width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 900; cursor: pointer; }
   .rep-sec h3 { margin: 16px 0 8px; font-size: 14px; color: var(--muted); }
-  .rep-mods { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .rep-mods { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  /* Módulos al reportar: verde = con producto disponible, rojo = bloqueado; letra negra */
+  .rep-mod.m-disp { background: #c8f5d8 !important; border-color: #3fbf75; }
+  .rep-mod.m-bloq { background: #ffd2d2 !important; border-color: #e05a5a; }
+  .rep-mod.m-disp, .rep-mod.m-bloq { color: #111; }
+  .rep-mod.m-disp .rm-p, .rep-mod.m-bloq .rm-p { color: #222; white-space: normal; }
+  .rep-mod .rm-prod { font-size: 12.5px; font-weight: 750; line-height: 1.25; color: #111; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rep-mod .rm-b { font-size: 10px; font-weight: 800; color: #fff; background: #c0392b; border-radius: 4px; padding: 1px 4px; vertical-align: middle; }
   .rep-mod { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; min-height: 58px; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); color: var(--ink); cursor: pointer; min-width: 0; }
   .rep-mod:nth-child(even) { background: var(--card2); }
   .rep-mod .rm-n { font-size: 17px; font-weight: 850; }
   .rep-mod .rm-p { font-size: 11.5px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rep-mod.on { border: 2px solid #ff9f43; background: rgba(255,159,67,.16) !important; }
-  .rep-mod.on .rm-n::after { content: " ⬜ vacío"; font-size: 11px; color: #ffb066; font-weight: 800; }
+  .rep-mod.on { border: 3px solid #ff8a00; box-shadow: 0 0 0 3px rgba(255,138,0,.35); background: #ffe2bf !important; }
+  .rep-mod.on .rm-n::after { content: " ⬜ vacío"; font-size: 11px; color: #b45309; font-weight: 800; }
   .rep-mod.ya { opacity: .55; cursor: not-allowed; border-style: dashed; }
   html[data-tema="claro"] .rep-mod { background: #fff; } html[data-tema="claro"] .rep-mod:nth-child(even) { background: #f3f6fa; }
+  /* Ingreso: nombres sugeridos, separados por rol */
+  .lg-sug { margin-top: 6px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line2); border-radius: 12px; background: var(--card2); padding: 4px; }
+  .lg-g + .lg-g { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .lg-gt { display: flex; justify-content: space-between; padding: 6px 10px 2px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--cyan); }
+  .lg-gt span { color: var(--muted); }
+  .lg-op { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); font-size: 15px; padding: 10px 12px; border-radius: 9px; cursor: pointer; }
+  .lg-op:nth-child(odd) { background: rgba(255,255,255,.035); }
+  .lg-op:hover, .lg-op:focus-visible { background: var(--brand-soft); color: var(--brand); }
+  html[data-tema="claro"] .lg-sug { background: #fff; } html[data-tema="claro"] .lg-op:nth-child(odd) { background: #f3f6fa; }
   .rep-pie { position: sticky; bottom: 8px; margin-top: 16px; z-index: 5; }
   @media (max-width: 1023px) { .rep-pie { bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom) + 8px); } }
   .rep-pie .fin-acc { margin: 8px 0 0; }

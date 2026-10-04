@@ -17,7 +17,7 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
   const page = await ctx.newPage();
   page.on("pageerror", e => console.error("ERR", e.message));
   await page.goto("http://127.0.0.1:8770/"); await page.waitForSelector("#lgN");
-  await page.selectOption("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
+  await page.fill("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
   if (antes) { await page.evaluate(antes); await page.waitForTimeout(500); }
   const r = await page.evaluate(async ([t, i]) => { const x = await api("webPDF", t, i || ""); return x; }, [tipo, id || ""]);
   require("fs").writeFileSync(`/tmp/p_${tipo}.pdf`, Buffer.from(r.b64, "base64"));

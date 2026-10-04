@@ -5719,7 +5719,9 @@ function usrBuscar_(nombre) {
 // Datos públicos para la pantalla de ingreso
 function usrPublico_() {
   const lis = usrListarTodos_();
-  return { setup: lis.length === 0, nombres: lis.filter(u => u.activo).map(u => u.nombre).sort((a, b) => a.localeCompare(b)) };
+  const act = lis.filter(u => u.activo);
+  return { setup: lis.length === 0, nombres: act.map(u => u.nombre).sort((a, b) => a.localeCompare(b)),
+    usuarios: act.map(u => ({ n: u.nombre, r: u.rol })).sort((a, b) => (ROLES[b.r] || 0) - (ROLES[a.r] || 0) || a.r.localeCompare(b.r) || a.n.localeCompare(b.n)) };
 }
 
 function crearSesion_(u) {

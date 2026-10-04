@@ -466,7 +466,7 @@
     const ok = data => JSON.stringify({ ok: true, data: data });
     const fallo = (msg, extra) => JSON.stringify(Object.assign({ ok: false, error: msg }, extra || {}));
     try {
-      if (fn === "webPublico") { const r = await rpc("ingreso_nombres", {}); return ok({ setup: false, nombres: r.nombres || [] }); }
+      if (fn === "webPublico") { const r = await rpc("ingreso_nombres", {}); return ok({ setup: false, nombres: r.nombres || [], usuarios: r.usuarios || [] }); }
       if (fn === "webLogin") {
         const r = await rpc("ingresar", { p_nombre: args[0], p_pin: args[1] });
         if (!r || !r.ok) return fallo((r && r.error) || "No se pudo ingresar.");

@@ -18,7 +18,7 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
     await ctx.route("https://script.google.com/**", r => r.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }));
     const page = await ctx.newPage();
     await page.goto("http://127.0.0.1:8769/"); await page.waitForSelector("#lgN");
-    await page.selectOption("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
+    await page.fill("#lgN", "Huber"); await page.fill("#lgP", "1234"); await page.click("#lgB"); await page.waitForTimeout(2500);
     await page.evaluate(v => ir(v), vista); await page.waitForTimeout(1500);
     if (antes) { await page.evaluate(antes); await page.waitForTimeout(900); }
     await page.screenshot({ path: `/tmp/c_${vista}_${w}.png` });

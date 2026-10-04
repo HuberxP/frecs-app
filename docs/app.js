@@ -18,6 +18,7 @@ const NAV = [
     { id: "entrega", ic: "📋", t: "Entrega de turno" },
     { id: "final", ic: "📦", t: "Entrega final" },
     { id: "consumo", ic: "🥤", t: "Consumo" },
+    { id: "rotular", ic: "🏷️", t: "Rotular", rol: "validador" },
     { id: "preconciliacion", ic: "📌", t: "Pre-conciliación" } ] },
   { g: "Historial", cls: "turnos", items: [
     { id: "hval", ic: "🗂️", t: "Historial de validaciones" },
@@ -984,6 +985,9 @@ function invCard(i, o) {
   if (i.tpc) tags.push(`<span class="tag">🏷️ Tapacódigo</span>`);
   if (i.reemp) tags.push(`<span class="tag">📦 Reempaque</span>`);
   if (i.carpa && o.carpa !== false) tags.push(`<span class="tag">⛺ Carpa</span>`);
+  // Estibas del módulo respecto a lo que le cabe (como en Consumo) y si es el único módulo con el producto
+  if (o.ocup && S.ocup[i.m] && S.ocup[i.m].capTot) { const oc = S.ocup[i.m]; tags.unshift(oc.usadas >= oc.capTot ? `<span class="tag t-lleno" title="Estibas en el módulo / capacidad">Lleno ${fm(oc.usadas)}/${fm(oc.capTot)}</span>` : `<span class="tag t-inc" title="Estibas en el módulo / capacidad">Incompleto ${fm(oc.usadas)}/${fm(oc.capTot)}</span>`); }
+  if (o.unico) tags.unshift(`<span class="tag t-unico">⚠️ Único módulo</span>`);
   // Reportes pendientes del módulo: el vacío no lleva puesto FEFO (lo hace quien llama con fefoN)
   const rp = repDe(i.m);
   if (rp.v) tags.unshift(`<span class="tag t-rv" title="Reportado por ${h(rp.v.por)} · ${h(fechaCorta(rp.v.en))}">🟠 Reportado como vacío</span>`);
@@ -1096,12 +1100,14 @@ VISTAS.stock = async (el, p, vigente) => {
     const visibles = fis.filter(i => verKA || !i.esOp);
     const tot = visibles.filter(i => i.disp).reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
     const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : i[filtro])).sort(ordPrioVence);
+    // Único módulo: el producto disponible está en un solo módulo de bodega (sin KA / PREV), igual que en Consumo
+    const modsDisp = new Set(fis.filter(i => i.disp && !i.esOp).map(i => i.m)), unico = modsDisp.size === 1 ? [...modsDisp][0] : "";
     const segBtn = (f, t) => `<button data-f="${f}" class="${filtro === f ? "on" : ""}">${t}</button>`;
-    r.innerHTML = `<div class="card st-card"><div class="prod">${skuTxt(sku, fis[0].p || ficha.prod)}</div>
+    r.innerHTML = `<div class="card st-card ${unico ? "unico" : ""}"><div class="prod">${skuTxt(sku, fis[0].p || ficha.prod)}</div>${unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto: ${h(unico)}</span>` : ""}
         <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
-      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, fefo: i.disp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
+      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, unico: i.m === unico && i.disp, fefo: i.disp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
   };
@@ -3013,6 +3019,42 @@ function listaModulos(mods, q, sel, opts) {
       ${l.actTxt ? `<span class="rm-p">Act: ${h(l.actTxt)}</span>` : ""}${x.lotes.length > 1 ? `<span class="rm-p">+${x.lotes.length - 1} lote${x.lotes.length > 2 ? "s" : ""}</span>` : ""}`}</button>`;
   }).join("")}</div></section>`).join("");
 }
+// Sugerencias del módulo mientras se escribe (como el buscador de SKU): se toca y queda escogido
+function autoModulo(input, mods, onPick, opts) {
+  opts = opts || {};
+  const box = document.createElement("div");
+  box.className = "ac-list hidden";
+  input.parentNode.appendChild(box);
+  input.setAttribute("autocomplete", "off");
+  let items = [], sel = -1;
+  const pintar = () => {
+    const q = qMod(input.value);
+    if (!q) { items = []; box.classList.add("hidden"); return; }
+    // primero los que empiezan igual (B1 → B1, B10, B11…), luego los que lo contienen
+    items = mods.filter(x => qMod(x.m).startsWith(q)).concat(mods.filter(x => !qMod(x.m).startsWith(q) && qMod(x.m).includes(q))).slice(0, opts.max || 10);
+    sel = items.length ? 0 : -1;
+    if (!items.length) { box.classList.add("hidden"); return; }
+    box.innerHTML = items.map((x, k) => {
+      const l = x.lotes.slice().sort((a, b) => (b.disp ? 1 : 0) - (a.disp ? 1 : 0) || tV(a.v) - tV(b.v))[0], disp = x.lotes.some(y => y.disp), ya = opts.ya ? opts.ya(x.m) : null;
+      return `<div class="ac-item ac-mod ${k === 0 ? "on" : ""} ${ya ? "ya" : ""}" data-k="${k}"><span class="acm-n ${disp ? "d" : "b"}">${h(x.m)}</span><div class="acm-t"><b>${h(l.p)}</b><div class="sub">${ya ? h(ya) : `Vence ${h(l.vf)}${disp ? "" : " · BLOQUEADO"}${x.lotes.length > 1 ? ` · ${x.lotes.length} lotes` : ""}`}</div></div></div>`;
+    }).join("");
+    box.classList.remove("hidden");
+  };
+  const elegir = k => { const x = items[k]; if (!x) return; if (opts.ya && opts.ya(x.m)) { toast(opts.ya(x.m), "warn", 4000); return; } box.classList.add("hidden"); input.value = ""; input.blur(); onPick(x); };
+  input.addEventListener("input", pintar);
+  input.addEventListener("focus", () => { if (input.value.trim()) pintar(); });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); if (!box.classList.contains("hidden") && sel >= 0) elegir(sel); else if (opts.alEnter) opts.alEnter(); return; }
+    if (box.classList.contains("hidden")) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, items.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); }
+    else if (e.key === "Escape") { box.classList.add("hidden"); return; }
+    else return;
+    $$(".ac-item", box).forEach((x, k) => x.classList.toggle("on", k === sel));
+  });
+  box.addEventListener("mousedown", e => { const it = e.target.closest("[data-k]"); if (it) { e.preventDefault(); elegir(+it.dataset.k); } });
+  input.addEventListener("blur", () => setTimeout(() => box.classList.add("hidden"), 150));
+}
 function avisoGuardado(r, que) {
   const n = (r.creados || []).length, rep = (r.repetidos || []);
   if (n) toast(`${que}: ${n} módulo${n > 1 ? "s" : ""}${r.telegram ? " · aviso enviado al grupo" : ""}`, "ok", 4000);
@@ -3041,13 +3083,8 @@ VISTAS.repvacio = async (el, p, vigente) => {
     $("#rvP", el).classList.toggle("hidden", !sel.size);
   };
   const q0 = $("#rvQ", el);
-  q0.oninput = pintar;
-  q0.onkeydown = e => {
-    if (e.key !== "Enter") return;
-    const q = qMod(q0.value), f = mods.filter(x => repMatch(x.m, q) && !ya(x.m));
-    const exacto = f.find(x => qMod(x.m) === q) || (f.length === 1 ? f[0] : null);
-    if (exacto) { sel.add(exacto.m); q0.value = ""; pintar(); q0.blur(); }
-  };
+  q0.addEventListener("input", pintar);
+  autoModulo(q0, mods, x => { sel.add(x.m); pintar(); }, { ya });
   el.onclick = async e => {
     const x = e.target.closest("[data-x]"); if (x) { sel.delete(x.dataset.x); pintar(); return; }
     const b = e.target.closest(".rep-mod[data-m]");
@@ -3098,13 +3135,9 @@ VISTAS.repconflicto = async (el, p, vigente) => {
     autoSku($("#rcP", f), c => { prod = { sku: c.sku, prod: c.prod }; $("#rcP", f).value = ""; pintarProd(); }, { limpiar: true });
     pintarProd();
   };
-  q0.oninput = pintarLista;
-  q0.onkeydown = e => {
-    if (e.key !== "Enter") return;
-    const q = qMod(q0.value), f = mods.filter(x => repMatch(x.m, q));
-    const exacto = f.find(x => qMod(x.m) === q) || (f.length === 1 ? f[0] : null);
-    if (exacto) { mod = exacto.m; q0.blur(); pintarForm(); }
-  };
+  q0.addEventListener("input", pintarLista);
+  autoModulo(q0, mods, x => { mod = x.m; pintarForm(); }, { ya: m => repDe(m).c ? `Conflicto ya reportado por ${repDe(m).c.por}` : null,
+    alEnter: () => { const t = limpiarMod(q0.value.trim()); if (qMod(t).length >= 2) { mod = t; pintarForm(); } } });
   el.onclick = async e => {
     const b = e.target.closest(".rep-mod[data-m]"); if (b && !b.disabled) { mod = b.dataset.m; pintarForm(); return; }
     const o = e.target.closest("[data-otro]"); if (o) { mod = o.dataset.otro; pintarForm(); return; }
@@ -3174,6 +3207,169 @@ VISTAS.repgen = async (el, p, vigente) => {
   };
   pintar();
 };
+
+// =====================================================================
+// ROTULAR (turno de la noche): módulos completos que se marcan con su información
+// Cada rotulación tiene fecha y turno; los módulos van en el orden en que se agregan,
+// con producto, SKU, vencimiento y estibas (las calcula el sistema; se pueden corregir)
+// y dos marcas: 🖨️ impreso y 🏷️ rotulado. Se guarda en Supabase (rot_*).
+// =====================================================================
+const HOR_T = { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
+VISTAS.rotular = async (el, p, vigente) => {
+  if (p.id) return vistaRotulo(el, p.id, vigente);
+  const lis = await api("webRotListar");
+  if (!vigente()) return;
+  el.innerHTML = cab("🏷️ Rotular", "El turno de la noche rotula los módulos completos. Crea una rotulación con tu turno, agrega cada módulo (el sistema trae el producto, el vencimiento y las estibas, que puedes corregir) y marca cuando lo mandaste a imprimir y cuando ya quedó rotulado.",
+      `<button class="btn primary" data-a="nueva">＋ Nueva rotulación</button>`) +
+    (lis.length ? `<div class="grid tarjetas">${lis.map(r => {
+      const listo = r.n > 0 && r.rotulados === r.n;
+      return `<article class="card rot-card ${listo ? "listo" : ""}" data-id="${r.id}" role="button" tabindex="0">
+        <div class="row sb" style="flex-wrap:nowrap"><div class="row" style="flex-wrap:nowrap"><span class="turno-num sm">T${h(r.turno)}</span><b style="font-size:16px">${h(fechaDMY(r.fecha))}</b></div>
+          <span class="pill ${listo ? "ok" : r.n ? "warn" : ""}">${listo ? "Rotulada" : r.n ? "En curso" : "Vacía"}</span></div>
+        <div class="hc-l">🔓 <b>${h(r.por)}</b></div>
+        <div class="hc-chips"><span class="chip">📦 <b>${fm(r.n)}</b> módulos</span><span class="chip">🖨️ <b>${fm(r.impresos)}</b>/${fm(r.n)}</span><span class="chip">🏷️ <b>${fm(r.rotulados)}</b>/${fm(r.n)}</span></div>
+        <div class="bar"><i style="width:${r.n ? Math.round(r.rotulados / r.n * 100) : 0}%"></i></div></article>`;
+    }).join("")}</div>` : vacio("Todavía no hay rotulaciones. Toca «＋ Nueva rotulación».", "🏷️"));
+  el.onclick = e => {
+    if (e.target.closest("[data-a=nueva]")) return modalNuevaRot();
+    const c = e.target.closest(".rot-card[data-id]"); if (c) ir("rotular", { id: +c.dataset.id });
+  };
+};
+function modalNuevaRot() {
+  let num = typeof turnoPorHora === "function" ? turnoPorHora() : 1;
+  const c = abrirModal(`<h3>Nueva rotulación</h3><p class="muted small">¿De qué turno es?</p>
+    <div class="num-pick" id="rnT">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(HOR_T[n])}</span></button>`).join("")}</div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="rnOk">Crear</button></div>`);
+  $("#rnT", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#rnT button", c).forEach(x => x.classList.toggle("on", x === b)); };
+  $("#rnOk", c).onclick = async () => {
+    const btn = $("#rnOk", c); ocupado(btn, true);
+    try { const r = await api("webRotCrear", num); ocupado(btn, false); cerrarModal(true); toast(`Rotulación del turno ${num} creada`, "ok"); ir("rotular", { id: r.id }); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+  };
+}
+
+// Lo que el sistema sabe de un producto en un módulo: estibas (suma de sus lotes) y el vencimiento más próximo
+function rotDatos(x, sku) {
+  const ls2 = x.lotes.filter(l => l.s === sku);
+  const v = ls2.map(l => l.v).filter(y => y).sort()[0] || "";
+  return { sku: sku, prod: (ls2[0] || {}).p || "", vence: v, est: ls2.reduce((a, l) => a + (l.e || 0), 0) };
+}
+
+async function vistaRotulo(el, id, vigente) {
+  const [r, inv] = await Promise.all([api("webRotVer", id), cargarInv(), cargarCat().catch(() => null)]);
+  if (!vigente()) return;
+  let rot = r, form = null;   // form: { m, sku, prod, vence, est, estSis, x }
+  const mods = modulosConProducto(inv);
+  const fila = (it, k) => `<div class="rot-row ${it.rotulado ? "hecho" : ""}" data-id="${it.id}">
+      <span class="rot-k">${k + 1}</span>
+      <div class="rot-info"><div class="rot-l1">${modChip(it.m)} <b class="rot-est">${it.est === null || it.est === undefined ? "—" : fm(it.est)} est.</b>${it.estSis !== null && it.estSis !== undefined && Number(it.est) !== Number(it.estSis) ? ` <span class="small muted" title="Lo que calculó el sistema">(sistema ${fm(it.estSis)})</span>` : ""}</div>
+        <div class="rot-l2">${it.sku ? skuTxt(it.sku, it.prod) : `<span class="muted">${h(it.prod || "Sin producto")}</span>`}</div>
+        <div class="rot-l3">Vence <b>${it.vence ? h(fechaDMY(it.vence)) : "—"}</b>${it.vence ? ` · ${diasA(it.vence)}` : ""}</div></div>
+      <div class="rot-acc">
+        <label class="rot-chk ${it.impreso ? "on" : ""}" title="${it.impreso ? "Impreso por " + h(it.impresoPor) : "Marcar como impreso"}"><input type="checkbox" data-mk="impreso" ${it.impreso ? "checked" : ""}><span>🖨️ Impreso</span></label>
+        <label class="rot-chk ${it.rotulado ? "on" : ""}" title="${it.rotulado ? "Rotulado por " + h(it.rotuladoPor) : "Marcar como rotulado"}"><input type="checkbox" data-mk="rotulado" ${it.rotulado ? "checked" : ""}><span>🏷️ Rotulado</span></label>
+        <div class="rot-ed"><button class="btn sm icon" data-ed title="Corregir" aria-label="Corregir">✎</button><button class="btn sm icon del" data-q title="Quitar" aria-label="Quitar">${ICO_DEL}</button></div></div></div>`;
+  const pintarLista = () => {
+    const its = rot.items, imp = its.filter(i => i.impreso).length, rotu = its.filter(i => i.rotulado).length;
+    $("#roL", el).innerHTML = its.length ? `<div class="row sb rot-tit"><h3 style="margin:0">Módulos <span class="sec-n">${its.length}</span> <span class="small muted">🖨️ ${imp}/${its.length} · 🏷️ ${rotu}/${its.length}</span></h3>
+        <div class="row" style="gap:6px">${imp < its.length ? `<button class="btn sm" data-todos="impreso">🖨️ Todos impresos</button>` : ""}${rotu < its.length ? `<button class="btn sm" data-todos="rotulado">🏷️ Todos rotulados</button>` : ""}</div></div>
+      <div class="rot-lista">${its.map(fila).join("")}</div>` : vacio("Agrega el primer módulo a rotular.", "📦");
+  };
+  // Formulario: el módulo, el producto que hay ahí, el vencimiento y las estibas (calculadas, editables)
+  const pintarForm = () => {
+    const f = $("#roF", el);
+    if (!form) { f.innerHTML = ""; f.classList.add("hidden"); $("#roB", el).classList.remove("hidden"); return; }
+    $("#roB", el).classList.add("hidden"); f.classList.remove("hidden");
+    const skus = form.x ? [...new Set(form.x.lotes.map(l => l.s))] : [];
+    f.innerHTML = `<div class="row sb"><h3 style="margin:0">📍 ${modChip(form.m)}</h3><button type="button" class="link" data-cancel>Cambiar módulo</button></div>
+      ${skus.length > 1 ? `<div class="small muted" style="margin-top:8px">En este módulo hay ${skus.length} productos: escoge cuál vas a rotular</div><div class="seg seg-sm rot-skus">${skus.map(s => { const d = rotDatos(form.x, s); return `<button type="button" data-sku="${h(s)}" class="${s === form.sku ? "on" : ""}">${h(s)} · ${h(d.prod)}</button>`; }).join("")}</div>` : ""}
+      ${!form.x ? `<div class="note warn" style="margin-top:8px">El aplicativo no tiene producto en ${h(form.m)}: escoge el producto.</div>` : ""}
+      <div style="margin-top:10px">${campoAuto("roP", "Producto: nombre o SKU", form.sku ? `${form.sku} · ${form.prod}` : "")}</div>
+      <div class="grid2 rot-campos"><label class="field"><span>Vencimiento</span><input type="date" id="roV" value="${h(form.vence)}"></label>
+        <label class="field"><span>Estibas${form.estSis !== null ? ` <span class="muted small">(sistema: ${fm(form.estSis)})</span>` : ""}</span><input type="text" inputmode="decimal" id="roE" value="${form.est === null ? "" : h(form.est)}" placeholder="—"></label></div>
+      <div class="fin-acc"><button type="button" class="btn sm b-rojo" data-cancel>✖ Cancelar</button><button type="button" class="btn b-verde" id="roOk">＋ Agregar a la lista</button></div>`;
+    autoSku($("#roP", f), c => { form.sku = c.sku; form.prod = c.prod; if (form.x && form.x.lotes.some(l => l.s === c.sku)) { const d = rotDatos(form.x, c.sku); form.vence = d.vence; form.est = d.est; form.estSis = d.est; } pintarForm(); });
+  };
+  const elegirModulo = (m, x) => {
+    form = { m: m, x: x || null, sku: "", prod: "", vence: "", est: null, estSis: null };
+    if (x) {
+      // el producto con más estibas del módulo
+      const skus = [...new Set(x.lotes.map(l => l.s))].map(s => rotDatos(x, s)).sort((a, b) => b.est - a.est);
+      Object.assign(form, skus[0], { estSis: skus[0].est });
+    }
+    pintarForm();
+  };
+  el.innerHTML = `<div class="vh"><div><h1>🏷️ Rotulación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))}</h1><div class="sub">Abierta por <b>${h(rot.por)}</b></div></div>
+      <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button><button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
+    <section class="card rot-agregar"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div></div>
+      <div id="roF" class="hidden"></div></section>
+    <section id="roL"></section>`;
+  autoModulo($("#roQ", el), mods, x => elegirModulo(x.m, x), { alEnter: () => { const t = limpiarMod($("#roQ", el).value.trim()); if (t.length >= 2) { $("#roQ", el).value = ""; elegirModulo(t, mods.find(y => y.m === t)); } } });
+  const guardar = async obj => { rot = await api("webRotItem", rot.id, obj); pintarLista(); };
+  el.onclick = async e => {
+    if (e.target.closest("[data-volver]")) return ir("rotular");
+    if (e.target.closest("[data-elim]")) {
+      if (!(await confirmar("Quitar rotulación", `¿Quitar la rotulación del turno ${h(rot.turno)} del ${h(fechaDMY(rot.fecha))} con ${rot.items.length} módulos?`, "Quitar", true))) return;
+      try { await api("webRotEliminar", rot.id); toast("Rotulación quitada", "ok"); ir("rotular"); } catch (er) { toast(er.message, "bad"); }
+      return;
+    }
+    if (e.target.closest("[data-cancel]")) { form = null; pintarForm(); $("#roQ", el).focus(); return; }
+    const s = e.target.closest(".rot-skus [data-sku]");
+    if (s && form) { Object.assign(form, rotDatos(form.x, s.dataset.sku)); form.estSis = form.est; pintarForm(); return; }
+    if (e.target.closest("#roOk") && form) {
+      const v = $("#roV", el).value, est = $("#roE", el).value.trim().replace(",", ".");
+      if (!form.sku) { toast("Escoge el producto.", "warn"); $("#roP", el).focus(); return; }
+      if (est !== "" && !(Number(est) >= 0)) { toast("Escribe las estibas con números.", "warn"); return; }
+      const btn = $("#roOk", el); ocupado(btn, true);
+      try { await guardar({ m: form.m, sku: form.sku, prod: form.prod, vence: v, est: est, estSis: form.estSis === null ? "" : form.estSis }); toast(`${form.m} agregado`, "ok", 2000); form = null; pintarForm(); }
+      catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+      return;
+    }
+    const t = e.target.closest("[data-todos]");
+    if (t) {
+      const campo = t.dataset.todos, ids = rot.items.filter(i => !i[campo]).map(i => i.id);
+      try { rot = await api("webRotMarcar", rot.id, ids, campo, true); pintarLista(); toast(campo === "impreso" ? "Todos marcados como impresos" : "Todos marcados como rotulados", "ok"); } catch (er) { toast(er.message, "bad"); }
+      return;
+    }
+    const row = e.target.closest(".rot-row[data-id]"); if (!row) return;
+    const it = rot.items.find(i => String(i.id) === row.dataset.id); if (!it) return;
+    if (e.target.closest("[data-q]")) {
+      if (!(await confirmar("Quitar módulo", `¿Quitar <b>${h(it.m)}</b> de la rotulación?`, "Quitar", true))) return;
+      try { rot = await api("webRotQuitar", rot.id, it.id); pintarLista(); } catch (er) { toast(er.message, "bad"); }
+      return;
+    }
+    if (e.target.closest("[data-ed]")) return modalRotItem(rot, it, async obj => { await guardar(obj); });
+  };
+  el.onchange = async e => {
+    const mk = e.target.closest("[data-mk]"); if (!mk) return;
+    const row = mk.closest(".rot-row[data-id]"), v = mk.checked;
+    mk.closest(".rot-chk").classList.toggle("on", v);
+    try { rot = await api("webRotMarcar", rot.id, [+row.dataset.id], mk.dataset.mk, v); pintarLista(); }
+    catch (er) { mk.checked = !v; mk.closest(".rot-chk").classList.toggle("on", !v); toast(er.message, "bad"); }
+  };
+  pintarLista();
+}
+// Días que faltan para vencer (texto corto)
+function diasA(v) {
+  const d = Math.round((tV(v) - tV(new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10))) / 864e5);
+  return d < 0 ? `vencido hace ${-d} d` : `${d} d`;
+}
+function modalRotItem(rot, it, alGuardar) {
+  let prod = { sku: it.sku, prod: it.prod };
+  const c = abrirModal(`<h3>Corregir ${modChip(it.m)}</h3>
+    ${campoAuto("reP", "Producto: nombre o SKU", it.sku ? `${it.sku} · ${it.prod}` : "")}
+    <div class="grid2 rot-campos"><label class="field"><span>Vencimiento</span><input type="date" id="reV" value="${h(it.vence)}"></label>
+      <label class="field"><span>Estibas${it.estSis !== null && it.estSis !== undefined ? ` <span class="muted small">(sistema: ${fm(it.estSis)})</span>` : ""}</span><input type="text" inputmode="decimal" id="reE" value="${it.est === null || it.est === undefined ? "" : h(it.est)}"></label></div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="reOk">Guardar</button></div>`);
+  autoSku($("#reP", c), x => { prod = { sku: x.sku, prod: x.prod }; });
+  $("#reOk", c).onclick = async () => {
+    const est = $("#reE", c).value.trim().replace(",", ".");
+    if (est !== "" && !(Number(est) >= 0)) return toast("Escribe las estibas con números.", "warn");
+    const btn = $("#reOk", c); ocupado(btn, true);
+    try { await alGuardar({ id: it.id, m: it.m, sku: prod.sku, prod: prod.prod, vence: $("#reV", c).value, est: est }); ocupado(btn, false); cerrarModal(true); toast("Corregido", "ok"); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+  };
+}
 
 // =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)

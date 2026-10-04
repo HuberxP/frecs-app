@@ -5379,6 +5379,24 @@ function webReporteCerrar(tk) { return webAuth_(tk, "verificador", () => { throw
 function webPref(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Las preferencias se guardan en la versión nueva de Frecs."); }); }
 
 ;
+// ===== 29_Rotular.gs =====
+// =========================================================
+// 29 · ROTULAR (turno de la noche)
+// ---------------------------------------------------------
+// Las rotulaciones viven solo en Supabase (tablas rotulaciones y rotulo_items) y la
+// página nueva las maneja directo con las funciones rot_*. Aquí solo hay avisos para el
+// dashboard de Apps Script.
+// =========================================================
+function rotSoloNueva_(tk) { return webAuth_(tk, V_, () => { throw new Error("La rotulación se hace en la versión nueva de Frecs."); }); }
+function webRotListar(tk) { return rotSoloNueva_(tk); }
+function webRotCrear(tk) { return rotSoloNueva_(tk); }
+function webRotVer(tk) { return rotSoloNueva_(tk); }
+function webRotItem(tk) { return rotSoloNueva_(tk); }
+function webRotMarcar(tk) { return rotSoloNueva_(tk); }
+function webRotQuitar(tk) { return rotSoloNueva_(tk); }
+function webRotEliminar(tk) { return rotSoloNueva_(tk); }
+
+;
 // ===== 30_Web_Api.gs =====
 // =========================================================
 // 30 · DASHBOARD WEB: doGet y funciones que llama la página

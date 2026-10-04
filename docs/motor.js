@@ -5360,6 +5360,24 @@ function webReporteCerrar(tk) { return webAuth_(tk, "verificador", () => { throw
 function webPref(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Las preferencias se guardan en la versión nueva de Frecs."); }); }
 
 ;
+// ===== 29_Rotular.gs =====
+// =========================================================
+// 29 · ROTULAR (turno de la noche)
+// ---------------------------------------------------------
+// Las rotulaciones viven solo en Supabase (tablas rotulaciones y rotulo_items) y la
+// página nueva las maneja directo con las funciones rot_*. Aquí solo hay avisos para el
+// dashboard de Apps Script.
+// =========================================================
+function rotSoloNueva_(tk) { return webAuth_(tk, V_, () => { throw new Error("La rotulación se hace en la versión nueva de Frecs."); }); }
+function webRotListar(tk) { return rotSoloNueva_(tk); }
+function webRotCrear(tk) { return rotSoloNueva_(tk); }
+function webRotVer(tk) { return rotSoloNueva_(tk); }
+function webRotItem(tk) { return rotSoloNueva_(tk); }
+function webRotMarcar(tk) { return rotSoloNueva_(tk); }
+function webRotQuitar(tk) { return rotSoloNueva_(tk); }
+function webRotEliminar(tk) { return rotSoloNueva_(tk); }
+
+;
 // ===== 30_Web_Api.gs =====
 // =========================================================
 // 30 · DASHBOARD WEB: doGet y funciones que llama la página
@@ -6208,7 +6226,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

@@ -479,6 +479,14 @@
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
       if (["webReportes", "webReporteCrear", "webReporteCerrar"].includes(fn)) return await reportes(fn, args, ok);
+      // Rotulación de módulos (funciones de Supabase)
+      const ROT = {
+        webRotListar: a => ["rot_listar", {}], webRotCrear: a => ["rot_crear", { p_turno: Number(a[1]) }], webRotVer: a => ["rot_ver", { p_id: Number(a[1]) }],
+        webRotItem: a => ["rot_item_guardar", { p_rot: Number(a[1]), p_item: a[2] || {} }],
+        webRotMarcar: a => ["rot_marcar", { p_rot: Number(a[1]), p_ids: a[2] || [], p_campo: String(a[3] || ""), p_valor: a[4] === true }],
+        webRotQuitar: a => ["rot_item_quitar", { p_rot: Number(a[1]), p_id: Number(a[2]) }], webRotEliminar: a => ["rot_eliminar", { p_id: Number(a[1]) }]
+      };
+      if (ROT[fn]) { const [f, p] = ROT[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
       if (fn === "webPref") {
         const p = await rpc("pref_guardar", { p_token: args[0], p_clave: String(args[1] || ""), p_valor: args[2] === undefined ? null : args[2] });

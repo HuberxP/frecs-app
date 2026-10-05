@@ -19,6 +19,7 @@ const NAV = [
     { id: "final", ic: "📦", t: "Entrega final" },
     { id: "consumo", ic: "🥤", t: "Consumo" },
     { id: "rotular", ic: "🏷️", t: "Rotular", rol: "validador" },
+    { id: "actualizacion", ic: "🕒", t: "Actualización de bodega" },
     { id: "preconciliacion", ic: "📌", t: "Pre-conciliación" } ] },
   { g: "Historial", cls: "turnos", items: [
     { id: "hval", ic: "🗂️", t: "Historial de validaciones" },
@@ -432,6 +433,15 @@ function buscarCat(q, max) {
   }
   return res.slice(0, max || 12);
 }
+// En el celular el teclado tapa la lista de sugerencias: al empezar a escribir se sube el cuadro
+function subirAlEscribir(input) {
+  if (window.innerWidth > 1023) return;
+  const r = input.getBoundingClientRect();
+  if (r.top < window.innerHeight * 0.35) return;
+  const modal = input.closest(".modal-card");
+  if (modal) { modal.scrollTop += r.top - modal.getBoundingClientRect().top - 12; return; }
+  window.scrollTo({ top: window.scrollY + r.top - 90, behavior: "smooth" });
+}
 function autoSku(input, onPick, opts) {
   opts = opts || {};
   const box = document.createElement("div");
@@ -450,6 +460,7 @@ function autoSku(input, onPick, opts) {
   // Al escoger de la lista se esconde el teclado del celular
   const elegir = k => { const c = items[k]; if (!c) return; box.classList.add("hidden"); if (opts.limpiar) input.value = ""; else input.value = opts.soloSku ? c.sku : `${c.sku} · ${c.prod}`; input.blur(); onPick(c); };
   input.addEventListener("input", pintar);
+  input.addEventListener("input", () => subirAlEscribir(input), { once: true });
   input.addEventListener("focus", () => { if (input.value.trim()) pintar(); });
   input.addEventListener("keydown", e => {
     if (box.classList.contains("hidden")) return;
@@ -1205,7 +1216,8 @@ VISTAS.modulo = async (el, p, vigente) => {
   el.innerHTML = cab("📍 Por módulo", "Una letra para todo el pasillo (B = B1, B2…) o el módulo exacto (B12, KA3, M4, H2)") +
     barraBusqueda("mq", "Módulo o pasillo (ej: B o B12)", q, "Ver") + `<div id="mr"></div>`;
   const ver = () => { const v = $("#mq", el).value.trim(); ls.set("ultMod", v); ir("modulo", { mod: v }); };
-  $("#mqB", el).onclick = ver; $("#mq", el).onkeydown = e => { if (e.key === "Enter") ver(); };
+  $("#mqB", el).onclick = ver;
+  autoModulo($("#mq", el), modulosConProducto(inv), x => { ls.set("ultMod", x.m); ir("modulo", { mod: x.m }); }, { primero: false, dejar: true, alEnter: ver });
   alLimpiar($("#mq", el), () => { ls.set("ultMod", ""); $("#mr", el).innerHTML = ""; });
   if (!q) { $("#mr", el).innerHTML = ""; return; }
   const esPasillo = q.length <= 2 && !/\d/.test(q);
@@ -2344,8 +2356,14 @@ function modalEntItem(s, item, elegir, otra) {
     $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}"><span class="cant-n">${k + 1}</span>
       <input type="text" inputmode="decimal" data-f="n" value="${h(x.n)}" placeholder="Cantidad">
       ${miniSel("eu" + k, ["Estibas", "Cajas", "Unidades"], x.un).replace('class="mini-sel"', 'class="mini-sel ms-un" data-f="un"')}
-      ${cfg.mod ? `<input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo">` : ""}
+      ${cfg.mod ? `<span class="rep-busca ei-mod"><input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo" autocapitalize="characters" autocomplete="off"></span>` : ""}
       <button class="btn sm icon" data-q="${k}" title="Quitar">✕</button></div>`).join("");
+    // Sugerencias de módulo: primero donde el aplicativo tiene ese producto
+    if (cfg.mod && S.inv) {
+      const sku = (item && item.sku) || (prodSel && prodSel.sku) || "", todos = modulosConProducto(S.inv);
+      const mods = todos.filter(x => x.lotes.some(l => l.s === sku)).concat(todos.filter(x => !x.lotes.some(l => l.s === sku)));
+      $$("#eiC input[data-f=m]", c).forEach(i => autoModulo(i, mods, x => { const r = i.closest("[data-k]"); if (r) cant[+r.dataset.k].m = x.m; }, { primero: false, dejar: true }));
+    }
   };
   pintarCant();
   if (otra) setTimeout(() => { const ns = $$("#eiC input[data-f=n]", c); if (ns.length) ns[ns.length - 1].focus(); }, 80);
@@ -3032,16 +3050,24 @@ function autoModulo(input, mods, onPick, opts) {
     if (!q) { items = []; box.classList.add("hidden"); return; }
     // primero los que empiezan igual (B1 → B1, B10, B11…), luego los que lo contienen
     items = mods.filter(x => qMod(x.m).startsWith(q)).concat(mods.filter(x => !qMod(x.m).startsWith(q) && qMod(x.m).includes(q))).slice(0, opts.max || 10);
-    sel = items.length ? 0 : -1;
-    if (!items.length) { box.classList.add("hidden"); return; }
+    sel = items.length && opts.primero !== false ? 0 : -1;
+    if (!items.length) { box.classList.add("hidden"); if (opts.sinCoincidencia) opts.sinCoincidencia(input.value.trim()); return; }
+    if (opts.sinCoincidencia) opts.sinCoincidencia("");
     box.innerHTML = items.map((x, k) => {
       const l = x.lotes.slice().sort((a, b) => (b.disp ? 1 : 0) - (a.disp ? 1 : 0) || tV(a.v) - tV(b.v))[0], disp = x.lotes.some(y => y.disp), ya = opts.ya ? opts.ya(x.m) : null;
-      return `<div class="ac-item ac-mod ${k === 0 ? "on" : ""} ${ya ? "ya" : ""}" data-k="${k}"><span class="acm-n ${disp ? "d" : "b"}">${h(x.m)}</span><div class="acm-t"><b>${h(l.p)}</b><div class="sub">${ya ? h(ya) : `Vence ${h(l.vf)}${disp ? "" : " · BLOQUEADO"}${x.lotes.length > 1 ? ` · ${x.lotes.length} lotes` : ""}`}</div></div></div>`;
+      return `<div class="ac-item ac-mod ${k === sel ? "on" : ""} ${ya ? "ya" : ""}" data-k="${k}"><span class="acm-n ${disp ? "d" : "b"}">${h(x.m)}</span><div class="acm-t"><b>${h(l.p)}</b><div class="sub">${ya ? h(ya) : `Vence ${h(l.vf)}${disp ? "" : " · BLOQUEADO"}${x.lotes.length > 1 ? ` · ${x.lotes.length} lotes` : ""}`}</div></div></div>`;
     }).join("");
     box.classList.remove("hidden");
   };
-  const elegir = k => { const x = items[k]; if (!x) return; if (opts.ya && opts.ya(x.m)) { toast(opts.ya(x.m), "warn", 4000); return; } box.classList.add("hidden"); input.value = ""; input.blur(); onPick(x); };
+  const elegir = k => {
+    const x = items[k]; if (!x) return;
+    if (opts.ya && opts.ya(x.m)) { toast(opts.ya(x.m), "warn", 4000); return; }
+    box.classList.add("hidden"); input.value = opts.dejar ? x.m : ""; input.blur();
+    if (opts.dejar) input.dispatchEvent(new Event("change", { bubbles: true }));
+    onPick(x);
+  };
   input.addEventListener("input", pintar);
+  input.addEventListener("input", () => subirAlEscribir(input), { once: true });
   input.addEventListener("focus", () => { if (input.value.trim()) pintar(); });
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); if (!box.classList.contains("hidden") && sel >= 0) elegir(sel); else if (opts.alEnter) opts.alEnter(); return; }
@@ -3301,10 +3327,13 @@ async function vistaRotulo(el, id, vigente) {
   };
   el.innerHTML = `<div class="vh"><div><h1>🏷️ Rotulación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))}</h1><div class="sub">Abierta por <b>${h(rot.por)}</b></div></div>
       <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button><button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
-    <section class="card rot-agregar"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div></div>
+    <section class="card rot-agregar"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div><div id="roN"></div></div>
       <div id="roF" class="hidden"></div></section>
     <section id="roL"></section>`;
-  autoModulo($("#roQ", el), mods, x => elegirModulo(x.m, x), { alEnter: () => { const t = limpiarMod($("#roQ", el).value.trim()); if (t.length >= 2) { $("#roQ", el).value = ""; elegirModulo(t, mods.find(y => y.m === t)); } } });
+  // Si lo escrito no coincide con ningún módulo con producto, se avisa ahí mismo (sin error) y se puede usar igual
+  const sinMod = t => { $("#roN", el).innerHTML = t ? `<div class="note warn rot-nomod">«${h(limpiarMod(t))}» no tiene producto en el aplicativo. Revisa el nombre o <button type="button" class="link" data-usar="${h(limpiarMod(t))}">agrégalo de todas formas</button>.</div>` : ""; };
+  autoModulo($("#roQ", el), mods, x => { sinMod(""); elegirModulo(x.m, x); }, { sinCoincidencia: sinMod,
+    alEnter: () => { const t = limpiarMod($("#roQ", el).value.trim()), x = mods.find(y => y.m === t); if (x) { $("#roQ", el).value = ""; elegirModulo(t, x); } else if (t) sinMod(t); } });
   const guardar = async obj => { rot = await api("webRotItem", rot.id, obj); pintarLista(); };
   el.onclick = async e => {
     if (e.target.closest("[data-volver]")) return ir("rotular");
@@ -3314,6 +3343,7 @@ async function vistaRotulo(el, id, vigente) {
       return;
     }
     if (e.target.closest("[data-cancel]")) { form = null; pintarForm(); $("#roQ", el).focus(); return; }
+    const us = e.target.closest("[data-usar]"); if (us) { $("#roQ", el).value = ""; $("#roN", el).innerHTML = ""; elegirModulo(us.dataset.usar, null); return; }
     const s = e.target.closest(".rot-skus [data-sku]");
     if (s && form) { Object.assign(form, rotDatos(form.x, s.dataset.sku)); form.estSis = form.est; pintarForm(); return; }
     if (e.target.closest("#roOk") && form) {
@@ -3370,6 +3400,108 @@ function modalRotItem(rot, it, alGuardar) {
     catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
   };
 }
+
+// =====================================================================
+// ACTUALIZACIÓN DE BODEGA: qué sección o módulo lleva más tiempo sin actualizarse en el WMS
+// Son 3 turnos y no alcanza a actualizarse todo en cada uno: el que entra mira lo más reciente
+// y sigue con lo que lleva más tiempo. Cada módulo toma la hora de su última actualización en el
+// WMS (la más reciente de sus lotes) y usa la misma escala que «Act:»:
+// 🟢 menos de 8 h · 🟡 8 a 16 h · 🟠 16 a 24 h · 🔴 más de 24 h.
+// Los módulos vacíos no cuentan (el WMS no trae fecha para ellos).
+// =====================================================================
+const ACT_NIV = [
+  { k: "v", t: "Menos de 8 h", max: 8 },
+  { k: "a", t: "8 a 16 h", max: 16 },
+  { k: "n", t: "16 a 24 h", max: 24 },
+  { k: "r", t: "Más de 24 h", max: Infinity }
+];
+const ACT_EMO = { v: "🟢", a: "🟡", n: "🟠", r: "🔴", x: "⚪" };
+const nivelAct = hrs => hrs === null ? "x" : ACT_NIV.find(n => hrs < n.max).k;
+const haceTxt = hrs => {
+  if (hrs === null) return "sin fecha";
+  const m = Math.round(hrs * 60), d = Math.floor(m / 1440), hh = Math.floor((m % 1440) / 60);
+  return d > 0 ? `hace ${d}d ${hh}h` : hh > 0 ? `hace ${hh}h ${m % 60}m` : `hace ${m % 60}m`;
+};
+// Un módulo por fila: su última actualización (la más reciente de sus lotes con producto)
+function modulosActualizacion(inv) {
+  const ahora = Date.now(), mods = {};
+  inv.forEach(i => {
+    if (!i.fis) return;
+    const x = mods[i.m] = mods[i.m] || { m: i.m, sec: seccionMod(i.m), t: null, lotes: 0, prods: new Set() };
+    x.lotes++; x.prods.add(i.p);
+    const t = i.act ? new Date(i.act).getTime() : NaN;
+    if (!isNaN(t) && (x.t === null || t > x.t)) x.t = t;
+  });
+  return Object.values(mods).map(x => { const hrs = x.t === null ? null : Math.max(0, (ahora - x.t) / 36e5); return Object.assign(x, { hrs: hrs, niv: nivelAct(hrs), prods: [...x.prods] }); });
+}
+// Secciones: la más urgente es la que tiene el módulo con más tiempo sin actualizar
+function seccionesActualizacion(mods) {
+  const g = {};
+  mods.forEach(x => (g[x.sec] = g[x.sec] || { sec: x.sec, mods: [] }).mods.push(x));
+  return Object.values(g).map(s => {
+    s.mods.sort(cmpMod);
+    const con = s.mods.filter(x => x.hrs !== null);
+    s.viejo = con.reduce((a, x) => (!a || x.hrs > a.hrs ? x : a), null);
+    s.nuevo = con.reduce((a, x) => (!a || x.hrs < a.hrs ? x : a), null);
+    s.cuenta = { v: 0, a: 0, n: 0, r: 0, x: 0 }; s.mods.forEach(x => s.cuenta[x.niv]++);
+    s.niv = s.viejo ? s.viejo.niv : "x";
+    s.al = s.mods.length ? Math.round((s.cuenta.v + s.cuenta.a + s.cuenta.n) / s.mods.length * 100) : 0;   // % actualizado en las últimas 24 h
+    return s;
+  }).sort((a, b) => (b.viejo ? b.viejo.hrs : -1) - (a.viejo ? a.viejo.hrs : -1));
+}
+VISTAS.actualizacion = async (el, p, vigente) => {
+  const inv = await cargarInv();
+  if (!vigente()) return;
+  const mods = modulosActualizacion(inv), secs = seccionesActualizacion(mods);
+  let modo = ls.get("actModo", "sec"), q = "", nivF = "";
+  const recSec = secs.slice().filter(s => s.nuevo).sort((a, b) => a.nuevo.hrs - b.nuevo.hrs)[0];
+  const sig = secs.filter(s => s.viejo && s.niv !== "v").slice(0, 3);
+  el.innerHTML = cab("🕒 Actualización de bodega", "Qué sección o módulo lleva más tiempo sin actualizarse en el WMS. Cada módulo toma la hora de su última actualización. El que entra al turno sigue con lo que lleva más tiempo (arriba). Los datos son los de la última sincronización (⟳); los módulos vacíos no cuentan.") +
+    `<div class="act-res">
+      <div class="card act-k"><div class="act-kt">✅ Lo más reciente</div>${recSec ? `<div class="act-kv">${h(nombreSeccion(recSec.sec))}</div><div class="small">${ACT_EMO[recSec.nuevo.niv]} ${h(recSec.nuevo.m)} · ${h(haceTxt(recSec.nuevo.hrs))}</div>` : `<div class="muted">—</div>`}</div>
+      <div class="card act-k act-sig"><div class="act-kt">👉 Debería actualizarse</div>${sig.length ? sig.map((s, k) => `<button type="button" class="act-sig-b ${k === 0 ? "uno" : ""}" data-sec="${h(s.sec)}"><b>${h(nombreSeccion(s.sec))}</b> <span class="small">${ACT_EMO[s.niv]} ${h(haceTxt(s.viejo.hrs))} · ${s.cuenta.r + s.cuenta.n + s.cuenta.a} de ${s.mods.length} pendientes</span></button>`).join("") : `<div class="small">Todo está al día (menos de 8 h).</div>`}</div>
+    </div>
+    <div class="act-ley">${ACT_NIV.map(n => `<span class="act-chip ${n.k}" data-niv="${n.k}">${ACT_EMO[n.k]} ${n.t} <b>${mods.filter(x => x.niv === n.k).length}</b></span>`).join("")}</div>
+    <div class="lista-tools"><div class="seg" id="acM"><button data-m="sec">Por secciones</button><button data-m="mod">Por módulos</button></div>
+      <input type="search" id="acQ" placeholder="Buscar sección o módulo (ej: B, B12)" autocomplete="off"><span class="count" id="acC"></span></div>
+    <div id="acL"></div>`;
+  const modChipAct = x => `<span class="act-m ${x.niv}" title="${h(x.prods.join(" / "))}"><b>${h(x.m)}</b><span>${h(haceTxt(x.hrs).replace("hace ", ""))}</span></span>`;
+  const pintar = () => {
+    $$("#acM button", el).forEach(b => b.classList.toggle("on", b.dataset.m === modo));
+    $$(".act-chip", el).forEach(c => c.classList.toggle("on", c.dataset.niv === nivF));
+    const nq = norm(q).replace(/\s+/g, "");
+    if (modo === "sec") {
+      const f = secs.filter(s => (!nq || norm(s.sec + nombreSeccion(s.sec)).replace(/\s+/g, "").includes(nq) || s.mods.some(x => norm(x.m).startsWith(nq))) && (!nivF || s.cuenta[nivF]));
+      $("#acC", el).textContent = `${f.length} secciones`;
+      $("#acL", el).innerHTML = f.length ? `<div class="act-secs">${f.map(s => {
+        const ab = abierto("acts", s.sec);
+        const ms = s.mods.filter(x => !nivF || x.niv === nivF);
+        return `<article class="card plegable act-sec n-${s.niv} ${ab ? "abierto" : ""}" data-sec="${h(s.sec)}">
+          <div class="pl-cab" data-plegar="acts|${h(s.sec)}" role="button" tabindex="0" aria-expanded="${ab}">
+            <div class="act-st"><div class="act-sn">${ACT_EMO[s.niv]} ${h(nombreSeccion(s.sec))} <span class="sec-n">${s.mods.length}</span></div>
+              <div class="small">Más viejo: <b>${s.viejo ? `${h(s.viejo.m)} · ${h(haceTxt(s.viejo.hrs))}` : "—"}</b> · Más reciente: <b>${s.nuevo ? `${h(s.nuevo.m)} · ${h(haceTxt(s.nuevo.hrs))}` : "—"}</b></div>
+              <div class="act-cnt">${["v", "a", "n", "r"].filter(k => s.cuenta[k]).map(k => `<span class="act-mini ${k}">${ACT_EMO[k]} ${s.cuenta[k]}</span>`).join("")}</div>
+              <div class="act-bar" title="Actualizado en las últimas 24 h: ${s.al}%">${["v", "a", "n", "r", "x"].map(k => s.cuenta[k] ? `<i class="${k}" style="flex:${s.cuenta[k]}"></i>` : "").join("")}</div></div>
+            <span class="pl-flecha" aria-hidden="true">▾</span></div>
+          <div class="pl-cuerpo"><div class="act-mods">${ms.map(modChipAct).join("") || `<span class="muted small">Nada con ese filtro.</span>`}</div></div></article>`;
+      }).join("")}</div>` : vacio("Nada coincide.", "🔎");
+    } else {
+      const f = mods.filter(x => (!nq || norm(x.m).replace(/\s+/g, "").startsWith(nq) || norm(x.sec).startsWith(nq)) && (!nivF || x.niv === nivF))
+        .sort((a, b) => (b.hrs === null ? -1 : b.hrs) - (a.hrs === null ? -1 : a.hrs));
+      $("#acC", el).textContent = `${f.length} módulos`;
+      $("#acL", el).innerHTML = f.length ? `<div class="act-lista">${f.map(x => `<div class="act-row ${x.niv}"><span class="act-m ${x.niv}"><b>${h(x.m)}</b></span>
+        <div class="act-rt"><b>${ACT_EMO[x.niv]} ${h(haceTxt(x.hrs))}</b><div class="small muted">${h(nombreSeccion(x.sec))} · ${h(x.prods.join(" / "))}</div></div></div>`).join("")}</div>` : vacio("Nada coincide.", "🔎");
+    }
+  };
+  $("#acM", el).onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; modo = b.dataset.m; ls.set("actModo", modo); pintar(); };
+  $("#acQ", el).oninput = e => { q = e.target.value.trim(); pintar(); };
+  el.onclick = e => {
+    const c = e.target.closest(".act-chip[data-niv]"); if (c) { nivF = nivF === c.dataset.niv ? "" : c.dataset.niv; pintar(); return; }
+    const s = e.target.closest(".act-sig-b[data-sec]");
+    if (s) { modo = "sec"; S.abiertos.acts = S.abiertos.acts || {}; S.abiertos.acts[s.dataset.sec] = true; q = ""; $("#acQ", el).value = ""; nivF = ""; pintar(); const a = $(`.act-sec[data-sec="${s.dataset.sec}"]`, el); if (a) a.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  };
+  pintar();
+};
 
 // =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)

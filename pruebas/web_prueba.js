@@ -516,6 +516,9 @@ let llamadasSb = 0, sinRed = false;
   const sugR = await P.$$eval(".rot-agregar .ac-mod", o => o.length);
   if (!sugR) errores.push("rotular: el buscador de módulo no sugiere");
   await P.press("#roQ", "Enter"); await P.waitForTimeout(300);
+  // (antes de seguir: un módulo inexistente avisa ahí mismo)
+  const fR0 = await P.evaluate(() => !!$("#roP"));
+  if (!fR0) errores.push("rotular: Enter con el módulo escrito no abrió el formulario");
   const fR = await P.evaluate(() => ({ p: $("#roP") && $("#roP").value, e: $("#roE") && $("#roE").value, v: $("#roV") && $("#roV").value }));
   if (!fR.p || !fR.e || !fR.v) errores.push("rotular: el sistema no llenó producto / estibas / vencimiento: " + JSON.stringify(fR));
   await P.fill("#roE", "7"); await P.click("#roOk"); await P.waitForTimeout(1200);
@@ -526,6 +529,21 @@ let llamadasSb = 0, sinRed = false;
   if (q("select impreso || '|' || impreso_por from rotulo_items order by id desc limit 1") !== "true|Huber") errores.push("rotular: la marca de impreso no se guardó");
   await P.evaluate(() => ir("rotular")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_rotulaciones.png" });
   q("delete from rotulaciones");
+  // --- Sugerencias de módulo en Por módulo y Rotular (módulo que no existe: aviso, no error) ---
+  await P.evaluate(() => ir("modulo")); await P.waitForTimeout(500);
+  await P.fill("#mq", "b1"); await P.waitForTimeout(200);
+  if (!(await P.$(".buscador .ac-mod, #view .ac-mod"))) errores.push("por módulo: no sugiere módulos al escribir");
+  await P.click("#view .ac-mod"); await P.waitForTimeout(500);
+  if (!(await P.evaluate(() => S.vista === "modulo" && /^B1\d*$/.test(S.params.mod || "")))) errores.push("por módulo: tocar la sugerencia no abre el módulo: " + (await P.evaluate(() => JSON.stringify(S.params))));
+  // --- Actualización de bodega ---
+  await P.evaluate(() => ir("actualizacion")); await P.waitForTimeout(700);
+  const act = await P.evaluate(() => ({ secs: $$(".act-sec").length, sig: $$(".act-sig-b").length, mods: S.inv.filter(i => i.fis).length }));
+  if (!act.secs || !act.sig) errores.push("actualización: sin secciones o sin «debería actualizarse»: " + JSON.stringify(act));
+  await P.click(".act-sig-b"); await P.waitForTimeout(400);
+  if (!(await P.$(".act-sec.abierto .act-m"))) errores.push("actualización: tocar la sugerencia no abre la sección con sus módulos");
+  await P.screenshot({ path: "/tmp/w_actualizacion.png" });
+  await P.click('#acM [data-m="mod"]'); await P.waitForTimeout(300);
+  if (!(await P.$(".act-row"))) errores.push("actualización: la vista por módulos está vacía");
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

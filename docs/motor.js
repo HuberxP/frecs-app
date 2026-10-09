@@ -2977,7 +2977,26 @@ function marcarTurnoEditado_(t, usuario) {
 const TURNO_SIGUIENTE = { 1: 2, 2: 3, 3: 1 };
 // (si el turno anterior no tiene número, p. ej. el que vino de la migración, se deja heredar)
 const puedeHeredar_ = (prev, numero) => !!prev && (!TURNO_SIGUIENTE[Number(prev.numero)] || TURNO_SIGUIENTE[Number(prev.numero)] === Number(numero));
-function abrirTurnoCore_(numero, heredar, usuario) {
+// Lo que dejó el turno anterior (para el resumen de Inicio): quién lo entregó, su nota y las novedades de la entrega
+function turnoRecibido_(abierto, prev) {
+  let r = null;
+  try { r = abierto ? (abierto.recibeDeId ? turnoPorId_(abierto.recibeDeId) : null) : prev; } catch (e) { r = null; }
+  if (!r) return null;
+  let notas = [];
+  try { notas = tLeer_(ENT_T.notas).filter(x => txt_(x[0]) === r.id).map(x => txt_(x[4])).filter(x => x).slice(0, 8); } catch (e) {}
+  return { id: r.id, texto: turnoTexto_(r), cerradoPor: nombreCorto_(r.cerradoPor), cierre: r.cierre, nota: r.nota || "", notas: notas };
+}
+// Últimos 10 turnos cerrados (con validación): el que abre escoge de cuál heredar
+function turnosParaHeredar_() {
+  const res = _HIST_RESUMEN && _HIST_RESUMEN.turnos;
+  let cuenta = null;
+  if (!res) { cuenta = {}; tLeer_(VAL_T.histProd).forEach(r => { const k = txt_(r[0]); cuenta[k] = (cuenta[k] || 0) + 1; }); }
+  return listarTurnos_().filter(t => t.estado === "CERRADO" && !parteEliminada_(t, "VAL"))
+    .sort((a, b) => String(b.cierre || b.inicio).localeCompare(String(a.cierre || a.inicio))).slice(0, 10)
+    .map(t => ({ id: t.id, numero: t.numero, texto: turnoTexto_(t), cerradoPor: nombreCorto_(t.cerradoPor), cierre: t.cierre, productos: res ? ((res[t.id] || {}).prod || 0) : (cuenta[t.id] || 0) }));
+}
+// desdeId: el turno del que se heredan los productos (cualquiera de los últimos cerrados); vacío = el inmediatamente anterior
+function abrirTurnoCore_(numero, heredar, usuario, desdeId) {
   numero = parseInt(numero, 10);
   if (![1, 2, 3].includes(numero)) throw new Error("Escoge el turno: 1, 2 o 3.");
   prepararTurnos_();
@@ -2993,9 +3012,13 @@ function abrirTurnoCore_(numero, heredar, usuario) {
     tAgregar_(TURNOS_DEF, [[id, numero, fechaTurno_(numero), "ABIERTO", ahora_(), usuario, "", "", prev ? prev.id : "", recibe, "", "", ""]]);
     turnosCambiaron_();
     let heredados = 0;
-    // Solo se hereda del turno inmediatamente anterior (3 → 1 → 2 → 3) y nunca de una validación eliminada.
-    // heredar = true (con sus saldos) o "blanco" (solo los productos, sin cantidades: se cuentan de nuevo)
-    if ((heredar === true || heredar === "blanco") && prev && puedeHeredar_(prev, numero) && !parteEliminada_(prev, "VAL")) heredados = valHeredar_(id, prev, usuario, heredar === "blanco");
+    // heredar = true (con sus saldos) o "blanco" (solo los productos, sin cantidades: se cuentan de nuevo).
+    // Con desdeId se hereda del turno que se escogió; sin él, del inmediatamente anterior (3 → 1 → 2 → 3). Nunca de una validación eliminada.
+    if (heredar === true || heredar === "blanco") {
+      const src = desdeId ? turnoPorId_(desdeId) : (prev && puedeHeredar_(prev, numero) ? prev : null);
+      if (desdeId && (!src || src.estado !== "CERRADO")) throw new Error("Ese turno no está cerrado: no se puede heredar de él.");
+      if (src && !parteEliminada_(src, "VAL")) heredados = valHeredar_(id, src, usuario, heredar === "blanco");
+    }
     return { id: id, numero: numero, recibeDe: recibe, heredados: heredados };
   });
 }
@@ -3127,6 +3150,8 @@ function turnoEstadoCore_() {
     turno: t ? Object.assign({ texto: turnoTexto_(t), horario: HORARIO_TURNOS[t.numero] || "" }, t) : null,
     sugerido: turnoSugerido_(),
     ultimo: prev ? { id: prev.id, numero: prev.numero, cerradoPor: nombreCorto_(prev.cerradoPor), cierre: prev.cierre, texto: turnoTexto_(prev) } : null,
+    cerrados: t ? [] : turnosParaHeredar_(),
+    recibido: turnoRecibido_(t, prev),
     horarios: HORARIO_TURNOS
   };
 }
@@ -5376,6 +5401,8 @@ function webRotItem(tk) { return rotSoloNueva_(tk); }
 function webRotMarcar(tk) { return rotSoloNueva_(tk); }
 function webRotQuitar(tk) { return rotSoloNueva_(tk); }
 function webRotEliminar(tk) { return rotSoloNueva_(tk); }
+// Secciones por rol: se guardan en Supabase desde la versión nueva
+function webVistasRolGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("Las secciones por rol se cambian en la versión nueva de Frecs."); }); }
 
 ;
 // ===== 30_Web_Api.gs =====
@@ -5599,7 +5626,7 @@ function pdfB64_(r) { return { nombre: r.blob.getName(), b64: Utilities.base64En
 // TURNO (compartido por validación y entrega)
 // ---------------------------------------------------------
 function webTurno(tk) { return webAuth_(tk, L_, () => turnoEstadoCore_()); }
-function webTurnoAbrir(tk, numero, heredar) { return webTurnoAuth_(tk, V_, u => ({ resultado: abrirTurnoCore_(numero, heredar, u.nombre), turno: turnoEstadoCore_() })); }
+function webTurnoAbrir(tk, numero, heredar, desdeId) { return webTurnoAuth_(tk, V_, u => ({ resultado: abrirTurnoCore_(numero, heredar, u.nombre, desdeId || ""), turno: turnoEstadoCore_() })); }
 function webTurnoCerrar(tk, opts) {
   return webTurnoAuth_(tk, V_, u => {
     opts = opts || {};
@@ -6226,7 +6253,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin, webVistasRolGuardar};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

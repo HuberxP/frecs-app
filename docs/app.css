@@ -1299,7 +1299,73 @@
   .act-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); }
   .act-row:nth-child(even) { background: var(--card2); }
   .act-rt { min-width: 0; } .act-rt .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  html[data-tema="claro"] .act-row { background: #fff; } html[data-tema="claro"] .act-row:nth-child(even) { background: #f3f6fa; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .act-row { background: #fff; } html[data-tema="claro"] .act-row:nth-child(even) { background: #f3f6fa; }
+
+  /* ---------- Resultado de sincronizar y recordatorio ---------- */
+  .sync-res { text-align: center; }
+  .sync-res .sync-ic { font-size: 44px; line-height: 1; margin: 4px 0 6px; }
+  .sync-res h3 { margin: 0 0 10px; }
+  .sync-res .ficha { text-align: left; }
+  .sync-res.ok h3 { color: var(--ok); } .sync-res.rev h3 { color: var(--warn); } .sync-res.mal h3 { color: var(--bad); }
+  .sync-res .modal-actions { justify-content: center; } .sync-res .modal-actions .btn { min-width: 140px; }
+  .sync-rec { display: block; width: calc(100% - 24px); max-width: 1200px; margin: 10px auto 0; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--warn); background: rgba(255,176,32,.12); color: var(--ink); font-size: 13.5px; text-align: center; cursor: pointer; }
+  .sync-rec u { color: var(--warn); font-weight: 750; }
+  html[data-tema="claro"] .sync-rec { background: #fff4e0; }
+
+  /* ---------- Abrir turno: de qué turno heredar ---------- */
+  .ht-lista { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; }
+  .ht-op { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2); cursor: pointer; }
+  .ht-op:nth-child(even) { background: rgba(255,255,255,.03); }
+  .ht-op.on { border-color: var(--brand); background: var(--brand-soft) !important; }
+  .ht-op input { accent-color: var(--brand); width: 18px; height: 18px; flex: none; }
+  .ht-t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  #atHB .seg { margin-top: 6px; }
+
+  /* ---------- Productos en filas desplegables ---------- */
+  .pf-lista { display: flex; flex-direction: column; gap: 6px; }
+  .pf { border: 1px solid var(--line2); border-radius: 12px; background: var(--card); }
+  .pf:nth-child(even) { background: var(--card2); }
+  .pf .pl-cab { padding: 9px 12px; min-height: 0; }
+  .pf-t { min-width: 0; flex: 1; } .pf-n { font-size: 14.5px; }
+  .pf-s { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .pf .pl-cuerpo { padding: 0 12px 10px; }
+  .pf-campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 14px; font-size: 13px; padding-top: 4px; border-top: 1px dashed var(--line2); }
+  .pf-campos span { display: block; font-size: 11px; color: var(--muted); }
+  .pf-acc { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+  html[data-tema="claro"] .pf { background: #fff; } html[data-tema="claro"] .pf:nth-child(even) { background: #f3f6fa; }
+  /* Editar producto: ventana compacta */
+  .m-sku h3 { margin: 0 0 6px; font-size: 17px; }
+  .msk-g { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 8px; margin-top: 8px; }
+  .msk-t { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--cyan); margin-bottom: 2px; }
+  .msk-c { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; }
+  .msk-c .field { margin: 0; } .msk-c .field.ancho { grid-column: span 2; }
+  .msk-c .field span { font-size: 11px; margin-bottom: 2px; }
+  .msk-c input { min-height: 36px; padding: 5px 8px; font-size: 14px; }
+  @media (max-width: 480px) { .msk-c { grid-template-columns: repeat(2, minmax(0, 1fr)); } .msk-c .field.ancho { grid-column: 1 / -1; } }
+
+  /* ---------- Resumen para el turno (Inicio) ---------- */
+  .rs-card { margin-bottom: 14px; }
+  .rs-rec { padding: 4px 0 10px; border-bottom: 1px dashed var(--line2); margin-bottom: 8px; }
+  .rs-nota { margin-top: 4px; font-size: 13.5px; } .rs-notas { margin: 4px 0 0 18px; padding: 0; font-size: 13.5px; }
+  .rs-g { display: flex; flex-direction: column; gap: 6px; }
+  .rs-i { display: flex; align-items: center; gap: 10px; text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--card2); color: var(--ink); font-size: 14px; cursor: pointer; }
+  .rs-i.ok { border-left: 4px solid var(--ok); } .rs-i.warn { border-left: 4px solid var(--warn); } .rs-i.bad { border-left: 4px solid var(--bad); }
+  .rs-ic { font-size: 18px; }
+
+  /* ---------- Secciones por rol ---------- */
+  .vr-tabla { border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; }
+  .vr-h, .vr-f { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, 60px); align-items: center; }
+  .vr-h { background: var(--card2); font-size: 12px; font-weight: 800; color: var(--muted); padding: 8px 10px; position: sticky; top: 0; }
+  .vr-h span:not(:first-child) { text-align: center; }
+  .vr-g { padding: 8px 10px 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--cyan); border-top: 1px solid var(--line2); }
+  .vr-f { padding: 4px 10px; font-size: 13.5px; }
+  .vr-f:nth-child(odd) { background: rgba(255,255,255,.03); }
+  .vr-n { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vr-c { display: flex; justify-content: center; align-items: center; min-height: 34px; border-radius: 8px; }
+  .vr-c input { width: 20px; height: 20px; accent-color: var(--brand); }
+  .vr-c.cambio { background: rgba(34,211,238,.14); }
+  @media (max-width: 480px) { .vr-h, .vr-f { grid-template-columns: minmax(0, 1fr) repeat(4, 46px); } .vr-h { font-size: 10.5px; } }
+  html[data-tema="claro"] .vr-f:nth-child(odd) { background: #f3f6fa; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

@@ -487,6 +487,8 @@
         webRotQuitar: a => ["rot_item_quitar", { p_rot: Number(a[1]), p_id: Number(a[2]) }], webRotEliminar: a => ["rot_eliminar", { p_id: Number(a[1]) }]
       };
       if (ROT[fn]) { const [f, p] = ROT[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
+      // Secciones por rol (solo el administrador)
+      if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
       if (fn === "webPref") {
         const p = await rpc("pref_guardar", { p_token: args[0], p_clave: String(args[1] || ""), p_valor: args[2] === undefined ? null : args[2] });
@@ -512,7 +514,7 @@
         const res = MOTOR.llamar(fn, args);
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
-        if (r.ok) r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl);   // lo envía la función del bot (o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

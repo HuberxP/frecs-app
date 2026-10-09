@@ -66,7 +66,8 @@ const NAV = [
     { id: "skus", ic: "🗃️", t: "Productos (hoja Sku)" },
     { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
     { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" },
-    { id: "consumolista", ic: "🥤", t: "Lista de consumo", rol: "validador" } ] }
+    { id: "consumolista", ic: "🥤", t: "Lista de consumo", rol: "validador" },
+    { id: "vistasrol", ic: "🔐", t: "Secciones por rol" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
 
@@ -103,6 +104,21 @@ const repPend = () => (S.rep || []).filter(r => r.estado === "PENDIENTE");
 function repDe(m) { const k = String(m || "").toUpperCase(), p = repPend(); return { v: p.find(r => r.tipo === "VACIO" && r.m === k), c: p.find(r => r.tipo === "CONFLICTO" && r.m === k) }; }
 const repVacio = m => !!repDe(m).v;
 function guardarRep(lista) { S.rep = Array.isArray(lista) ? lista : []; ls.setJ("rep", S.rep); if (S.usuario) pintarNav(); }
+// ¿Qué pantallas ve cada rol? Por defecto lo de siempre; el administrador cambia lo que quiera en «Secciones por rol».
+// Solo se puede dar lo que el rol alcanza (lo que el servidor le deja hacer); al administrador nunca se le quitan Usuarios ni Secciones por rol.
+const ROL_LISTA = ["verificador", "lector", "validador", "administrador"];
+const SIEMPRE_ADMIN = new Set(["usuarios", "vistasrol"]);
+function itemNav(id) { for (const g of NAV) { const i = g.items.find(x => x.id === id); if (i) return [g, i]; } return [null, null]; }
+function rolAlcanza(id, rol) { const [g, i] = itemNav(id); if (!i) return true; const r = i.rol || g.rol; return !r || (ROLES[rol] || 0) >= (ROLES[r] || 1); }
+const vistaDefecto = (id, rol) => rol === "verificador" ? VERIF_VISTAS.has(id) : rolAlcanza(id, rol);
+function vistaPermitida(id, rol, cfg) {
+  rol = rol || (S.usuario && S.usuario.rol); if (!rol) return false;
+  if (rol === "administrador" && SIEMPRE_ADMIN.has(id)) return true;
+  if (!rolAlcanza(id, rol)) return false;
+  const o = (cfg || S.vistasRol || {})[rol];
+  return o && typeof o[id] === "boolean" ? o[id] : vistaDefecto(id, rol);
+}
+const primeraVista = () => vistaPermitida("inicio") ? "inicio" : ((NAV.flatMap(g => g.items).find(i => vistaPermitida(i.id)) || { id: "inicio" }).id);
 // Sugerencias de cantidades del WMS en validación: cada persona decide (apagadas por defecto)
 const verWms = () => !!(S.usuario && S.usuario.prefs && S.usuario.prefs.wmsSug === true);
 const ls = {
@@ -636,7 +652,7 @@ $("#userChip").onclick = () => {
 function pintarNav() {
   // Un ítem puede tener su propio rol (más bajo que el de su grupo): el grupo sale si alguno de sus ítems se puede ver.
   // El verificador solo ve sus secciones (VERIF_VISTAS).
-  const ver = (g, i) => { if (esVerif()) return VERIF_VISTAS.has(i.id); const r = i.rol || g.rol; return !r || puede(r); };
+  const ver = (g, i) => vistaPermitida(i.id);
   // Secciones desplegables: la de la pantalla actual siempre abierta; las demás como las dejó la persona
   const ab = ls.getJ("navAb", {}), nPend = repPend().length;
   const cnt = n => n ? `<span class="nav-n" title="Reportes pendientes">${n}</span>` : "";
@@ -654,9 +670,10 @@ const BARRA_ABAJO = [["inicio", "🏠", "Inicio"], ["validacion", "📝", "Valid
 const BARRA_VERIF = [["repvacio", "⬜", "Vacío"], ["repconflicto", "⚠️", "Conflicto"], ["repgen", "📣", "Reportes"], ["stock", "📡", "Stock"]];
 function pintarBarraAbajo() {
   const b = $("#bottombar"); if (!b) return;
-  const items = esVerif() ? BARRA_VERIF : BARRA_ABAJO, firma = items.map(x => x[0]).join(",");
+  const items = (esVerif() ? BARRA_VERIF : BARRA_ABAJO).filter(x => vistaPermitida(x[0])), firma = items.map(x => x[0]).join(",");
   if (b.dataset.f === firma) return;
   b.dataset.f = firma;
+  b.style.gridTemplateColumns = `repeat(${Math.max(items.length, 1)}, 1fr)`;
   b.innerHTML = items.map(([v, ic, t]) => `<button data-v="${v}"><span class="ic">${ic}</span>${t}</button>`).join("");
 }
 let menuDesde = 0;
@@ -687,7 +704,7 @@ function atras() {
   if (menuAbierto()) { abrirMenu(false); return; }
   const prev = S.pila.pop();
   if (prev) ir(prev.vista, prev.params, true);
-  else if (S.vista !== "inicio" && !esVerif()) ir("inicio", {}, true);
+  else if (S.vista !== primeraVista()) ir(primeraVista(), {}, true);
 }
 // Botón atrás del celular: se deja una entrada "de reserva" en el historial del navegador;
 // al pulsar atrás el navegador la consume, la página hace atras() y la vuelve a poner con el
@@ -704,8 +721,8 @@ try { if (HIST_GS) HIST_GS.setChangeHandler(alAtrasCelular); else window.addEven
 
 let renderId = 0;
 function ir(vista, params, esAtras) {
-  if (!VISTAS[vista] || (TITULOS[vista] && TITULOS[vista].rol && !puede(TITULOS[vista].rol))) vista = "inicio";
-  if (esVerif() && !VERIF_VISTAS.has(vista)) vista = "repvacio";
+  if (!VISTAS[vista]) vista = "inicio";
+  if (TITULOS[vista] && !vistaPermitida(vista)) vista = primeraVista();
   if (!esAtras && S.vista && (S.vista !== vista || !mismo(S.params, params || {}))) { S.pila.push({ vista: S.vista, params: S.params }); if (S.pila.length > 30) S.pila.shift(); }
   if (vista === "inicio" && !esAtras) S.pila = [];
   S.vista = vista; S.params = params || {};
@@ -780,7 +797,7 @@ function pintarSync() {
   $("#syncChip").innerHTML = s ? `Base: <b>${h(s.bot)}</b><br>Últ. mov. WMS: <b>${h(s.wms)}</b>` : "";
 }
 function guardarInv(d) {
-  S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync();
+  S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
   ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, guardado: ahoraTxt() });
 }
 async function cargarInv(forzar) {
@@ -804,17 +821,51 @@ async function cargarCat(forzar) {
 
 $("#syncBtn").onclick = async () => {
   const b = $("#syncBtn"); b.disabled = true; const t = b.innerHTML; b.innerHTML = `<span class="spin" style="width:16px;height:16px;border-width:2px"></span>`;
+  const antes = { filas: (S.inv || []).filter(i => i.fis).length, mods: new Set((S.inv || []).filter(i => i.fis).map(i => i.m)).size };
   try {
     const r = await api("webSincronizar");
-    guardarInv(r.inv);
-    toast(`Base actualizada: ${fm(r.filas)} ubicaciones con producto en ${fm(r.modulos)} módulos`, "ok");
-    repintar();
+    guardarInv(r.inv); repintar(); avisoSync(r, antes);
   } catch (e) {
     if (/forzar/.test(e.message) && puede("validador") && await confirmar("Bajada grande de inventario", h(e.message) + "<br><br>¿La bajada es real y quieres reemplazar la base de todas formas?", "Sí, reemplazar")) {
-      try { const r = await api("webSincronizar", true); guardarInv(r.inv); toast("Base actualizada", "ok"); repintar(); } catch (e2) { toast(e2.message, "bad", 7000); }
-    } else toast(e.message, "bad", 7000);
-  } finally { b.disabled = false; b.innerHTML = t; }
+      try { const r = await api("webSincronizar", true); guardarInv(r.inv); repintar(); avisoSync(r, antes); } catch (e2) { avisoSync(null, antes, e2); }
+    } else avisoSync(null, antes, e);
+  } finally { b.disabled = false; b.innerHTML = t; pintarRecordatorio(); }
 };
+
+// Resultado de la sincronización en una ventana (con Aceptar), con datos para saber si se puede confiar
+function avisoSync(r, antes, err) {
+  if (err) {
+    const c = abrirModal(`<div class="sync-res mal"><div class="sync-ic">❌</div><h3>No se pudo actualizar</h3>
+      <p>${h(err.message || String(err))}</p><p class="small muted">La información que ves sigue siendo la de la sincronización anterior${S.sync && S.sync.bot ? ` (${h(S.sync.bot)})` : ""}. No confíes en ella para lo que haya cambiado desde entonces.</p>
+      <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
+    return c;
+  }
+  const filas = (S.inv || []).filter(i => i.fis).length, mods = new Set((S.inv || []).filter(i => i.fis).map(i => i.m)).size;
+  const dif = antes && antes.filas ? (filas - antes.filas) / antes.filas : 0;
+  const alerta = antes && antes.filas && dif < -0.15 ? `Trajo <b>${Math.round(-dif * 100)} % menos</b> ubicaciones que la vez anterior (${fm(antes.filas)} → ${fm(filas)}). Puede que el WMS respondiera a medias: revisa antes de confiar.` : "";
+  const mov = S.sync && S.sync.wms ? S.sync.wms : "N/A";
+  const movViejo = /🔴/.test(mov);
+  abrirModal(`<div class="sync-res ${alerta ? "rev" : "ok"}"><div class="sync-ic">${alerta ? "⚠️" : "✅"}</div><h3>${alerta ? "Se actualizó, pero revisa" : "Base actualizada"}</h3>
+    <div class="ficha"><span>Ubicaciones con producto</span><b>${fm(filas)}${antes && antes.filas ? ` <span class="small muted">(antes ${fm(antes.filas)})</span>` : ""}</b>
+      <span>Módulos con producto</span><b>${fm(mods)}${antes && antes.mods ? ` <span class="small muted">(antes ${fm(antes.mods)})</span>` : ""}</b>
+      <span>Último movimiento en el WMS</span><b>${h(mov)}</b></div>
+    ${alerta ? `<div class="note warn" style="margin-top:12px">${alerta}</div>` : ""}
+    ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
+    <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
+}
+// Recordatorio: si la última sincronización tiene más de 3 horas, una franja arriba para sincronizar
+const SYNC_RECORDAR_MIN = 180;
+function pintarRecordatorio() {
+  let b = $("#syncRec");
+  const ts = S.sync && S.sync.ts, min = ts ? Math.floor((Date.now() - ts) / 60000) : null;
+  const sb = $("#syncBtn"), visible = !!sb && getComputedStyle(sb).display !== "none";
+  const mostrar = !!S.usuario && visible && !$("#login:not(.hidden)") && (min === null || min >= SYNC_RECORDAR_MIN);
+  if (!mostrar) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement("button"); b.id = "syncRec"; b.type = "button"; b.className = "sync-rec"; b.onclick = () => $("#syncBtn").click(); $("main").prepend(b); }
+  const hh = min === null ? "" : `${Math.floor(min / 60)} h ${min % 60} min`;
+  b.innerHTML = `⏰ ${min === null ? "Todavía no se ha sincronizado" : `La última sincronización fue hace <b>${hh}</b>`} · <u>Sincronizar ahora</u>`;
+}
+setInterval(pintarRecordatorio, 60000);
 
 // ---------- PDFs ----------
 // Íconos de los botones de PDF, WhatsApp y Telegram (WhatsApp y Telegram: las imágenes que mandó el usuario, en 64 px)
@@ -1045,14 +1096,51 @@ async function vistaFiltro(el, cfg) {
 const ordPrioD = (a, b) => prio(a, b) || (a.d - b.d);
 const ordPrioModD = (a, b) => prio(a, b) || cmpMod(a, b) || (a.d - b.d);
 const ordPrioVence = (a, b) => prio(a, b) || (tV(a.v) - tV(b.v));
+// Mismo criterio de Consumo (pony gasto): disponibles de bodega primero (KA / PREV y bloqueados al final),
+// 1) prioridad · 2) fecha más corta · 3) con la misma fecha, el módulo incompleto · 4) el que tiene menos estibas en su módulo
+const ocupMod = m => { const o = S.ocup[m]; return o && o.capTot ? o : null; };
+const ordConsumo = (a, b) => {
+  const g = i => (!i.disp ? 2 : (i.esOp || repVacio(i.m)) ? 1 : 0);
+  if (g(a) !== g(b)) return g(a) - g(b);
+  if (prio(a, b)) return prio(a, b);
+  const t = tV(a.v) - tV(b.v); if (t) return t;
+  const oa = ocupMod(a.m), ob = ocupMod(b.m);
+  const ia = oa ? oa.usadas < oa.capTot : false, ib = ob ? ob.usadas < ob.capTot : false;
+  if (ia !== ib) return ia ? -1 : 1;
+  const ua = oa ? oa.usadas : 9999, ub = ob ? ob.usadas : 9999;
+  if (ua !== ub) return ua - ub;
+  return cmpMod(a, b);
+};
 
 // =====================================================================
 // INICIO
 // =====================================================================
+// Resumen para el que entra al turno (desplegable: cada quien decide si lo ve)
+function resumenTurno(box) {
+  if (!box || !S.inv) return;
+  const ab = abierto("ini", "res"), rec = S.turno && S.turno.recibido;
+  const pend = repPend(), mods = typeof modulosActualizacion === "function" ? modulosActualizacion(S.inv) : [];
+  const rojos = mods.filter(x => x.niv === "r").length, secs = mods.length ? seccionesActualizacion(mods).filter(s => s.viejo && s.niv !== "v") : [];
+  const cortas = S.inv.filter(i => i.fis && i.disp && i.d >= 0 && i.d <= 45).length, venc = S.inv.filter(i => i.fis && i.d < 0).length;
+  const item = (ic, txt, v, cls) => `<button type="button" class="rs-i ${cls || ""}" ${v ? `data-go="${v}"` : ""}><span class="rs-ic">${ic}</span><span>${txt}</span></button>`;
+  box.innerHTML = `<section class="card plegable rs-card ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="ini|res" role="button" tabindex="0" aria-expanded="${ab}">
+      <h3 style="margin:0">📋 Resumen para tu turno ${pend.length ? `<span class="nav-n">${pend.length}</span>` : ""}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo">
+      ${rec ? `<div class="rs-rec"><div class="small muted">Recibes de</div><b>${h(rec.texto)}</b> · @${h(rec.cerradoPor)}${rec.cierre ? ` · ${h(fechaCorta(rec.cierre))}` : ""}
+        ${rec.nota ? `<div class="rs-nota">📝 ${h(rec.nota)}</div>` : ""}${rec.notas && rec.notas.length ? `<ul class="rs-notas">${rec.notas.map(n => `<li>${h(n)}</li>`).join("")}</ul>` : ""}</div>` : ""}
+      <div class="rs-g">
+        ${item("📣", pend.length ? `<b>${pend.length}</b> reporte${pend.length > 1 ? "s" : ""} de módulos pendiente${pend.length > 1 ? "s" : ""}` : "Sin reportes de módulos pendientes", pend.length ? "repgen" : "", pend.length ? "warn" : "ok")}
+        ${item("🕒", rojos ? `<b>${rojos}</b> módulos con más de 24 h sin actualizar${secs[0] ? ` · sigue <b>${h(nombreSeccion(secs[0].sec))}</b>` : ""}` : "Bodega actualizada en las últimas 24 h", "actualizacion", rojos ? "bad" : "ok")}
+        ${item("⏳", `<b>${cortas}</b> ubicaciones disponibles vencen en 45 días o menos`, "fechas", cortas ? "warn" : "ok")}
+        ${venc ? item("🛑", `<b>${venc}</b> ubicaciones vencidas`, "vencidos", "bad") : ""}
+      </div></div></section>`;
+  box.onclick = e => { const b = e.target.closest("[data-go]"); if (b) ir(b.dataset.go, b.dataset.go === "fechas" ? { dias: 45 } : {}); };
+}
 VISTAS.inicio = async (el, p, vigente) => {
   el.innerHTML = cab(`Hola, ${h(S.usuario ? S.usuario.nombre.split(" ")[0] : "")}`, "Resumen de la bodega y del turno") +
     `<div class="quick">${campoAuto("qq", "SKU, producto o módulo (ej: 3659, pony go, B12)")}</div>
-     <div id="tb"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
+     <div id="tb"></div><div id="rsT"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
+  resumenTurno($("#rsT", el));
   autoSku($("#qq", el), c => ir("stock", { sku: c.sku }));
   $("#qq", el).addEventListener("keydown", e => {
     if (e.key !== "Enter" || e.defaultPrevented) return;
@@ -1110,7 +1198,7 @@ VISTAS.stock = async (el, p, vigente) => {
     if (!fis.length) { r.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="prod" style="font-weight:700;font-size:17px">${skuTxt(sku, ficha.prod)}</div></div>` + vacio("No hay existencias físicas.", "⚠️"); return; }
     const visibles = fis.filter(i => verKA || !i.esOp);
     const tot = visibles.filter(i => i.disp).reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
-    const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : i[filtro])).sort(ordPrioVence);
+    const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : i[filtro])).sort(ordConsumo);
     // Único módulo: el producto disponible está en un solo módulo de bodega (sin KA / PREV), igual que en Consumo
     const modsDisp = new Set(fis.filter(i => i.disp && !i.esOp).map(i => i.m)), unico = modsDisp.size === 1 ? [...modsDisp][0] : "";
     const segBtn = (f, t) => `<button data-f="${f}" class="${filtro === f ? "on" : ""}">${t}</button>`;
@@ -1118,7 +1206,7 @@ VISTAS.stock = async (el, p, vigente) => {
         <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
-      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, unico: i.m === unico && i.disp, fefo: i.disp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
+      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, unico: i.m === unico && i.disp, fefo: i.disp && !i.esOp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>` : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
   };
@@ -1145,6 +1233,20 @@ function fichaHtml(c, conStock) {
     <span>Cant x estiba</span><b>${h(c.cantEst || "N/A")}</b><span>Presentación</span><b>${h(c.pres || "N/A")}</b></div>
     ${conStock ? `<div class="row sb" style="margin-top:10px"><span class="small muted">Disponible WMS: <b>${fm(cajas)}</b> cajas</span><button class="btn sm" data-sku="${h(c.sku)}">Ver stock →</button></div>` : ""}</article>`;
 }
+// Producto en una fila desplegable (colores intercalados): cerrada muestra SKU, nombre, presentación y lo disponible
+function filaProducto(c, opts) {
+  opts = opts || {};
+  const cajas = (S.inv || []).filter(i => i.s === c.sku && i.fis && i.disp).reduce((a, i) => a + i.c, 0);
+  const ab = abierto(opts.grupo || "pf", c.sku);
+  const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
+  const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], ["Plancha", c.plancha], ["Cant x estiba", c.cantEst]]
+    .concat(opts.todo ? [["Est. por cara", c.estCara], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
+  return `<article class="pf plegable ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="${opts.grupo || "pf"}|${h(c.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
+      <div class="pf-t"><div class="pf-n">${skuTxt(c.sku, c.prod)}</div><div class="pf-s">${c.pres ? `<span>${h(c.pres)}</span>` : ""}${opts.todo ? "" : `<span>Disponible <b>${fm(cajas)}</b> cj</span>`}</div></div>
+      <span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo"><div class="pf-campos">${campos.map(([t, x]) => `<div><span>${t}</span><b>${v(x)}</b></div>`).join("")}</div>
+      <div class="pf-acc">${opts.todo ? "" : `<button class="btn sm" data-sku="${h(c.sku)}">📡 Ver stock</button>`}${opts.editar ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}${opts.borrar ? `<button class="btn sm del" data-bo="${h(c.sku)}" title="Borrar" aria-label="Borrar">${ICO_DEL}</button>` : ""}</div></div></article>`;
+}
 VISTAS.producto = async (el, p, vigente) => {
   await Promise.all([cargarCat(), cargarInv().catch(() => null)]);
   if (!vigente()) return;
@@ -1155,10 +1257,13 @@ VISTAS.producto = async (el, p, vigente) => {
     if (!q) { $("#br", el).innerHTML = ""; return; }
     const res = buscarCat(q, 120);
     if (!res.length) { $("#br", el).innerHTML = vacio("No se encontró ningún producto.", "❌"); return; }
-    $("#br", el).innerHTML = `<div class="count" style="margin-bottom:8px">${res.length} productos${res[0].aprox ? " (parecidos)" : ""}</div><div class="grid">${res.map(c => fichaHtml(c, true)).join("")}</div>`;
+    $("#br", el).innerHTML = `<div class="count" style="margin-bottom:8px">${res.length} productos${res[0].aprox ? " (parecidos)" : ""}</div><div class="pf-lista">${res.map(c => filaProducto(c, { editar: puede("administrador") })).join("")}</div>`;
   };
   $("#bq", el).oninput = pintar; $("#bqB", el).onclick = pintar; $("#bq", el).addEventListener("search", pintar);
-  $("#br", el).onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
+  $("#br", el).onclick = e => {
+    const b = e.target.closest("[data-sku]"); if (b) return ir("stock", { sku: b.dataset.sku });
+    const ed = e.target.closest("[data-ed]"); if (ed) modalSku(S.cat.find(x => x.sku === ed.dataset.ed), pintar);
+  };
   pintar();
 };
 
@@ -1691,28 +1796,32 @@ async function cancelarTurno(t) {
 function modalAbrirTurno(te) {
   let num = turnoPorHora();
   const hor = (te && te.horarios) || { 1: "10 p.m. – 6 a.m.", 2: "6 a.m. – 2 p.m.", 3: "2 p.m. – 10 p.m." };
+  const ult = (te && te.cerrados) || [];
   const c = abrirModal(`<h3>Abrir turno</h3><p class="muted small">Escoge tu turno. No se puede abrir otro hasta cerrar este.</p>
     <div class="num-pick" id="np">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(String(hor[n] || "").replace(/:00/g, ""))}</span></button>`).join("")}</div>
-    ${te && te.ultimo ? `<label class="check" id="atHL"><input type="checkbox" id="atH"><span>Recibo de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>: heredar los productos de la validación (se puede editar después).</span></label>
-      <div class="seg seg-sm hidden" id="atHM"><button type="button" data-hm="saldos" class="on">Con sus saldos</button><button type="button" data-hm="blanco">En blanco (solo los nombres)</button></div>
-      <p class="muted small hidden" id="atHN">Solo se hereda del turno inmediatamente anterior: después del turno ${h(te.ultimo.numero)} va el turno ${h({ 1: 2, 2: 3, 3: 1 }[te.ultimo.numero] || "?")}.</p>` : `<p class="muted small">No hay turno anterior del que heredar.</p>`}
+    ${te && te.ultimo ? `<p class="small" style="margin:4px 0 8px">Recibes de <b>${h(te.ultimo.texto)}</b> de <b>@${h(te.ultimo.cerradoPor)}</b>.</p>` : ""}
+    ${ult.length ? `<label class="check" id="atHL"><input type="checkbox" id="atH"><span>Heredar los productos de la validación de un turno anterior (se puede editar después)</span></label>
+      <div id="atHB" class="hidden">
+        <div class="seg seg-sm" id="atHM"><button type="button" data-hm="saldos" class="on">Con sus saldos</button><button type="button" data-hm="blanco">En blanco (solo los nombres)</button></div>
+        <div class="small muted" style="margin:6px 0 4px">¿De qué turno? (los últimos ${ult.length})</div>
+        <div class="ht-lista">${ult.map((t, k) => `<label class="ht-op ${k === 0 ? "on" : ""}"><input type="radio" name="atT" value="${h(t.id)}" ${k === 0 ? "checked" : ""}>
+          <span class="ht-t"><b>${h(t.texto)}</b><span class="small muted">@${h(t.cerradoPor)} · cerró ${h(fechaCorta(t.cierre))}</span></span><span class="pill">${fm(t.productos)} prod.</span></label>`).join("")}</div>
+      </div>` : `<p class="muted small">No hay turnos cerrados de los que heredar.</p>`}
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="atOk">Abrir turno</button></div>`);
-  // Solo se puede heredar del turno inmediatamente anterior (3 → 1 → 2 → 3)
-  const sig = { 1: 2, 2: 3, 3: 1 };
-  const verHeredar = () => { if (!$("#atH", c)) return; const ok = te && te.ultimo && (!sig[te.ultimo.numero] || sig[te.ultimo.numero] === num); $("#atHL", c).classList.toggle("hidden", !ok); $("#atHN", c).classList.toggle("hidden", !!ok); if (!ok) { $("#atH", c).checked = false; $("#atHM", c).classList.add("hidden"); } };
-  $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); verHeredar(); };
-  verHeredar();
-  // Heredar con los saldos del turno anterior o en blanco (solo los productos, para contarlos de nuevo)
+  $("#np", c).onclick = e => { const b = e.target.closest("[data-n]"); if (!b) return; num = +b.dataset.n; $$("#np button", c).forEach(x => x.classList.toggle("on", x === b)); };
+  // Heredar con los saldos o en blanco (solo los productos, para contarlos de nuevo), del turno que se escoja
   let modoH = "saldos";
   if ($("#atH", c)) {
-    $("#atH", c).addEventListener("change", () => $("#atHM", c).classList.toggle("hidden", !$("#atH", c).checked));
+    $("#atH", c).addEventListener("change", () => $("#atHB", c).classList.toggle("hidden", !$("#atH", c).checked));
     $("#atHM", c).onclick = e => { const b = e.target.closest("[data-hm]"); if (!b) return; modoH = b.dataset.hm; $$("#atHM button", c).forEach(x => x.classList.toggle("on", x === b)); };
+    $(".ht-lista", c).addEventListener("change", () => $$(".ht-op", c).forEach(o => o.classList.toggle("on", $("input", o).checked)));
   }
   $("#atOk", c).onclick = async () => {
     const btn = $("#atOk", c); ocupado(btn, true, "Abriendo…");
     const her = $("#atH", c) && $("#atH", c).checked ? (modoH === "blanco" ? "blanco" : true) : false;
+    const desde = her ? (($("input[name=atT]:checked", c) || {}).value || "") : "";
     try {
-      const r = await api("webTurnoAbrir", num, her);
+      const r = await api("webTurnoAbrir", num, her, desde);
       ocupado(btn, false); cerrarModal(true);
       S.turno = r.turno; ls.setJ("turno", r.turno); S.val = null; S.ent = null; ls.del("val"); ls.del("ent");
       toast(`Turno ${num} abierto${r.resultado.heredados ? `. Heredó ${r.resultado.heredados} producto(s) en validación` : ""}.`, "ok", 6000);
@@ -2134,7 +2243,7 @@ async function modalAgregar() {
 // =====================================================================
 // ENTREGA DE TURNO
 // =====================================================================
-const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Cajas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK", un: "Cajas", mod: false } };
+const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t: "🏷️ TPC", un: "Estibas", mod: true }, KA: { t: "🏬 KA", un: "Cajas", mod: false }, PK: { t: "🛒 PK", un: "Cajas", mod: false } };
 // «1 estiba», «4 estibas», «1 caja», «30 cajas»
 const UN_PAL = { Estibas: ["estiba", "estibas"], Cajas: ["caja", "cajas"], Unidades: ["unidad", "unidades"] };
 const unPal = (n, un) => `${fm(n)} ${(UN_PAL[un] || [un, un])[Number(n) === 1 ? 0 : 1]}`;
@@ -2356,14 +2465,8 @@ function modalEntItem(s, item, elegir, otra) {
     $("#eiC", c).innerHTML = cant.map((x, k) => `<div class="cant-ed ${cfg.mod ? "" : "sin-mod"}" data-k="${k}"><span class="cant-n">${k + 1}</span>
       <input type="text" inputmode="decimal" data-f="n" value="${h(x.n)}" placeholder="Cantidad">
       ${miniSel("eu" + k, ["Estibas", "Cajas", "Unidades"], x.un).replace('class="mini-sel"', 'class="mini-sel ms-un" data-f="un"')}
-      ${cfg.mod ? `<span class="rep-busca ei-mod"><input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo" autocapitalize="characters" autocomplete="off"></span>` : ""}
+      ${cfg.mod ? `<input type="text" data-f="m" value="${h(x.m)}" placeholder="Módulo" autocapitalize="characters" autocomplete="off">` : ""}
       <button class="btn sm icon" data-q="${k}" title="Quitar">✕</button></div>`).join("");
-    // Sugerencias de módulo: primero donde el aplicativo tiene ese producto
-    if (cfg.mod && S.inv) {
-      const sku = (item && item.sku) || (prodSel && prodSel.sku) || "", todos = modulosConProducto(S.inv);
-      const mods = todos.filter(x => x.lotes.some(l => l.s === sku)).concat(todos.filter(x => !x.lotes.some(l => l.s === sku)));
-      $$("#eiC input[data-f=m]", c).forEach(i => autoModulo(i, mods, x => { const r = i.closest("[data-k]"); if (r) cant[+r.dataset.k].m = x.m; }, { primero: false, dejar: true }));
-    }
   };
   pintarCant();
   if (otra) setTimeout(() => { const ns = $$("#eiC input[data-f=n]", c); if (ns.length) ns[ns.length - 1].focus(); }, 80);
@@ -3559,14 +3662,14 @@ VISTAS.skus = async (el, p, vigente) => {
     const lis = q ? buscarCat(q, 400) : S.cat.slice().sort(cmpSku);
     $("#skC", el).textContent = `${lis.length} productos`;
     const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
-    $("#skR", el).innerHTML = `<table class="tabla resp"><thead><tr><th>SKU</th><th>Producto</th><th>Presentación</th><th class="num">Cant x estiba</th><th class="num">Mínimo</th><th class="num">T1</th><th class="num">T2</th><th class="num">KA</th><th class="num">Est/cara</th><th></th></tr></thead><tbody>
-      ${lis.map(c => `<tr><td data-l="SKU" class="sku">${h(c.sku)}</td><td data-l="Producto">${h(c.prod)}</td><td data-l="Presentación">${h(c.pres)}</td><td data-l="Cant x estiba" class="num">${v(c.cantEst)}</td>
-        <td data-l="Mínimo" class="num">${v(c.minimo)}</td><td data-l="T1" class="num">${v(c.t1)}</td><td data-l="T2" class="num">${v(c.t2)}</td><td data-l="KA" class="num">${v(c.ka)}</td><td data-l="Est/cara" class="num">${v(c.estCara)}</td>
-        <td class="acc"><button class="btn sm" data-a="editar" data-sku="${h(c.sku)}">Editar</button> <button class="btn sm del" data-a="borrar" data-sku="${h(c.sku)}">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`;
+    // Filas desplegables (colores intercalados): cerradas solo SKU, nombre y presentación
+    $("#skR", el).innerHTML = `<div class="pf-lista">${lis.slice(0, 300).map(c => filaProducto(c, { grupo: "sk", todo: true, editar: true, borrar: true })).join("")}</div>${lis.length > 300 ? `<p class="small muted">Se muestran 300 de ${lis.length}: escribe para filtrar.</p>` : ""}`;
   };
   $("#skQ", el).oninput = pintar;
   el.onclick = async e => {
-    const b = e.target.closest("[data-a]"); if (!b) return;
+    const ed = e.target.closest("[data-ed]"); if (ed) return modalSku(S.cat.find(x => x.sku === ed.dataset.ed), pintar);
+    const bo = e.target.closest("[data-bo]");
+    const b = bo ? { dataset: { a: "borrar", sku: bo.dataset.bo } } : e.target.closest("[data-a]"); if (!b) return;
     if (b.dataset.a === "nuevo") return modalSku(null, pintar);
     const c = S.cat.find(x => x.sku === b.dataset.sku);
     if (b.dataset.a === "editar") return modalSku(c, pintar);
@@ -3577,10 +3680,14 @@ VISTAS.skus = async (el, p, vigente) => {
   };
   pintar();
 };
+// Grupos de la ventana de edición (más compacta: etiquetas y cuadros pequeños)
+const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "estCara"]], ["Reglas", ["minimo", "t1", "t2", "ka"]]];
 function modalSku(c, alGuardar) {
-  const m = abrirModal(`<h3>${c ? "Editar producto" : "Nuevo producto"}</h3>
-    <div class="grid2" style="gap:0 14px">${SKU_CAMPOS_UI.map(([k, t, im]) => `<label class="field"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`).join("")}</div>
-    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="skOk">Guardar</button></div>`, { wide: true });
+  const campo = k => { const [, t, im] = SKU_CAMPOS_UI.find(x => x[0] === k); return `<label class="field ${k === "prod" || k === "ctx" ? "ancho" : ""}"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`; };
+  const m = abrirModal(`<div class="m-sku"><h3>${c ? `✎ ${h(c.sku)}` : "Nuevo producto"}</h3>
+    ${SKU_GRUPOS.map(([g, ks]) => `<div class="msk-g"><div class="msk-t">${g}</div><div class="msk-c">${ks.map(campo).join("")}</div></div>`).join("")}
+    <p class="small muted" style="margin:6px 0 0">Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="skOk">Guardar</button></div></div>`);
   $("#skOk", m).onclick = async () => {
     const obj = {}; $$("input[data-k]", m).forEach(i => obj[i.dataset.k] = i.value.trim());
     const btn = $("#skOk", m); ocupado(btn, true);
@@ -3740,6 +3847,40 @@ function modalModuloConsumo(x) {
   };
 }
 
+// ---------- Secciones por rol: qué pantallas ve cada rol ----------
+VISTAS.vistasrol = async (el) => {
+  let cfg = JSON.parse(JSON.stringify(S.vistasRol || {}));
+  const RT = { verificador: "Verif.", lector: "Lector", validador: "Valid.", administrador: "Admin" };
+  const pintar = () => {
+    const grupos = NAV.map(g => ({ t: g.g || "General", items: g.items }));
+    el.innerHTML = cab("🔐 Secciones por rol", "Marca qué secciones ve cada rol en el menú. Solo se puede dar lo que el rol alcanza a hacer (— = ese rol no tiene permiso para esa sección). Al administrador nunca se le quitan Usuarios ni Secciones por rol. Esto controla lo que se ve; lo que cada rol puede guardar lo sigue revisando el servidor.",
+        `<button class="btn sm" data-a="fabrica">↺ Lo de fábrica</button><button class="btn primary" data-a="guardar">Guardar</button>`) +
+      `<div class="vr-tabla"><div class="vr-h"><span>Sección</span>${ROL_LISTA.map(r => `<span>${RT[r]}</span>`).join("")}</div>
+      ${grupos.map(g => `<div class="vr-g">${h(g.t)}</div>${g.items.map(i => `<div class="vr-f"><span class="vr-n"><span class="ic">${i.ic}</span>${h(i.t)}</span>${ROL_LISTA.map(r => {
+        if (!rolAlcanza(i.id, r)) return `<span class="vr-c muted" title="Este rol no tiene permiso">—</span>`;
+        const fijo = r === "administrador" && SIEMPRE_ADMIN.has(i.id), on = vistaPermitida(i.id, r, cfg);
+        const cambiado = cfg[r] && typeof cfg[r][i.id] === "boolean";
+        return `<label class="vr-c ${cambiado ? "cambio" : ""}"><input type="checkbox" data-v="${i.id}" data-r="${r}" ${on ? "checked" : ""} ${fijo ? "disabled" : ""}></label>`;
+      }).join("")}</div>`).join("")}`).join("")}</div>`;
+  };
+  el.onchange = e => {
+    const c = e.target.closest("input[data-v]"); if (!c) return;
+    const { v, r } = c.dataset;
+    cfg[r] = cfg[r] || {};
+    if (c.checked === vistaDefecto(v, r)) delete cfg[r][v]; else cfg[r][v] = c.checked;
+    if (!Object.keys(cfg[r]).length) delete cfg[r];
+    c.closest(".vr-c").classList.toggle("cambio", !!(cfg[r] && typeof cfg[r][v] === "boolean"));
+  };
+  el.onclick = async e => {
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    if (b.dataset.a === "fabrica") { if (await confirmar("Lo de fábrica", "¿Volver a las secciones que trae cada rol por defecto? (se aplica al guardar)", "Sí")) { cfg = {}; pintar(); } return; }
+    ocupado(b, true);
+    try { S.vistasRol = await api("webVistasRolGuardar", cfg); ls.setJ("vistasRol", S.vistasRol); ocupado(b, false); toast("Secciones por rol guardadas", "ok"); pintarNav(); }
+    catch (er) { ocupado(b, false); toast(er.message, "bad", 6000); }
+  };
+  pintar();
+};
+
 // =====================================================================
 // ARRANQUE
 // =====================================================================
@@ -3760,13 +3901,15 @@ async function arrancar(yaPintado, forzarRepintar) {
     const cambioRol = !S.usuario || S.usuario.rol !== i.usuario.rol;
     S.usuario = i.usuario; S.grupoTg = i.grupoTelegram; S.instructivo = i.instructivo; S.turno = i.turno;
     S.rep = Array.isArray(i.reportes) ? i.reportes : []; ls.setJ("rep", S.rep);
+    const cambioVistas = JSON.stringify(S.vistasRol || {}) !== JSON.stringify(i.vistasRol || {});
+    S.vistasRol = i.vistasRol || {}; ls.setJ("vistasRol", S.vistasRol);
     avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
     if (yaPintado) {
       pintarUsuario(); pintarNav();
       // Repinta con los datos frescos solo si nadie está escribiendo o con una ventana abierta
-      if (forzarRepintar || cambioRol || (!modalAbierto() && !usandoPantalla())) repintar();
+      if (forzarRepintar || cambioRol || cambioVistas || (!modalAbierto() && !usandoPantalla())) repintar();
       if (forzarRepintar) toast("Datos actualizados", "ok", 2000);
       procesarCola();
       return;
@@ -3797,7 +3940,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {});
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

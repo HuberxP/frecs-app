@@ -106,8 +106,10 @@ let llamadasSb = 0, sinRed = false;
   if (!(await sy.page.isVisible("#syncBtn"))) errores.push("⟳ no aparece con Apps Script configurado");
   const nAntes = llamadasSb;
   await sy.page.click("#syncBtn"); await sy.page.waitForTimeout(1500);
-  const tst = await sy.page.$eval("#toasts", e => e.innerText);
-  if (!/Base actualizada/.test(tst)) errores.push("⟳ sin aviso de éxito: " + tst);
+  const tst = await sy.page.$eval("#modal", e => e.classList.contains("hidden") ? "" : e.innerText).catch(() => "");
+  if (!/Base actualizada|revisa/.test(tst) || !/Ubicaciones con producto/.test(tst)) errores.push("⟳ sin ventana de resultado: " + tst);
+  await sy.page.screenshot({ path: "/tmp/w_sync_ok.png" });
+  await sy.page.evaluate(() => cerrarModal(true));
   if (!pedidos.length || pedidos[0].accion !== "sincronizar" || !pedidos[0].token) errores.push("⟳ pedido mal formado: " + JSON.stringify(pedidos));
   if (llamadasSb - nAntes < 1) errores.push("⟳ no recargó los datos de Supabase");
   respSync = { ok: false, error: "El WMS devolvió 10 ubicaciones con producto y la última vez fueron 362. Por seguridad no se reemplazó la base. Si la bajada es real, usa /sincronizar forzar." };
@@ -116,6 +118,7 @@ let llamadasSb = 0, sinRed = false;
   if (!conf) errores.push("⟳ bajada grande no pide confirmar");
   else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
   await sy.page.screenshot({ path: "/tmp/w_sync.png" });
+  await sy.page.evaluate(() => { if (modalAbierto()) cerrarModal(true); });
   // --- Fase 4a: escrituras (con el mismo contexto que tiene Apps Script configurado) ---
   pedidos.length = 0; respSync = { ok: true, hojas: [] };
   const P = sy.page, q = sql => psql(sql, "postgres");
@@ -544,6 +547,37 @@ let llamadasSb = 0, sinRed = false;
   await P.screenshot({ path: "/tmp/w_actualizacion.png" });
   await P.click('#acM [data-m="mod"]'); await P.waitForTimeout(300);
   if (!(await P.$(".act-row"))) errores.push("actualización: la vista por módulos está vacía");
+  // --- Secciones por rol: quitarle Consumo al validador ---
+  await P.evaluate(() => ir("vistasrol")); await P.waitForTimeout(500);
+  if (!(await P.$(".vr-tabla input[data-v=consumo][data-r=validador]"))) errores.push("secciones por rol: falta la tabla");
+  if (!(await P.$eval('input[data-v="usuarios"][data-r="administrador"]', x => x.disabled))) errores.push("secciones por rol: al administrador se le puede quitar Usuarios");
+  await P.uncheck('input[data-v="consumo"][data-r="validador"]'); await P.click('[data-a="guardar"]'); await P.waitForTimeout(800);
+  if (q("select valor::jsonb->'validador'->>'consumo' from frecs_config where clave='vistas_rol'") !== "false") errores.push("secciones por rol: no se guardó");
+  await P.screenshot({ path: "/tmp/w_vistasrol.png" });
+  const vAna = await nueva({ width: 390, height: 844 }, "validador-vistas");
+  await vAna.page.goto("http://127.0.0.1:8766/"); await vAna.page.waitForSelector("#lgN");
+  await vAna.page.fill("#lgN", "Ana María"); await vAna.page.fill("#lgP", "5555"); await vAna.page.click("#lgB"); await vAna.page.waitForTimeout(2500);
+  const vNav = await vAna.page.evaluate(() => ({ consumo: !!$('#nav a[data-v="consumo"]'), val: !!$('#nav a[data-v="validacion"]') }));
+  if (vNav.consumo || !vNav.val) errores.push("secciones por rol: el validador sigue viendo Consumo o perdió Validación: " + JSON.stringify(vNav));
+  await vAna.page.evaluate(() => ir("consumo")); await vAna.page.waitForTimeout(300);
+  if (await vAna.page.evaluate(() => S.vista) === "consumo") errores.push("secciones por rol: el validador abrió Consumo escribiendo la dirección");
+  q("delete from frecs_config where clave='vistas_rol'");
+  // --- Resumen para el turno (desplegable en Inicio) ---
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(600);
+  if (!(await P.$(".rs-card:not(.abierto)"))) errores.push("inicio: el resumen del turno no está (o no viene cerrado)");
+  await P.click(".rs-card .pl-cab"); await P.waitForTimeout(200);
+  if ((await P.$$(".rs-card.abierto .rs-i")).length < 3) errores.push("inicio: el resumen no muestra sus puntos al abrirlo");
+  await P.screenshot({ path: "/tmp/w_resumen.png" });
+  // --- Información de producto: filas desplegables ---
+  await P.evaluate(() => ir("producto", { q: "pony" })); await P.waitForTimeout(500);
+  await P.fill("#bq", "pony"); await P.waitForTimeout(300);
+  if (!(await P.$(".pf-lista .pf.plegable"))) errores.push("información de producto: no está en filas desplegables");
+  await P.click(".pf .pl-cab"); await P.waitForTimeout(200);
+  if (!(await P.$(".pf.abierto .pf-campos"))) errores.push("información de producto: la fila no se despliega");
+  await P.click(".pf.abierto [data-ed]"); await P.waitForTimeout(300);
+  if (!(await P.$(".m-sku .msk-g"))) errores.push("editar producto: no abrió la ventana compacta");
+  await P.screenshot({ path: "/tmp/w_sku_editar.png" });
+  await P.evaluate(() => cerrarModal(true));
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

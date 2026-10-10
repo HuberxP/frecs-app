@@ -28,6 +28,7 @@ const NAV = [
     { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" } ] },
   { g: "Operación", items: [
     { id: "stock", ic: "📡", t: "Stock por SKU" },
+    { id: "pocosvig", ic: "🔔", t: "Alerta de pocos (vigilados)" },
     { id: "producto", ic: "🔍", t: "Información de producto" },
     { id: "enconsumo", ic: "🚚", t: "Módulos en consumo" },
     { id: "grupo", ic: "📦", t: "Búsqueda grupal" },
@@ -69,7 +70,6 @@ const NAV = [
     { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
     { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" },
     { id: "consumolista", ic: "🥤", t: "Lista de consumo" },
-    { id: "pocosvig", ic: "🔔", t: "Alerta de pocos (vigilados)" },
     { id: "vistasrol", ic: "🔐", t: "Secciones por rol" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
@@ -100,7 +100,7 @@ const ICO_DEL = `<svg class="ico-del" viewBox="0 0 24 24" width="18" height="18"
 const qty = (e, c, u, emp) => `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 // Verificador: solo estas pantallas
-const VERIF_VISTAS = new Set(["stock", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen"]);
+const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
 // El rol «validador» se muestra como «Rotador» (por dentro sigue siendo validador)
 const ROL_NOMBRE = { validador: "rotador" };
@@ -1611,7 +1611,7 @@ VISTAS.pocos = async (el, p, vigente) => {
   const abV = abierto("pocos", "vig");
   el.innerHTML = cab("🧯 Pocos en bodega", "SKUs con menos estibas disponibles que su mínimo (columna Minimo de la hoja Sku; vacío = 10)", botonesPDF("POCOS", "Formato de auditoría")) +
     `<section class="card plegable pv-vig ${abV ? "abierto" : ""}"><div class="pl-cab" data-plegar="pocos|vig" role="button" tabindex="0" aria-expanded="${abV}"><h3 style="margin:0">🔔 Productos vigilados <span class="muted small">(${(S.pocosVig || []).length})</span>${nAl ? ` <span class="nav-n" title="En un solo módulo o agotados">${nAl}</span>` : ""}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
-      <div class="pl-cuerpo"><p class="small muted" style="margin-top:0">Avisan cuando quedan en un solo módulo de bodega o se agotan.${puede("administrador") ? ` <button class="link" data-admvig>Agregar o quitar →</button>` : ""}</p>${tablaVigilados(false)}</div></section>` +
+      <div class="pl-cuerpo"><p class="small muted" style="margin-top:0">Avisan cuando quedan en un solo módulo de bodega o se agotan.${puede("validador") ? ` <button class="link" data-admvig>Agregar o quitar →</button>` : ` <button class="link" data-admvig>Ver todos →</button>`}</p>${tablaVigilados(false)}</div></section>` +
     `<div class="lista-tools"><input type="search" id="pq" placeholder="Filtrar SKU o producto…"><span class="count" id="pc"></span></div><div id="pr"></div>`;
   lis.sort((a, b) => (vig.has(b.s) ? 1 : 0) - (vig.has(a.s) ? 1 : 0));
   const pintar = () => {
@@ -4242,16 +4242,18 @@ VISTAS.pocosvig = async (el, p, vigente) => {
   const pintar = () => {
     const l = (S.pocosVig || []).map(estadoVigilado);
     $("#pvC", el).textContent = `${l.length} vigilados · ${l.filter(x => x.unico).length} en un solo módulo · ${l.filter(x => x.agotado).length} agotados`;
-    $("#pvL", el).innerHTML = tablaVigilados(true);
+    $("#pvL", el).innerHTML = tablaVigilados(editar);
   };
   const guardarLista = async (lista, msj) => {
     try { S.pocosVig = await api("webPocosVigilarGuardar", lista); ls.setJ("pocosVig", S.pocosVig); toast(msj, "ok"); pintarNav(); pintar(); }
     catch (e) { toast(e.message, "bad", 6000); }
   };
-  el.innerHTML = cab("🔔 Alerta de pocos", "Los productos que se vigilan. Avisa cuando uno queda en un solo módulo de bodega (sin KA ni PREV) o ya no queda en ninguno: en Inicio, en el menú, en «Pocos» y al sincronizar.") +
-    `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Vigilar un producto</h3><div style="max-width:520px">${campoAuto("pvA", "Nombre o SKU (ej: 22613)")}</div></div>
-    <div class="lista-tools"><span class="count" id="pvC"></span></div><div id="pvL"></div>`;
-  autoSku($("#pvA", el), c => {
+  // La ven todos los que entran a Turnos; agregan y quitan el rotador y el administrador
+  const editar = puede("validador");
+  el.innerHTML = cab("🔔 Alerta de pocos", `Los productos que se vigilan. Avisa cuando uno queda en un solo módulo de bodega (sin KA ni PREV) o ya no queda en ninguno: en Inicio, en el menú, en «Pocos» y al sincronizar.${editar ? "" : " Los agrega o quita un rotador o el administrador."}`) +
+    (editar ? `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Vigilar un producto</h3><div style="max-width:520px">${campoAuto("pvA", "Nombre o SKU (ej: 22613)")}</div></div>` : "") +
+    `<div class="lista-tools"><span class="count" id="pvC"></span></div><div id="pvL"></div>`;
+  if (editar) autoSku($("#pvA", el), c => {
     if ((S.pocosVig || []).includes(c.sku)) return toast(`${c.sku} ya está vigilado`, "warn");
     guardarLista((S.pocosVig || []).concat(c.sku), `Vigilando ${c.sku} · ${c.prod}`);
   }, { limpiar: true });

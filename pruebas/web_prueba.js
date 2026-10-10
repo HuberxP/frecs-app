@@ -480,7 +480,7 @@ let llamadasSb = 0, sinRed = false;
   await V.fill("#lgN", "Vero"); await V.fill("#lgP", "2468"); await V.click("#lgB");
   await V.waitForSelector("#rvQ", { timeout: 15000 });
   const navV = await V.evaluate(() => $$("#nav a[data-v]").map(a => a.dataset.v).sort().join(","));
-  if (navV !== "enconsumo,modulo,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
+  if (navV !== "enconsumo,modulo,pocosvig,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
   const barV = await V.evaluate(() => $$("#bottombar button").map(b => b.dataset.v).join(","));
   if (barV !== "repvacio,repconflicto,repgen,stock") errores.push("verificador: barra de abajo " + barV);
   await V.evaluate(() => ir("validacion")); await V.waitForTimeout(300);
@@ -632,6 +632,7 @@ let llamadasSb = 0, sinRed = false;
   await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
   await P.evaluate(() => ir("pocos")); await P.waitForTimeout(700);
   if (!(await P.$(".pv-vig"))) errores.push("pocos: la vista Pocos no muestra los vigilados");
+  if (!(await P.evaluate(() => ["verificador", "opm", "lector", "validador"].every(r => vistaPermitida("pocosvig", r))))) errores.push("vigilados: no los ven todos los roles");
   await P.evaluate(() => api("webPocosVigilarGuardar", []));
   // --- Rotador (antes validador) ---
   const rot = await P.evaluate(() => ({ t: rolTxt("validador"), m: conRotador("se necesita rol validador") }));

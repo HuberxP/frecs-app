@@ -108,7 +108,7 @@
   // una copia fresca de los datos; luego solo las filas que cambiaron van a Supabase
   // (guardar_filas), que revisa la sesión y el rol. Si Supabase lo rechaza, se deshace.
   const ESCRITURA = {
-    webLimboAgregar: ["Limbo"], webLimboEliminar: ["Limbo"],
+    webLimboAgregar: ["Limbo"], webLimboEditar: ["Limbo"], webLimboEliminar: ["Limbo"],
     webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"],
     webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"],
     webCapacidadGuardar: ["Capacidad_Bodega"], webCapacidadEliminar: ["Capacidad_Bodega"]
@@ -125,7 +125,7 @@
   const bool = v => v === true || /^(true|si|sí|verdadero)$/i.test(txt(v));
   const ts = v => { const t = txt(v); const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/.exec(t); return m ? `${m[1]}T${m[2]}${m[3] || ":00"}-05:00` : (t || null); };
   const HOJAS = {
-    Limbo: { tabla: "limbo", pk: "id", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]) }) },
+    Limbo: { tabla: "limbo", pk: "id", clave: f => f.id, fila: r => ({ id: txt(r[0]), producto: txt(r[1]) || "(sin nombre)", vencimiento: nul(r[2]), presentacion: nul(r[3]), cubicaje: nul(r[4]), fecha_reporte: nul(r[5]), sku: nul(r[6]), estibas: num(r[7]), cajas: num(r[8]), unidades: num(r[9]) }) },
     Consumo: { tabla: "consumo", pk: "sku", clave: f => f.sku, fila: (r, k) => ({ sku: txt(r[0]), producto: nul(r[1]), modulo_elegido: nul(r[2]), elegido_por: nul(r[3]), elegido_en: ts(r[4]), orden: k + 1 }) },
     Sku: { tabla: "sku", pk: "sku", clave: f => f.sku, fila: (r, k, cab) => {
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
@@ -489,6 +489,8 @@
       if (ROT[fn]) { const [f, p] = ROT[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Secciones por rol (solo el administrador)
       if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }
+      // Productos vigilados para la alerta de pocos (solo el administrador)
+      if (fn === "webPocosVigilarGuardar") { const v = await rpc("pocos_vigilar_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.pocos_vigilar = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
       if (fn === "webPref") {
         const p = await rpc("pref_guardar", { p_token: args[0], p_clave: String(args[1] || ""), p_valor: args[2] === undefined ? null : args[2] });
@@ -514,7 +516,7 @@
         const res = MOTOR.llamar(fn, args);
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

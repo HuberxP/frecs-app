@@ -1354,7 +1354,7 @@
 
   /* ---------- Secciones por rol ---------- */
   .vr-tabla { border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; }
-  .vr-h, .vr-f { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, 60px); align-items: center; }
+  .vr-h, .vr-f { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 56px); align-items: center; }
   .vr-h { background: var(--card2); font-size: 12px; font-weight: 800; color: var(--muted); padding: 8px 10px; position: sticky; top: 0; }
   .vr-h span:not(:first-child) { text-align: center; }
   .vr-g { padding: 8px 10px 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--cyan); border-top: 1px solid var(--line2); }
@@ -1364,8 +1364,86 @@
   .vr-c { display: flex; justify-content: center; align-items: center; min-height: 34px; border-radius: 8px; }
   .vr-c input { width: 20px; height: 20px; accent-color: var(--brand); }
   .vr-c.cambio { background: rgba(34,211,238,.14); }
-  @media (max-width: 480px) { .vr-h, .vr-f { grid-template-columns: minmax(0, 1fr) repeat(4, 46px); } .vr-h { font-size: 10.5px; } }
-  html[data-tema="claro"] .vr-f:nth-child(odd) { background: #f3f6fa; }/* ============ Versión web (Supabase) ============ */
+  @media (max-width: 480px) { .vr-h, .vr-f { grid-template-columns: minmax(0, 1fr) repeat(5, 40px); } .vr-h { font-size: 10.5px; } }
+  html[data-tema="claro"] .vr-f:nth-child(odd) { background: #f3f6fa; }
+
+  /* ---------- Canal (T1 / T2 · PK / KA): botón de arriba, ventana, aviso y etiquetas ---------- */
+  .canal-chip { min-height: 34px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line2); background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .canal-chip.on { border-color: var(--cyan); color: var(--ink); background: var(--cyan-soft); box-shadow: 0 0 0 1px rgba(34,211,238,.25) inset; }
+  .canal-chip b { font-weight: 800; color: var(--cyan); }
+  @media (max-width: 699px) { .canal-chip .txt { display: none; } .canal-chip { padding: 4px 8px; } }
+  .canal-ops { display: grid; gap: 8px; margin: 12px 0 4px; }
+  .canal-op { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); font: inherit; cursor: pointer; }
+  .canal-op b { font-size: 15px; } .canal-op span { font-size: 12.5px; color: var(--muted); }
+  .canal-op.on { border-color: var(--cyan); background: var(--cyan-soft); }
+  .canal-ban { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 9px 12px; margin: 0 0 12px; border-radius: 12px; border: 1px solid var(--cyan); background: var(--cyan-soft); font-size: 13.5px; }
+  .tag.t-cumple { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); font-weight: 750; }
+  .tag.t-nocumple { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); font-weight: 750; }
+  .tag.t-reemp { border-color: #c084fc; color: #d8b4fe; background: rgba(192,132,252,.15); font-weight: 800; }
+  .note.no-cumple { margin: 0 0 12px; }
+  html[data-tema="claro"] .canal-chip.on b { color: #0f5f92; } html[data-tema="claro"] .tag.t-reemp { color: #6d28d9; border-color: #8b5cf6; background: #f1eaff; }
+
+  /* ---------- Información de producto: la ficha completa ---------- */
+  .dp-card { padding: 16px; }
+  .dp-cab { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .dp-n { font-weight: 800; font-size: 17px; } .dp-acc { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dp-stock { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 14px 0 10px; }
+  .dp-k { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 12px; background: var(--bg2); border: 1px solid var(--line); }
+  .dp-k span { font-size: 12px; color: var(--muted); } .dp-k b { font-size: 22px; line-height: 1.15; } .dp-k small { color: var(--muted); font-size: 12px; }
+  .dp-cans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .dp-can { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2); font-size: 12.5px; }
+  .dp-can b { font-size: 14px; } .dp-can small { color: var(--muted); }
+  .dp-can.si { border-color: rgba(57,255,136,.45); background: var(--ok-soft); } .dp-can.no { border-color: rgba(255,77,109,.4); background: var(--bad-soft); }
+  .dp-can.act { box-shadow: 0 0 0 2px var(--cyan); }
+  .dp-g { margin-top: 10px; } .dp-gt { font-weight: 750; font-size: 13px; margin-bottom: 6px; color: var(--muted); }
+  .dp-ayuda { padding: 14px 4px; }
+  @media (max-width: 480px) { .dp-cans { grid-template-columns: 1fr; } }
+
+  /* ---------- Alerta de pocos (productos vigilados) ---------- */
+  .pv-aviso { border-color: var(--warn); background: linear-gradient(180deg, var(--warn-soft), transparent 70%), var(--card); margin-bottom: 14px; }
+  .pv-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; } .pv-cab b { font-size: 15.5px; }
+  .pv-l { display: grid; gap: 6px; }
+  .pv-i { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer; }
+  .pv-i .pv-bar { grid-column: 1 / -1; } .pv-i.agot { border-color: var(--bad); }
+  .pv-bar { display: block; height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 4px; }
+  .pv-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--bad), var(--warn)); border-radius: 99px; }
+  .pv-tabla { display: grid; gap: 8px; }
+  .pv-f { display: grid; grid-template-columns: minmax(0, 1fr) auto 110px auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); }
+  .pv-f.bajo { border-color: rgba(255,210,63,.55); } .pv-f:nth-child(even) { background: var(--card2); }
+  .pv-min { display: flex; flex-direction: column; font-size: 11.5px; color: var(--muted); } .pv-min input { width: 100%; padding: 6px 8px; }
+  @media (max-width: 600px) { .pv-f { grid-template-columns: minmax(0, 1fr) auto; } .pv-f .pv-p { grid-column: 1 / -1; } }
+  .sync-pocos .sku { font-weight: 700; }
+  html[data-tema="claro"] .pv-i, html[data-tema="claro"] .pv-f { background: #fff; } html[data-tema="claro"] .pv-bar { background: #e3e8ee; }
+
+  /* ---------- Consumo / Pony: colores intercalados ---------- */
+  .cs-lista .cs-row:nth-child(odd) { background: rgba(34,211,238,.10); border-color: rgba(34,211,238,.35); border-left: 4px solid var(--cyan); }
+  .cs-lista .cs-row:nth-child(even) { background: rgba(192,132,252,.11); border-color: rgba(192,132,252,.35); border-left: 4px solid #c084fc; }
+  .grid.tarjetas > .cons-card:nth-child(odd) { background: linear-gradient(160deg, rgba(34,211,238,.13), transparent 55%), var(--card); border-color: rgba(34,211,238,.4); border-top: 4px solid var(--cyan); }
+  .grid.tarjetas > .cons-card:nth-child(even) { background: linear-gradient(160deg, rgba(192,132,252,.15), transparent 55%), var(--card); border-color: rgba(192,132,252,.42); border-top: 4px solid #c084fc; }
+  .cons-card .mini-list .lote:nth-child(odd) { background: rgba(255,255,255,.03); }
+  html[data-tema="claro"] .cs-lista .cs-row:nth-child(odd) { background: #e7f7fc; border-color: #9ed8ea; border-left-color: #0f8fb5; }
+  html[data-tema="claro"] .cs-lista .cs-row:nth-child(even) { background: #f2ecff; border-color: #cdbaf5; border-left-color: #7c4ddb; }
+  html[data-tema="claro"] .grid.tarjetas > .cons-card:nth-child(odd) { background: linear-gradient(160deg, #e3f5fb, #fff 55%); border-color: #9ed8ea; border-top-color: #0f8fb5; }
+  html[data-tema="claro"] .grid.tarjetas > .cons-card:nth-child(even) { background: linear-gradient(160deg, #efe7ff, #fff 55%); border-color: #cdbaf5; border-top-color: #7c4ddb; }
+  .cs-lista .cs-row.unico, .grid.tarjetas > .cons-card.unico { border-color: #f3dc86; }
+
+  /* ---------- Organizar bodega: retornable y lata ---------- */
+  .org-partes { margin-bottom: 10px; } .org-partes button { font-size: 14.5px; padding: 8px 16px; }
+  .org-secs { margin-bottom: 12px; padding: 10px 12px; }
+  .org-st { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .org-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .org-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+  .org-chip.on { border-color: var(--brand); color: var(--ink); background: var(--brand-soft); font-weight: 700; }
+  .org-chip.mini { padding: 2px 8px; font-size: 12px; margin: 2px 2px; cursor: default; display: inline-block; }
+  .org-acc { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ---------- Limbo: formulario con SKU y cantidades ---------- */
+  .lb-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
+  .lb-form .lb-ancho, .lb-form .lb-sku { grid-column: span 2; } .lb-form .field { position: relative; }
+  .lb-cant { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .lb-acc { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .lb-bts { display: flex; gap: 6px; } .lb-skuv { font-size: 13px; margin-top: 2px; }
+  @media (max-width: 520px) { .lb-form { grid-template-columns: 1fr 1fr; } .lb-form .lb-ancho, .lb-form .lb-sku, .lb-form .lb-fecha { grid-column: 1 / -1; } }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

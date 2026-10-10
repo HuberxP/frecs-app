@@ -1780,7 +1780,11 @@ function obtenerVacios(pagina) {
 // ---------------------------------------------------------
 // 3. ORGANIZAR (juntar el mismo SKU repartido en varios módulos)
 // ---------------------------------------------------------
-function calcularOrganizar() {
+// secciones (opcional): solo esos pasillos (letras del módulo: A, B, H, M = carpa…). Lo que se mueve
+// y a donde se mueve quedan dentro de esas secciones (p. ej. retornable A a D, lata H, carpa, E, F, G, I).
+// Sin secciones: como siempre (pasillos generales, sin carpa ni H). KA, PREV y picking nunca entran.
+function calcularOrganizar(secciones) {
+  const secs = Array.isArray(secciones) && secciones.length ? new Set(secciones.map(x => String(x).toUpperCase())) : null;
   const inventarios = obtenerInventarioLocal();
   if (inventarios.length === 0) return null;
   const cap = obtenerCapacidadesBodega();
@@ -1788,7 +1792,9 @@ function calcularOrganizar() {
   let prodLocs = {};
   inventarios.forEach(i => {
     if (!i.tieneFisico) return;
-    if (["CARPA", "PREV", "KA", "H"].includes(zonaModulo_(i.m)) || i.pick || i.est !== "DISPONIBLE") return;
+    const z = zonaModulo_(i.m);
+    if (z === "PREV" || z === "KA" || i.pick || i.est !== "DISPONIBLE") return;
+    if (secs ? !secs.has(seccionModulo_(i.m)) : (z === "CARPA" || z === "H")) return;
     const usa = i.e + ((i.c % i.cpe) > 0 ? 1 : 0);
     if (usa <= 0) return;
     if (!prodLocs[i.s]) prodLocs[i.s] = { prod: i.p, fam: i.fam, locs: [] };
@@ -2282,7 +2288,7 @@ function obtenerConsumo(pagina) {
       msj += `${ic}${marca} *${escapeMd(l.m)}*${l.rv ? " 🟠 _reportado vacío_" : ""}${l.prio ? " 🚨" : ""}${l.lleno === false ? " (incompleto)" : ""}\n   ${cantLinea_(l.e, l.c, l.u, l.p)}\n   Vence: ${fVD(l.v, l.d)}${l.disp ? "" : ` · ❌ ${escapeMd(l.est)}`}\n`;
     });
     if (lb.length > ver.length) msj += `   _+${lb.length - ver.length} ubicaciones más en el dashboard_\n`;
-    msj += `\n🗑️ _Eliminar:_ /consumo del ${x.sku}\n${SEP_}`;
+    msj += `\n${SEP_}`;
   });
   let mk = generarBotoneraPaginacion("CONSO", pagina, datos.length, lim) || { inline_keyboard: [] };
   mk.inline_keyboard.push([{ text: "📄 PDF completo", callback_data: "PDFCONSO" }, { text: "🎯 Solo módulos a consumir", callback_data: "PDFCONSO2" }]);
@@ -2302,13 +2308,21 @@ function agregarConsumoCore_(sku) {
   return { ok: true, nombre: String(n) };
 }
 
+// La lista de consumo solo la cambia el administrador, desde la página (Administración › Lista de consumo)
+const CONSUMO_SOLO_ADMIN_ = "🔒 La lista de consumo la cambia solo el administrador, desde la página: Administración › Lista de consumo.";
 function agregarConsumo(sku) {
+  return { text: CONSUMO_SOLO_ADMIN_, markup: { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] } };
+}
+function agregarConsumoBot_(sku) {
   const r = agregarConsumoCore_(sku);
   const volver = { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] };
   return { text: r.ok ? `✅ ${skuProdMd_(sku, r.nombre)} añadido a la lista.` : `⚠️ ${r.error}`, markup: volver };
 }
 
 function preguntarEliminarConsumo(sku) {
+  return { text: CONSUMO_SOLO_ADMIN_, markup: { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] } };
+}
+function preguntarEliminarConsumoBot_(sku) {
   sku = String(sku || "").trim();
   if (!/^\d+$/.test(sku)) return { text: "⚠️ Formato: `/consumo del SKU`", markup: null };
   return { text: `⚠️ ¿Eliminar el SKU *${sku}* de la lista de consumo?`, markup: { inline_keyboard: [[{ text: "✅ Sí, eliminar", callback_data: `CONSO_DEL|${sku}` }, { text: "❌ Cancelar", callback_data: "CONSO|1" }]] } };
@@ -2322,6 +2336,9 @@ function eliminarConsumoCore_(sku) {
 }
 
 function ejecutarEliminarConsumo(sku) {
+  return { text: CONSUMO_SOLO_ADMIN_, markup: { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] } };
+}
+function ejecutarEliminarConsumoBot_(sku) {
   const volver = { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] };
   return { text: eliminarConsumoCore_(sku) ? `✅ SKU ${sku} eliminado.` : `❌ SKU ${sku} no estaba en la lista.`, markup: volver };
 }
@@ -2397,19 +2414,47 @@ function listarLimbo_() {
   if (!sh) return [];
   return sh.getDataRange().getValues().slice(1)
     .filter(d => String(d[0]).trim() !== "")
-    .map(d => ({ id: String(d[0]).trim(), p: String(d[1]), vRaw: d[2], v: formatearFecha(d[2]), dias: diasHastaFecha_(d[2]), pres: String(d[3] || ""), cub: String(d[4] || ""), fecha: (d[5] instanceof Date) ? Utilities.formatDate(d[5], tzHoja_(), "dd/MM/yyyy HH:mm") : String(d[5] || "") }));
+    .map(d => ({ id: String(d[0]).trim(), p: String(d[1]), vRaw: d[2], v: formatearFecha(d[2]), dias: diasHastaFecha_(d[2]), pres: String(d[3] || ""), cub: String(d[4] || ""), fecha: (d[5] instanceof Date) ? Utilities.formatDate(d[5], tzHoja_(), "dd/MM/yyyy HH:mm") : String(d[5] || ""),
+      sku: String(d[6] === undefined || d[6] === null ? "" : d[6]).trim(), e: numLimbo_(d[7]), c: numLimbo_(d[8]), u: numLimbo_(d[9]) }));
+}
+const numLimbo_ = v => { const n = parseFloat(String(v === null || v === undefined ? "" : v).replace(",", ".")); return isFinite(n) ? n : 0; };
+// Cantidades y SKU (opcional: si ya se sabe cuál es). El SKU tiene que existir en la hoja Sku.
+function datosLimbo_(obj) {
+  obj = obj || {};
+  const sku = String(obj.sku || "").trim();
+  if (sku && !/^\d+$/.test(sku)) throw new Error("El SKU solo lleva números.");
+  if (sku && !skuInfo_(sku)) throw new Error(`El SKU ${sku} no existe en la hoja Sku.`);
+  const n = (v, t) => { const x = String(v === null || v === undefined ? "" : v).trim().replace(",", "."); if (x === "") return 0; const y = Number(x); if (!isFinite(y) || y < 0 || y > 999999) throw new Error(`Cantidad de ${t} no válida.`); return y; };
+  return { sku: sku, e: n(obj.e, "estibas"), c: n(obj.c, "cajas"), u: n(obj.u, "unidades") };
 }
 
-function agregarLimboCore_(nombre, fechaISO, presentacion, cubicaje) {
+function agregarLimboCore_(nombre, fechaISO, presentacion, cubicaje, extra) {
   const sh = hoja_("Limbo");
   if (!sh) return { ok: false, error: "Falta la pestaña 'Limbo' en el Excel." };
   if (!String(nombre || "").trim()) return { ok: false, error: "Falta el nombre del producto." };
   const usados = new Set(listarLimbo_().map(x => x.id));
   let idUnico;
   do { idUnico = "L-" + Math.floor(1000 + Math.random() * 9000); } while (usados.has(idUnico));
-  sh.appendRow([idUnico, String(nombre).trim(), formatearFecha(fechaISO), presentacion || "", cubicaje || "", Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy HH:mm")]);
+  const x = extra || { sku: "", e: 0, c: 0, u: 0 };
+  sh.appendRow([idUnico, String(nombre).trim(), formatearFecha(fechaISO), presentacion || "", cubicaje || "", Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy HH:mm"), x.sku, x.e, x.c, x.u]);
   sbEspejo_("limbo");
   return { ok: true, id: idUnico };
+}
+
+// Corregir un registro: obj = { nombre, fecha (aaaa-mm-dd), pres, cub, sku, e, c, u }. Se conservan el ID y cuándo se reportó.
+function editarLimboCore_(id, obj, fechaISO) {
+  const sh = hoja_("Limbo");
+  if (!sh) throw new Error("Falta la pestaña 'Limbo' en el Excel.");
+  if (!String(obj.nombre || "").trim()) throw new Error("Falta el nombre del producto.");
+  const x = datosLimbo_(obj);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== String(id).trim()) continue;
+    sh.getRange(i + 1, 1, 1, 10).setValues([[data[i][0], String(obj.nombre).trim(), formatearFecha(fechaISO), String(obj.pres || "").trim(), String(obj.cub || "").trim(), data[i][5], x.sku, x.e, x.c, x.u]]);
+    sbEspejo_("limbo");
+    return true;
+  }
+  throw new Error(`El registro ${id} ya no está en el limbo.`);
 }
 
 function eliminarLimboCore_(id) {
@@ -4840,13 +4885,15 @@ function sbFilasConsumo_() {
   return sbSinRepetir_(tLeer_(CONSUMO_DEF).filter(r => txt_(r[0])).map((r, k) => ({
     sku: txt_(r[0]), producto: sbTxt_(r[1]), modulo_elegido: sbTxt_(r[2]), elegido_por: sbTxt_(r[3]), elegido_en: sbTs_(r[4]), orden: k + 1 })), x => x.sku);
 }
+const sbNumLimbo_ = v => { const n = parseFloat(String(v === null || v === undefined ? "" : v).replace(",", ".")); return isFinite(n) ? n : null; };
 function sbFilasLimbo_() {
   const limbo = [];
   const shL = hoja_("Limbo");
   if (shL) shL.getDataRange().getValues().slice(1).forEach(r => {
     if (!String(r[0]).trim()) return;
     limbo.push({ id: String(r[0]).trim(), producto: String(r[1] || "").trim() || "(sin nombre)", vencimiento: r[2] instanceof Date ? Utilities.formatDate(r[2], TZ, "dd/MM/yyyy") : sbTxt_(r[2]),
-      presentacion: sbTxt_(r[3]), cubicaje: sbTxt_(r[4]), fecha_reporte: r[5] instanceof Date ? Utilities.formatDate(r[5], TZ, "dd/MM/yyyy HH:mm") : sbTxt_(r[5]) });
+      presentacion: sbTxt_(r[3]), cubicaje: sbTxt_(r[4]), fecha_reporte: r[5] instanceof Date ? Utilities.formatDate(r[5], TZ, "dd/MM/yyyy HH:mm") : sbTxt_(r[5]),
+      sku: sbTxt_(r[6]), estibas: sbNumLimbo_(r[7]), cajas: sbNumLimbo_(r[8]), unidades: sbNumLimbo_(r[9]) });
   });
   return sbSinRepetir_(limbo, x => x.id);
 }
@@ -4881,9 +4928,10 @@ function sbBajarMaestros_(tablas) {
       const sh = hoja_("Limbo");
       if (sh) {
         const n = sh.getLastRow();
-        if (n > 1) sh.getRange(2, 1, n - 1, 6).clearContent();
-        const filas = m.limbo.map(x => [x.id, x.producto || "", x.vencimiento || "", x.presentacion || "", x.cubicaje || "", x.fecha_reporte || ""]);
-        if (filas.length) sh.getRange(2, 1, filas.length, 6).setValues(filas);
+        if (n > 1) sh.getRange(2, 1, n - 1, 10).clearContent();
+        const q = v => v === null || v === undefined ? "" : v;
+        const filas = m.limbo.map(x => [x.id, x.producto || "", x.vencimiento || "", x.presentacion || "", x.cubicaje || "", x.fecha_reporte || "", q(x.sku), q(x.estibas), q(x.cajas), q(x.unidades)]);
+        if (filas.length) sh.getRange(2, 1, filas.length, 10).setValues(filas);
         hecho.push("limbo");
       }
     }
@@ -5421,6 +5469,7 @@ function webRotMarcar(tk) { return rotSoloNueva_(tk); }
 function webRotQuitar(tk) { return rotSoloNueva_(tk); }
 function webRotEliminar(tk) { return rotSoloNueva_(tk); }
 // Secciones por rol: se guardan en Supabase desde la versión nueva
+function webPocosVigilarGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("La alerta de pocos se configura en la versión nueva de Frecs."); }); }
 function webVistasRolGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("Las secciones por rol se cambian en la versión nueva de Frecs."); }); }
 
 ;
@@ -5547,7 +5596,7 @@ function webPocos(tk) {
 
 function webHuecos(tk) { return webAuth_(tk, L_, () => { const h = calcularHuecos(); if (h === null) throw new Error("La pestaña 'Capacidad_Bodega' está vacía."); return h; }); }
 function webVacios(tk) { return webAuth_(tk, L_, () => { const v = calcularVacios(); if (v === null) throw new Error("Sin mapa de módulos: sincroniza primero."); return v; }); }
-function webOrganizar(tk) { return webAuth_(tk, L_, () => (calcularOrganizar() || []).map(s => Object.assign({}, s, { vf: formatearFecha(s.v), actTxt: formatoActualizacion(s.act), vida: vidaUtilInfo(s.d).clave }))); }
+function webOrganizar(tk, secciones) { return webAuth_(tk, L_, () => (calcularOrganizar(secciones) || []).map(s => Object.assign({}, s, { vf: formatearFecha(s.v), actTxt: formatoActualizacion(s.act), vida: vidaUtilInfo(s.d).clave }))); }
 function webConsolidar(tk) { return webAuth_(tk, L_, () => calcularConsolidar().map(g => ({ s: g.s, p: g.p, locs: g.locs.map(l => ({ m: l.m, e: l.e, c: l.c, u: l.u, vf: formatearFecha(l.v), d: l.d, actTxt: formatoActualizacion(l.act), vida: vidaUtilInfo(l.d).clave })) }))); }
 function webInfiltrados(tk) {
   return webAuth_(tk, L_, () => {
@@ -5586,7 +5635,10 @@ function webCarpa(tk) {
 function webBarriles(tk) {
   return webAuth_(tk, L_, () => { const b = calcularBarriles(); return { lotes: b.lotes.map(miniLote_), resumen: b.resumen.map(r => Object.assign({}, r, { vf: formatearFecha(r.vMin) })) }; });
 }
-function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => ({ id: x.id, p: x.p, v: x.v, dias: x.dias, pres: x.pres, cub: x.cub, fecha: x.fecha, vida: vidaUtilInfo(x.dias).clave }))); }
+function webLimbo(tk) { return webAuth_(tk, L_, () => listarLimbo_().map(x => { const f = x.sku ? skuInfo_(x.sku) : null;
+  return { id: x.id, p: x.p, v: x.v, vIso: fechaIsoLimbo_(x.vRaw), dias: x.dias, pres: x.pres, cub: x.cub, fecha: x.fecha, vida: vidaUtilInfo(x.dias).clave, sku: x.sku, skuProd: f ? String(f.prod) : "", e: x.e, c: x.c, u: x.u }; })); }
+// "dd/mm/aaaa" (o fecha) → "aaaa-mm-dd" para el cuadro de fecha al editar
+function fechaIsoLimbo_(v) { const f = normalizarFechaWMS(v instanceof Date ? formatearFecha(v) : String(v || "")); return /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : ""; }
 function webHistorial(tk, filtros) { return webAuth_(tk, L_, u => histListar_(filtros, u)); }
 function webFinal(tk, turnoId) { return webAuth_(tk, L_, u => finalOpciones_(turnoId || "", u)); }
 function webMantPrevia(tk, dias) { return webAuth_(tk, A_, () => mantPreviaCore_(dias)); }
@@ -5610,17 +5662,25 @@ function webSincronizar(tk, forzar) {
     return { filas: r.fisicas, modulos: r.modulos, inv: inventarioPayload_() };
   });
 }
-function webConsumoAgregar(tk, sku) { return webAuth_(tk, V_, () => { const r = agregarConsumoCore_(sku); if (!r.ok) throw new Error(r.error); return r.nombre; }); }
-function webConsumoEliminar(tk, sku) { return webAuth_(tk, V_, () => { if (!eliminarConsumoCore_(sku)) throw new Error(`El SKU ${sku} no estaba en la lista.`); return true; }); }
-function webConsumoElegir(tk, sku, modulo) { return webAuth_(tk, V_, u => elegirModuloConsumoCore_(sku, modulo, u.nombre)); }
+function webConsumoAgregar(tk, sku) { return webAuth_(tk, A_, () => { const r = agregarConsumoCore_(sku); if (!r.ok) throw new Error(r.error); return r.nombre; }); }
+function webConsumoEliminar(tk, sku) { return webAuth_(tk, A_, () => { if (!eliminarConsumoCore_(sku)) throw new Error(`El SKU ${sku} no estaba en la lista.`); return true; }); }
+function webConsumoElegir(tk, sku, modulo) { return webAuth_(tk, A_, u => elegirModuloConsumoCore_(sku, modulo, u.nombre)); }
 function webLimboAgregar(tk, obj) {
   return webAuth_(tk, V_, () => {
     obj = obj || {};
     const f = normalizarFechaWMS(obj.fecha || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) throw new Error("Fecha de vencimiento inválida.");
-    const r = agregarLimboCore_(obj.nombre, f, obj.pres, obj.cub);
+    const r = agregarLimboCore_(obj.nombre, f, obj.pres, obj.cub, datosLimbo_(obj));
     if (!r.ok) throw new Error(r.error);
     return r.id;
+  });
+}
+function webLimboEditar(tk, id, obj) {
+  return webAuth_(tk, V_, () => {
+    obj = obj || {};
+    const f = normalizarFechaWMS(obj.fecha || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) throw new Error("Fecha de vencimiento inválida.");
+    return editarLimboCore_(id, obj, f);
   });
 }
 function webLimboEliminar(tk, id) { return webAuth_(tk, V_, () => { if (!eliminarLimboCore_(id)) throw new Error(`ID ${id} no encontrado.`); return true; }); }
@@ -5747,8 +5807,8 @@ function webCanalesGuardar(tk, filas) { return webAuth_(tk, A_, () => { canalesG
 // Pestaña Usuarios en el archivo principal.
 // =========================================================
 const USR_DEF = { libro: "MAIN", nombre: "Usuarios", cab: ["Nombre", "PIN_hash", "Rol", "Activo", "Creado", "Creado_por", "Ultimo_acceso"], texto: [1, 2, 3, 5, 6, 7] };
-// verificador: solo Stock, Información de producto, Por módulo y los reportes de módulos (lee como un lector)
-const ROLES = { verificador: 1, lector: 1, validador: 2, administrador: 3 };
+// verificador y opm: solo Stock, Información de producto, Por módulo y los reportes de módulos (leen como un lector)
+const ROLES = { verificador: 1, opm: 1, lector: 1, validador: 2, administrador: 3 };
 const SESION_SEG = 21600; // 6 h (máximo de CacheService); se renueva con el uso
 
 function salPin_() {
@@ -6307,7 +6367,7 @@ function __cargar(d, props, cache) {
   main.poner("Canales", [CANALES_DEF.cab].concat(d.canales || []));
   main.poner("Capacidad_Bodega", [["Modulo", "Caras", "Capacidad"]].concat(d.capacidad || []));
   main.poner("Consumo", [CONSUMO_DEF.cab].concat(d.consumo || []));
-  main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte"]].concat(d.limbo || []));
+  main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte", "Sku", "Estibas", "Cajas", "Unidades"]].concat(d.limbo || []));
   if (d.reportes) main.poner(REP_DEF.nombre, [REP_DEF.cab].concat(d.reportes));
   main.poner("Usuarios", [USR_DEF.cab]);
   const val = SpreadsheetApp.openById(ARCHIVOS.VAL);

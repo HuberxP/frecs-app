@@ -33,7 +33,7 @@ function __cargar(d, props, cache) {
   main.poner("Canales", [CANALES_DEF.cab].concat(d.canales || []));
   main.poner("Capacidad_Bodega", [["Modulo", "Caras", "Capacidad"]].concat(d.capacidad || []));
   main.poner("Consumo", [CONSUMO_DEF.cab].concat(d.consumo || []));
-  main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte"]].concat(d.limbo || []));
+  main.poner("Limbo", [["Id", "Producto", "Vencimiento", "Presentacion", "Cubicaje", "Fecha_reporte", "Sku", "Estibas", "Cajas", "Unidades"]].concat(d.limbo || []));
   if (d.reportes) main.poner(REP_DEF.nombre, [REP_DEF.cab].concat(d.reportes));
   main.poner("Usuarios", [USR_DEF.cab]);
   const val = SpreadsheetApp.openById(ARCHIVOS.VAL);

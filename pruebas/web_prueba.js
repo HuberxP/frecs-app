@@ -16,7 +16,7 @@ let llamadasSb = 0, sinRed = false;
       llamadasSb++;
       const req = route.request(), fn = req.url().split("/rpc/")[1], args = JSON.parse(req.postData() || "{}");
       if (!/^sb_publishable_/.test(req.headers()["apikey"] || "")) return route.fulfill({ status: 401, body: '{"message":"Invalid API key"}' });
-      const sql = `select coalesce(to_jsonb(public.${fn}(${Object.keys(args).map(k => `${k} => ${lit(args[k])}`).join(", ")}))::text, 'null');`;
+      const sql = `select coalesce(to_jsonb(public.${fn}(${Object.keys(args).map(k => `${k} => ${lit(k === "p_valor" && typeof args[k] === "string" ? JSON.stringify(args[k]) : args[k])}`).join(", ")}))::text, 'null');`;
       try { const out = psql(sql).split("\n").pop(); await route.fulfill({ status: 200, contentType: "application/json", body: out }); }
       catch (e) { const m = String(e.stderr || e.message).replace(/^.*ERROR:\s*/s, "").split("\n")[0]; await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: m }) }); }
     });
@@ -406,9 +406,9 @@ let llamadasSb = 0, sinRed = false;
   // Fechas escritas a mano
   await P.evaluate(() => ir("limbo")); await P.waitForTimeout(800);
   await P.evaluate(() => { const d = document.querySelector("#view details"); if (d) d.open = true; });
-  const ft = await P.$("#view .fecha-caja:has(#lf) .fecha-txt");
+  const ft = await P.$("#view .lb-nuevo .fecha-caja:has([data-l=fecha]) .fecha-txt");
   if (!ft) errores.push("limbo: la fecha no se puede escribir a mano");
-  else { await ft.click(); await ft.type("10052027"); await P.waitForTimeout(100); const iso = await P.$eval("#lf", e => e.value); const vis = await ft.evaluate(e => e.value); if (iso !== "2027-05-10" || vis !== "10/05/2027") errores.push(`fecha a mano: ${vis} → ${iso}`); }
+  else { await ft.click(); await ft.type("10052027"); await P.waitForTimeout(100); const iso = await P.$eval(".lb-nuevo [data-l=fecha]", e => e.value); const vis = await ft.evaluate(e => e.value); if (iso !== "2027-05-10" || vis !== "10/05/2027") errores.push(`fecha a mano: ${vis} → ${iso}`); }
   // Refrescar
   const nR = llamadasSb;
   await P.click("#refBtn"); await P.waitForTimeout(1500);
@@ -568,16 +568,79 @@ let llamadasSb = 0, sinRed = false;
   await P.click(".rs-card .pl-cab"); await P.waitForTimeout(200);
   if ((await P.$$(".rs-card.abierto .rs-i")).length < 3) errores.push("inicio: el resumen no muestra sus puntos al abrirlo");
   await P.screenshot({ path: "/tmp/w_resumen.png" });
-  // --- Información de producto: filas desplegables ---
-  await P.evaluate(() => ir("producto", { q: "pony" })); await P.waitForTimeout(500);
+  // --- Información de producto: al escribir sale la lista; al escoger, toda la información ---
+  await P.evaluate(() => { ls.set("ultProd", ""); ir("producto"); }); await P.waitForTimeout(500);
+  if (await P.$(".dp-card")) errores.push("información de producto: muestra un producto sin escoger");
   await P.fill("#bq", "pony"); await P.waitForTimeout(300);
-  if (!(await P.$(".pf-lista .pf.plegable"))) errores.push("información de producto: no está en filas desplegables");
-  await P.click(".pf .pl-cab"); await P.waitForTimeout(200);
-  if (!(await P.$(".pf.abierto .pf-campos"))) errores.push("información de producto: la fila no se despliega");
-  await P.click(".pf.abierto [data-ed]"); await P.waitForTimeout(300);
+  if (!(await P.isVisible(".buscador .ac-list .ac-item"))) errores.push("información de producto: al escribir no sale la lista");
+  if (await P.$(".dp-card")) errores.push("información de producto: carga el producto antes de escogerlo");
+  await P.click(".buscador .ac-list .ac-item"); await P.waitForTimeout(300);
+  if (!(await P.$(".dp-card .dp-cans")) || !(await P.$(".dp-card .pf-campos"))) errores.push("información de producto: al escoger no muestra la ficha completa");
+  await P.screenshot({ path: "/tmp/w_producto.png" });
+  await P.click(".dp-card [data-ed]"); await P.waitForTimeout(300);
   if (!(await P.$(".m-sku .msk-g"))) errores.push("editar producto: no abrió la ventana compacta");
   await P.screenshot({ path: "/tmp/w_sku_editar.png" });
   await P.evaluate(() => cerrarModal(true));
+  // --- Switch de canal: queda guardado por persona; Stock solo muestra lo que cumple ---
+  await P.evaluate(() => ponerCanal("T2")); await P.waitForTimeout(500);
+  if (q("select prefs->>'canal' from perfiles where nombre='Huber'") !== "T2") errores.push("canal: no quedó guardado");
+  if (!/T2/.test(await P.textContent("#canalChip"))) errores.push("canal: el botón de arriba no lo muestra");
+  await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(500);
+  if (!(await P.$(".canal-ban"))) errores.push("canal: Stock no avisa que está encendido");
+  const cTags = await P.$$eval("#sr .inv", cs => cs.map(c => !!c.querySelector(".t-cumple")));
+  if (!(await P.$(".no-cumple")) && (!cTags.length || cTags.some(x => !x))) errores.push("canal: Stock muestra lo que no cumple: " + cTags);
+  await P.screenshot({ path: "/tmp/w_canal.png" });
+  // Producto inventado que no cumple: se dice que existe y dónde está
+  const nc = await P.evaluate(() => { const i = S.inv.find(x => x.fis && x.disp && !x.T2 && !x.esOp); if (!i) return ""; ir("stock", { sku: i.s }); return i.s; });
+  if (nc) { await P.waitForTimeout(400); if (await P.$$eval("#sr .inv", cs => cs.length) && !(await P.$$eval("#sr .inv", cs => cs.every(c => c.querySelector(".t-cumple"))))) { if (!(await P.$(".no-cumple"))) errores.push("canal: no dice que el producto existe pero no cumple"); } }
+  await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(400); await P.click("[data-canal-off]"); await P.waitForTimeout(500);
+  if (q("select coalesce(prefs->>'canal','')  from perfiles where nombre='Huber'") !== "") errores.push("canal: no se apagó");
+  if (await P.$(".canal-ban")) errores.push("canal: sigue el aviso después de apagarlo");
+  // --- Rol OPM: igual que el verificador ---
+  const vOpm = await P.evaluate(() => ["stock", "producto", "modulo", "repvacio", "validacion", "consumo"].map(v => vistaPermitida(v, "opm")).join(","));
+  if (vOpm !== "true,true,true,true,false,false") errores.push("opm: secciones por defecto mal: " + vOpm);
+  // --- Organizar bodega: retornable y lata ---
+  await P.evaluate(() => ir("organizar")); await P.waitForTimeout(700);
+  if ((await P.$$("#oP button")).length !== 2) errores.push("organizar: no está dividido en retornable y lata");
+  await P.click('#oP [data-p="lata"]'); await P.waitForTimeout(500);
+  await P.click("#oS [data-cambiar]"); await P.waitForTimeout(200);
+  const chipsOn = await P.$$eval("#oS .org-chip.on", cs => cs.map(c => c.dataset.s));
+  if (!chipsOn.includes("H") && !chipsOn.includes("E")) errores.push("organizar: lata no trae sus secciones por defecto: " + chipsOn);
+  await P.screenshot({ path: "/tmp/w_organizar.png" });
+  const secX = await P.$eval("#oS .org-chip", c => c.dataset.s);
+  await P.click("#oS .org-chip"); await P.waitForTimeout(600);
+  const gs = JSON.parse(q("select coalesce(prefs->'orgSecs','{}')::text from perfiles where nombre='Huber'"));
+  if (!gs.lata) errores.push("organizar: las secciones escogidas no quedaron guardadas");
+  const movs = await P.evaluate(() => api("webOrganizar", ["A", "B", "C", "D"]));
+  if (movs.some(m => !/^[A-D]\d/.test(m.from) || !/^[A-D]\d/.test(m.to))) errores.push("organizar: se sale de las secciones de retornable");
+  await P.evaluate(() => api("webPref", "orgSecs", null));
+  // --- Alerta de pocos: productos vigilados ---
+  await P.evaluate(() => ir("pocosvig")); await P.waitForTimeout(600);
+  await P.fill("#pvA", "2222"); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(600);
+  if (q("select valor from frecs_config where clave='pocos_vigilar'") !== '["2222"]') errores.push("pocos: el producto vigilado no quedó guardado");
+  await P.fill('[data-min="2222"]', "9999"); await P.$eval('[data-min="2222"]', i => i.dispatchEvent(new Event("change", { bubbles: true }))); await P.waitForTimeout(800);
+  if (q("select minimo from sku where sku='2222'") !== "9999") errores.push("pocos: el mínimo no se guardó en la hoja Sku: " + q("select minimo from sku where sku='2222'"));
+  await P.screenshot({ path: "/tmp/w_pocosvig.png" });
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
+  if (!(await P.$('#pvI .pv-aviso [data-sku="2222"]'))) errores.push("pocos: Inicio no avisa que quedan pocos");
+  if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados bajo el mínimo");
+  await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
+  q("update sku set minimo=null where sku='2222'");
+  await P.evaluate(() => api("webPocosVigilarGuardar", []));
+  // --- Limbo: SKU, cantidades y editar ---
+  const idL2 = await P.evaluate(() => api("webLimboAgregar", { nombre: "Pony lata suelta", fecha: "2027-03-01", pres: "Lata", cub: "330", sku: "2222", e: "1", c: "12", u: "4" }));
+  if (q(`select sku || '|' || estibas || '|' || cajas || '|' || unidades from limbo where id='${idL2}'`) !== "2222|1|12|4") errores.push("limbo: SKU y cantidades no llegaron: " + q(`select sku || '|' || estibas || '|' || cajas || '|' || unidades from limbo where id='${idL2}'`));
+  const malSku = await P.evaluate(() => api("webLimboAgregar", { nombre: "x", fecha: "2027-03-01", sku: "99999999" }).then(() => "", e => e.message));
+  if (!/no existe/.test(malSku)) errores.push("limbo: acepta un SKU que no existe: " + malSku);
+  await P.evaluate(() => ir("limbo")); await P.waitForTimeout(700);
+  await P.click(`[data-ed="${idL2}"]`); await P.waitForTimeout(300);
+  await P.fill(".modal [data-l=c]", "30"); await P.waitForTimeout(500); await P.click("#lbE"); await P.waitForTimeout(900);
+  if (q(`select cajas || '|' || sku || '|' || producto from limbo where id='${idL2}'`) !== "30|2222|Pony lata suelta") errores.push("limbo: editar no guardó: " + q(`select cajas || '|' || sku || '|' || producto from limbo where id='${idL2}'`));
+  await P.screenshot({ path: "/tmp/w_limbo2.png" });
+  await P.evaluate(id => api("webLimboEliminar", id), idL2);
+  // --- Consumo: solo el administrador la cambia ---
+  const rCons = await vAna.page.evaluate(() => api("webConsumoAgregar", "2222").then(() => "ok", e => e.message));
+  if (!/permiso/i.test(rCons)) errores.push("consumo: un validador todavía cambia la lista: " + rCons);
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

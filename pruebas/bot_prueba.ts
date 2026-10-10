@@ -116,10 +116,13 @@ await psql("delete from limbo where producto='Producto de prueba del bot'", "pos
 
 // Consumo desde el bot
 const skuC = await psql("select w.sku from wms_base w where not exists (select 1 from consumo c where c.sku = w.sku) and w.estado='DISPONIBLE' limit 1", "postgres");
+// La lista de consumo la cambia solo el administrador, desde la página
+tg.length = 0;
 await msj("/consumo add " + skuC);
-ok((await psql(`select count(*) from consumo where sku='${skuC}'`, "postgres")) === "1", "consumo agregado por el bot: " + skuC);
-await msj("/consumo del " + skuC); await cb("CONSO_DEL|" + skuC);
-ok((await psql(`select count(*) from consumo where sku='${skuC}'`, "postgres")) === "0", "consumo quitado por el bot");
+ok((await psql(`select count(*) from consumo where sku='${skuC}'`, "postgres")) === "0", "el bot ya no agrega a la lista de consumo: " + skuC);
+ok(tg.some(x => /solo el administrador/.test(JSON.stringify(x))), "el bot dice que la cambia el administrador en la página");
+const skuY = await psql("select sku from consumo limit 1", "postgres");
+if (skuY) { await cb("CONSO_DEL|" + skuY); ok((await psql(`select count(*) from consumo where sku='${skuY}'`, "postgres")) === "1", "el bot ya no quita de la lista de consumo"); }
 
 // Formato que Telegram no entiende: se reintenta sin formato
 { const antes = tg.length; await msj("FALLA_MD_xyz"); ok(tg.slice(antes).some(x => x.metodo === "sendMessage" && !x.parse_mode), "si falla el formato, reintenta sin formato"); }

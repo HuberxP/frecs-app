@@ -12,7 +12,7 @@ const lit = v => `$J$${typeof v === "string" ? v : JSON.stringify(v)}$J$`;
     const ctx = await b.newContext({ viewport: { width: w, height: w < 500 ? 844 : 900 } });
     await ctx.route("https://wktznckezlxptocmhhze.supabase.co/**", async route => {
       const req = route.request(), fn = req.url().split("/rpc/")[1], args = JSON.parse(req.postData() || "{}");
-      try { await route.fulfill({ status: 200, contentType: "application/json", body: psql(`select coalesce(to_jsonb(public.${fn}(${Object.keys(args).map(k => `${k} => ${lit(args[k])}`).join(", ")}))::text,'null');`).split("\n").pop() }); }
+      try { await route.fulfill({ status: 200, contentType: "application/json", body: psql(`select coalesce(to_jsonb(public.${fn}(${Object.keys(args).map(k => `${k} => ${lit(k === "p_valor" && typeof args[k] === "string" ? JSON.stringify(args[k]) : args[k])}`).join(", ")}))::text,'null');`).split("\n").pop() }); }
       catch (e) { await route.fulfill({ status: 400, body: JSON.stringify({ message: String(e.stderr).split("ERROR:")[1] }) }); }
     });
     await ctx.route("https://script.google.com/**", r => r.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }));

@@ -1,5 +1,5 @@
 -- =====================================================================
--- FRECS! · 22 · Fotos del WMS de los productos con prioridad
+-- FRECS! · 22a · Fotos del WMS de los productos con prioridad
 -- ---------------------------------------------------------------------
 -- Al sincronizar a mano (⟳ o /sincronizar), Apps Script busca en el WMS la foto de cada
 -- lote marcado como prioridad (por su actividad) y aquí guarda solo la dirección de la imagen.
@@ -24,7 +24,7 @@ language sql stable security definer set search_path = public as $$
      and f.actividad_id in (select x::bigint from jsonb_array_elements_text(case when jsonb_typeof(p_ids) = 'array' then p_ids else '[]'::jsonb end) x where x ~ '^[0-9]{1,18}$')
 $$;
 
--- Guardar lo que se trajo: [{ actividad_id, sku, modulo, urls: [..] }]. Las de más de 180 días se borran.
+-- Guardar lo que se trajo: [{ actividad_id, sku, modulo, urls: [..] }]
 create or replace function public.sb_fotos_guardar(p_filas jsonb) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
@@ -36,12 +36,9 @@ begin
    where coalesce(x->>'actividad_id', '') ~ '^[0-9]{1,18}$'
   on conflict (actividad_id) do update set sku = excluded.sku, modulo = excluded.modulo, urls = excluded.urls;
   get diagnostics n = row_count;
-  delete from wms_fotos where creado < now() - interval '180 days';
   return n;
 end $$;
 
-revoke execute on function public.sb_fotos_conocidas(jsonb) from public, anon, authenticated;
-revoke execute on function public.sb_fotos_guardar(jsonb) from public, anon, authenticated;
 grant execute on function public.sb_fotos_conocidas(jsonb) to service_role;
 grant execute on function public.sb_fotos_guardar(jsonb) to service_role;
 

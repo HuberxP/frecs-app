@@ -98,10 +98,12 @@
     try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
     if (!j.ok) return fallo(j.error || "No se pudo sincronizar.", j.sesion ? { sesion: true } : null);
     await cargarDatos(tk, true);
-    const inv = JSON.parse(MOTOR.llamar("webInventario", [tk])).data;
+    const inv = conFotos(JSON.parse(MOTOR.llamar("webInventario", [tk])).data);
     if (j.supabase && j.supabase.error) return fallo("El WMS se guardó en las hojas, pero no llegó a Supabase: " + j.supabase.error);
-    return ok({ filas: j.filas, modulos: j.modulos, inv: inv });
+    return ok({ filas: j.filas, modulos: j.modulos, inv: inv, fotos: (j.supabase && j.supabase.fotos) || null });
   }
+  // Fotos del WMS de los lotes con prioridad: [sku, módulo, [urls]] (de la más nueva a la más vieja)
+  function conFotos(inv) { if (inv) inv.fotos = (datos && datos.fotos) || []; return inv; }
 
   // ---------- escrituras (fase 4a) ----------
   // La acción corre primero en el motor (mismas reglas y mensajes del Frecs actual) sobre
@@ -514,8 +516,10 @@
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
         if (nuevoExtra || (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS)) { await cadena; await cargarTurnos(args[0]); }
         const res = MOTOR.llamar(fn, args);
+        if (fn === "webInventario") { const ri = JSON.parse(res); if (ri.ok) conFotos(ri.data); return JSON.stringify(ri); }
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
+        if (r.ok && r.data.inv) conFotos(r.data.inv);
         if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }

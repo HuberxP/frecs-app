@@ -836,8 +836,21 @@ function pintarSync() {
 }
 function guardarInv(d) {
   S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
-  ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, guardado: ahoraTxt() });
+  if (Array.isArray(d.fotos)) S.fotos = d.fotos;
+  ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, fotos: S.fotos || [], guardado: ahoraTxt() });
 }
+// Fotos del WMS (la que tomaron al marcar la prioridad), por producto y módulo: la más nueva
+function fotoDe(sku, m) { const f = (S.fotos || []).find(x => x[0] === String(sku) && x[1] === String(m)); return f && f[2] && f[2].length ? f[2] : null; }
+const botonFoto = (sku, m) => fotoDe(sku, m) ? `<button type="button" class="foto-btn" data-foto="${h(sku)}|${h(m)}" title="Ver la foto del WMS" aria-label="Ver la foto de ${h(sku)} en ${h(m)}">📷</button>` : "";
+function verFoto(sku, m) {
+  const urls = fotoDe(sku, m); if (!urls) return;
+  const i = (S.inv || []).find(x => x.s === sku && x.m === m);
+  const c = abrirModal(`<div class="foto-modal"><h3>📷 ${skuTxt(sku, i ? i.p : "")}</h3><p class="small muted" style="margin-top:0">Módulo ${modChip(m)}${i ? ` · vence <b>${h(i.vf)}</b>` : ""} · foto del WMS</p>
+    <div class="foto-g">${urls.map((u, k) => `<a href="${h(u)}" target="_blank" rel="noopener noreferrer"><img src="${h(u)}" alt="Foto ${k + 1} de ${h(sku)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('a').classList.add('foto-mal')"></a>`).join("")}</div>
+    <p class="small muted">Toca la foto para verla en grande.</p><div class="modal-actions"><button class="btn primary" data-x>Cerrar</button></div></div>`, { wide: true });
+  return c;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-foto]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m] = b.dataset.foto.split("|"); verFoto(s, m); }, true);
 async function cargarInv(forzar) {
   if (S.inv && !forzar) return S.inv;
   if (S.cargandoInv && !forzar) return S.cargandoInv;
@@ -845,7 +858,7 @@ async function cargarInv(forzar) {
     .catch(e => {
       S.cargandoInv = null;
       const c = ls.getJ("inv", null);
-      if (e.red && c) { S.inv = c.filas; S.ocup = c.ocupacion || {}; S.sync = c.sync; pintarSync(); toast(`Sin conexión: inventario guardado del ${fechaCorta(c.guardado)}`, "warn", 5000); return S.inv; }
+      if (e.red && c) { S.inv = c.filas; S.ocup = c.ocupacion || {}; S.sync = c.sync; S.fotos = c.fotos || []; pintarSync(); toast(`Sin conexión: inventario guardado del ${fechaCorta(c.guardado)}`, "warn", 5000); return S.inv; }
       throw e;
     });
   return S.cargandoInv;
@@ -892,6 +905,7 @@ function avisoSync(r, antes, err) {
       <span>Último movimiento en el WMS</span><b>${h(mov)}</b></div>
     ${alerta ? `<div class="note warn" style="margin-top:12px">${alerta}</div>` : ""}
     ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
+    ${r && r.fotos && r.fotos.conFoto ? `<div class="note" style="margin-top:12px">📷 ${r.fotos.conFoto} foto${r.fotos.conFoto > 1 ? "s" : ""} nueva${r.fotos.conFoto > 1 ? "s" : ""} de productos con prioridad.</div>` : ""}
     ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `≈ ${fm(x.eq)} de ${fm(x.min)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
     <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
 }
@@ -1108,7 +1122,7 @@ function invCard(i, o) {
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
   else if (i.obs) obs = `<div class="obs">📝 ${h(i.obs)}</div>`;
   return `<article class="card inv v-${h(i.vida)} ${rp.v ? "rep-v" : ""}">
-    <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}</span>${est}</div>
+    <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}${i.prio ? botonFoto(i.s, i.m) : ""}</span>${est}</div>
     ${o.producto === false ? "" : `<div class="prod">${skuTxt(i.s, i.p)}</div>${i.fam ? `<div class="sub">${h(i.fam)}</div>` : ""}`}
     ${qty(i.e, i.c, i.u, i.emp)}
     <div class="vence">${vencTxt(i)}</div>
@@ -3103,7 +3117,7 @@ VISTAS.consumo = async (el, p, vigente) => {
   const esc = false;
   // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
-      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
+      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
@@ -4217,7 +4231,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
     if (e.red && u) {
       S.usuario = u; S.cat = ls.getJ("cat", null);
-      if (inv) { S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; pintarSync(); }
+      if (inv) { S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync(); }
       toast("Sin conexión: trabajando con los datos guardados en este equipo.", "warn", 7000);
     } else { toast("No se pudo conectar: " + e.message, "bad", 8000); return; }
   }
@@ -4238,7 +4252,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
     S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []);
-    S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; pintarSync();
+    S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));
     arrancar(true);

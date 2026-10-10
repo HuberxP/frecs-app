@@ -143,6 +143,8 @@ const WMS_CONFIG = {
   loginUrl: "https://wms.invalid/api/auth/login/",
   inventariosUrl: "https://wms.invalid/api/calidad/modulos-inventarios/",
   cdId: "00000000-0000-0000-0000-000000000000",
+  // Dónde están las imágenes del WMS (se usa si el WMS devuelve la ruta sin la dirección completa)
+  mediaUrl: prop_("WMS_MEDIA_URL", "https://media.invalid/"),
   username: prop_("WMS_USER", ""),
   password: prop_("WMS_PASS", "")
 };
@@ -770,6 +772,71 @@ function traerModulosWMS_() {
   return { ok: true, modulos: todos, total: total !== null ? total : todos.length };
 }
 
+// ---------------------------------------------------------
+// FOTOS DE LOS LOTES CON PRIORIDAD
+// Cada lote del WMS trae su actividad_id; la foto que se toma al actualizarlo cuelga de esa
+// actividad (calidad/foto-inventario). Solo al sincronizar a mano y solo para las prioridades:
+//  1. Se preguntan a Supabase las actividades que ya tienen foto guardada (no se vuelven a pedir).
+//  2. Las nuevas se piden al WMS en UNA petición (operador "in"); si el WMS no lo acepta,
+//     se piden una por una (máximo FOTOS_MAX_UNA por sincronización).
+//  3. En Supabase queda solo la dirección de la imagen (la imagen se ve sin iniciar sesión).
+// Nunca frena la sincronización: si algo falla, queda en el registro.
+// ---------------------------------------------------------
+const FOTOS_MAX_UNA = 20;
+const ES_FOTO_ = v => typeof v === "string" && /fotoinventario|\.(webp|jpe?g|png)(\?|$)/i.test(v);
+const urlFotosWMS_ = filtros => `${String(WMS_CONFIG.inventariosUrl).replace(/^(https?:\/\/[^/]+).*$/, "$1")}/api/calidad/foto-inventario/` +
+  `?filters=${encodeURIComponent(JSON.stringify(filtros))}&paging=${encodeURIComponent(JSON.stringify({ start: 0, length: 500 }))}`;
+const actividadDe_ = r => { const a = r.actividad_id !== undefined ? r.actividad_id : (r.actividad && typeof r.actividad === "object" ? r.actividad.id : r.actividad); return a === undefined || a === null ? "" : String(a); };
+// Direcciones de imagen de una respuesta (campo «imagen» o cualquiera que parezca una foto)
+function urlsFoto_(r) {
+  const out = [];
+  const poner = v => { if (!ES_FOTO_(v)) return; let u = String(v).trim(); if (!/^https?:\/\//.test(u)) u = String(WMS_CONFIG.mediaUrl || "").replace(/\/+$/, "") + "/" + u.replace(/^\/+/, ""); if (/^https:\/\//.test(u) && !out.includes(u)) out.push(u); };
+  if (r.imagen) poner(r.imagen);
+  Object.keys(r || {}).forEach(k => { const v = r[k]; if (typeof v === "string") poner(v); else if (v && typeof v === "object" && !Array.isArray(v)) Object.keys(v).forEach(k2 => poner(v[k2])); });
+  return out;
+}
+function fotosPrioridad_(modulos) {
+  const lotes = {};
+  (modulos || []).forEach(mod => mod.invs.forEach(i => {
+    const act = i.actividad_id === undefined || i.actividad_id === null ? "" : String(i.actividad_id).trim();
+    if (!act || !/^\d+$/.test(act) || !tieneProductoInv_(i)) return;
+    if (!normalizarTexto(String(i.observaciones || "")).toLowerCase().includes("prioridad")) return;
+    lotes[act] = { actividad_id: act, sku: String(i.producto_sku).trim(), modulo: mod.nombre, urls: [] };
+  }));
+  const ids = Object.keys(lotes);
+  if (!ids.length) return { prioridades: 0, pedidas: 0 };
+  const conocidas = new Set((sbRpc_("sb_fotos_conocidas", { p_ids: ids }) || []).map(String));
+  const nuevas = ids.filter(x => !conocidas.has(x));
+  if (!nuevas.length) return { prioridades: ids.length, pedidas: 0 };
+  const props = PropertiesService.getScriptProperties();
+  let peticiones = 0, modo = "in";
+  const repartir = res => res.forEach(r => { const a = actividadDe_(r); if (lotes[a]) urlsFoto_(r).forEach(u => { if (!lotes[a].urls.includes(u)) lotes[a].urls.push(u); }); });
+  const pedirUna = a => { const r1 = getWMS_(urlFotosWMS_([{ campo: "actividad_id", type: "text", operador: "==", valor: Number(a) }])); peticiones++; return r1; };
+  const deUna = (a, r1) => { if (r1.ok) repartir(r1.data.results.filter(x => !actividadDe_(x) || actividadDe_(x) === a).map(x => Object.assign({ actividad_id: a }, x))); else lotes[a].fallo = true; };
+  // 1) Todas en una sola petición
+  const set = new Set(nuevas);
+  const r = getWMS_(urlFotosWMS_([{ campo: "actividad_id", type: "text", operador: "in", valor: nuevas.map(Number) }]));
+  peticiones++;
+  let sirve = r.ok && r.data.results.every(x => set.has(actividadDe_(x)));
+  // Si volvió vacía, se comprueba con la más nueva que el «in» sí funcione (y no sea que lo ignora)
+  if (sirve && !r.data.results.length) { const masNueva = nuevas.reduce((m, x) => Number(x) > Number(m) ? x : m); const rp = pedirUna(masNueva); if (rp.ok && rp.data.results.length) sirve = false; }
+  let intentadas = nuevas;
+  if (sirve) repartir(r.data.results);
+  else {
+    // 2) El WMS no entendió el «in»: una por una (las más nuevas primero), con tope
+    modo = "una";
+    intentadas = nuevas.slice().sort((a, b) => Number(b) - Number(a)).slice(0, FOTOS_MAX_UNA);
+    intentadas.forEach(a => deUna(a, pedirUna(a)));
+  }
+  const muestra = r.ok && r.data.results[0];
+  if (muestra) props.setProperty("wms_fotos_campos", Object.keys(muestra).join(",").substring(0, 500));
+  // Se guardan también las que no tienen foto (así no se vuelven a pedir); no las que fallaron
+  const guardar = intentadas.map(a => lotes[a]).filter(x => !x.fallo);
+  if (guardar.length) sbRpc_("sb_fotos_guardar", { p_filas: guardar.map(x => ({ actividad_id: x.actividad_id, sku: x.sku, modulo: x.modulo, urls: x.urls })) });
+  props.setProperty("wms_fotos_modo", modo);
+  return { prioridades: ids.length, pedidas: nuevas.length, peticiones: peticiones, conFoto: guardar.filter(x => x.urls.length).length, modo: modo };
+}
+
 function tieneProductoInv_(i) {
   return (Number(i.total_estibas) || 0) > 0 || (Number(i.total_cajas) || 0) > 0 || (Number(i.total_unidades) || 0) > 0;
 }
@@ -915,6 +982,11 @@ function sincronizarWMSCore(forzar) {
     if (sbActivo_()) {
       try { supabase = sbSubirWms_(flatData, filasMod, { ultimo: maxMovimiento, filas: conProducto, modulos: u.modulos.length }); }
       catch (e) { console.error("Supabase: " + e.message); supabase = { error: e.message }; }
+      // Fotos de los lotes con prioridad (no frena la sincronización)
+      if (!supabase || !supabase.error) {
+        try { const fo = fotosPrioridad_(u.modulos); if (supabase && typeof supabase === "object") supabase.fotos = fo; console.log("Fotos de prioridad: " + JSON.stringify(fo)); }
+        catch (e) { console.warn("Fotos de prioridad: " + e.message); }
+      }
     }
     return { ok: true, filas: flatData.length, fisicas: conProducto, modulos: u.modulos.length, repetidos: u.repetidos.length, total: t.total, supabase: supabase };
   } finally {

@@ -679,6 +679,27 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(() => { ls.set("ultProd", "2222"); ir("producto"); }); await P.waitForTimeout(600);
   if (!(await P.textContent("#br")).includes("270 días")) errores.push("información de producto: no muestra la vida útil");
   q("update sku set vida_util = null where sku = '2222'");
+  // --- Foto del WMS en los productos con prioridad ---
+  const lp = q("select sku || '|' || modulo from wms_base where obs ilike '%prioridad%' and (cajas > 0 or estibas > 0) limit 1");
+  if (!lp) errores.push("fotos: no hay un lote con prioridad en los datos de prueba");
+  else {
+    const [skP, mP] = lp.split("|");
+    q(`insert into wms_fotos (actividad_id, sku, modulo, urls) values (999001, '${skP}', '${mP}', '["https://ejemplo.invalid/uploads/fotoinventario/imagen/x.webp"]') on conflict do nothing`);
+    await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300); await P.reload(); await P.waitForSelector(".kpis", { timeout: 15000 }); await P.waitForTimeout(2500);
+    await P.evaluate(s => ir("stock", { sku: s }), skP); await P.waitForTimeout(700);
+    const nF = await P.$$eval(`[data-foto="${skP}|${mP}"]`, x => x.length);
+    if (!nF) errores.push("fotos: la tarjeta con prioridad no muestra 📷");
+    else {
+      await P.click(`[data-foto="${skP}|${mP}"]`); await P.waitForTimeout(400);
+      const src = await P.$eval(".foto-g img", i => i.getAttribute("src")).catch(() => "");
+      if (!src.includes("fotoinventario")) errores.push("fotos: al tocar 📷 no se abre la foto");
+      await P.screenshot({ path: "/tmp/w_foto.png" });
+      await P.evaluate(() => cerrarModal(true));
+    }
+    const sinPrio = await P.evaluate(() => S.inv.filter(i => !i.prio && i.fis).slice(0, 50).some(i => fotoDe(i.s, i.m) && !S.inv.some(j => j.prio && j.s === i.s && j.m === i.m)));
+    if (sinPrio) errores.push("fotos: aparece en lotes sin prioridad");
+    q("delete from wms_fotos where actividad_id = 999001");
+  }
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

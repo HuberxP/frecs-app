@@ -29,6 +29,7 @@ exportar = sorted(set(re.findall(r"^function (web[A-Z][A-Za-z]*)\s*\(", codigo, 
 ids = {}
 codigo = re.sub(r'"(1[A-Za-z0-9_-]{40,})"', lambda m: '"' + ids.setdefault(m.group(1), f"LIBRO_{len(ids) + 1}") + '"', codigo)
 codigo = re.sub(r"https://wms\.[A-Za-z0-9.-]+", "https://wms.invalid", codigo)
+codigo = re.sub(r"https://[A-Za-z0-9.-]+\.amazonaws\.com/?", "https://media.invalid/", codigo)
 codigo = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "00000000-0000-0000-0000-000000000000", codigo)
 assert not re.search(r"https://wms\.(?!invalid)", codigo), "quedó un dato interno en el motor"
 motor = ("// GENERADO por herramientas/construir.py: no editar a mano.\n"

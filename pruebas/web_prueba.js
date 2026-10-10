@@ -32,7 +32,7 @@ let llamadasSb = 0, sinRed = false;
   await page.click("#lgN"); await page.waitForTimeout(150);
   const nombres = await page.$$eval("#lgS .lg-op", o => o.map(x => x.dataset.n));
   const grupos = await page.$$eval("#lgS .lg-gt", o => o.map(x => x.textContent));
-  if (!grupos.some(g => /Administradores/.test(g)) || !grupos.some(g => /Validadores/.test(g))) errores.push("ingreso: nombres sin separar por rol: " + grupos);
+  if (!grupos.some(g => /Administradores/.test(g)) || !grupos.some(g => /Rotadores/.test(g))) errores.push("ingreso: nombres sin separar por rol: " + grupos);
   await page.fill("#lgN", "hub"); await page.waitForTimeout(100);
   const sug = await page.$$eval("#lgS .lg-op", o => o.map(x => x.dataset.n));
   if (sug.join() !== "Huber") errores.push("ingreso: sugerencia al escribir «hub»: " + sug);
@@ -480,7 +480,7 @@ let llamadasSb = 0, sinRed = false;
   await V.fill("#lgN", "Vero"); await V.fill("#lgP", "2468"); await V.click("#lgB");
   await V.waitForSelector("#rvQ", { timeout: 15000 });
   const navV = await V.evaluate(() => $$("#nav a[data-v]").map(a => a.dataset.v).sort().join(","));
-  if (navV !== "modulo,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
+  if (navV !== "enconsumo,modulo,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
   const barV = await V.evaluate(() => $$("#bottombar button").map(b => b.dataset.v).join(","));
   if (barV !== "repvacio,repconflicto,repgen,stock") errores.push("verificador: barra de abajo " + barV);
   await V.evaluate(() => ir("validacion")); await V.waitForTimeout(300);
@@ -617,19 +617,55 @@ let llamadasSb = 0, sinRed = false;
   const movs = await P.evaluate(() => api("webOrganizar", ["A", "B", "C", "D"]));
   if (movs.some(m => !/^[A-D]\d/.test(m.from) || !/^[A-D]\d/.test(m.to))) errores.push("organizar: se sale de las secciones de retornable");
   await P.evaluate(() => api("webPref", "orgSecs", null));
-  // --- Alerta de pocos: productos vigilados ---
+  // --- Alerta de pocos: productos vigilados (avisa con un solo módulo o agotado) ---
+  const skuUno = await P.evaluate(() => { const c = {}; S.inv.filter(i => i.fis && i.disp && !i.esOp && !repVacio(i.m)).forEach(i => { (c[i.s] = c[i.s] || new Set()).add(i.m); }); return (Object.keys(c).find(s => c[s].size === 1 && S.cat.some(x => x.sku === s)) || ""); });
   await P.evaluate(() => ir("pocosvig")); await P.waitForTimeout(600);
-  await P.fill("#pvA", "2222"); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(600);
-  if (q("select valor from frecs_config where clave='pocos_vigilar'") !== '["2222"]') errores.push("pocos: el producto vigilado no quedó guardado");
-  await P.fill('[data-min="2222"]', "9999"); await P.$eval('[data-min="2222"]', i => i.dispatchEvent(new Event("change", { bubbles: true }))); await P.waitForTimeout(800);
-  if (q("select minimo from sku where sku='2222'") !== "9999") errores.push("pocos: el mínimo no se guardó en la hoja Sku: " + q("select minimo from sku where sku='2222'"));
+  for (const sk of ["2222", skuUno]) { await P.fill("#pvA", sk); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(700); }
+  if (JSON.parse(q("select valor from frecs_config where clave='pocos_vigilar'") || "[]").sort().join() !== ["2222", skuUno].sort().join()) errores.push("pocos: los vigilados no quedaron guardados");
+  if (await P.$("[data-min]")) errores.push("pocos: el panel todavía pide mínimo de estibas");
+  if ((await P.$$(".pv-f")).length !== 2) errores.push("pocos: el panel no lista los vigilados");
   await P.screenshot({ path: "/tmp/w_pocosvig.png" });
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
-  if (!(await P.$('#pvI .pv-aviso [data-sku="2222"]'))) errores.push("pocos: Inicio no avisa que quedan pocos");
-  if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados bajo el mínimo");
+  if (!(await P.$(`#pvI .pv-aviso [data-sku="${skuUno}"]`))) errores.push("pocos: Inicio no avisa del producto en un solo módulo: " + skuUno);
+  if (await P.$('#pvI .pv-aviso [data-sku="2222"]')) errores.push("pocos: avisa de un producto que está en 2 módulos");
+  if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados en un solo módulo");
   await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
-  q("update sku set minimo=null where sku='2222'");
+  await P.evaluate(() => ir("pocos")); await P.waitForTimeout(700);
+  if (!(await P.$(".pv-vig"))) errores.push("pocos: la vista Pocos no muestra los vigilados");
   await P.evaluate(() => api("webPocosVigilarGuardar", []));
+  // --- Rotador (antes validador) ---
+  const rot = await P.evaluate(() => ({ t: rolTxt("validador"), m: conRotador("se necesita rol validador") }));
+  if (rot.t !== "rotador" || rot.m !== "se necesita rol rotador") errores.push("rotador: el nombre no cambió: " + JSON.stringify(rot));
+  // --- Módulos en consumo por canal ---
+  if (!(await P.evaluate(() => vistaPermitida("enconsumo", "verificador") && vistaPermitida("enconsumo", "opm") && vistaPermitida("enconsumo", "lector")))) errores.push("consumo canal: no lo ven todos los roles");
+  await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
+  const modM = await P.$eval("#sr [data-marcar]", b => b.dataset.marcar.split("|")[1]).catch(() => "");
+  if (!modM) errores.push("consumo canal: la tarjeta no tiene «Marcar consumo»");
+  else {
+    await P.click(`#sr [data-marcar="2222|${modM}"]`); await P.waitForTimeout(400);
+    const cumple = await P.$$eval(".mc-can", cs => cs.map(c => c.classList.contains("si")));
+    const ci = cumple.indexOf(true), ni = cumple.indexOf(false), C = ["T1", "T2", "KA"];
+    if (ci >= 0) { await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ci]}"]`); await P.waitForTimeout(800); }
+    if (ni >= 0) {
+      await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ni]}"]`); await P.waitForTimeout(500);
+      if (!/No está disponible/.test(await P.textContent(".modal-card").catch(() => ""))) errores.push("consumo canal: no avisa que no cumple");
+      await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(900);
+    }
+    const filas = q(`select string_agg(canal || ':' || forzado || ':' || marcado_por, ',' order by canal) from marcas_consumo where sku='2222' and modulo='${modM}' and quitado_en is null`);
+    const esper = [ci >= 0 ? `${C[ci]}:false:Huber` : null, ni >= 0 ? `${C[ni]}:true:Huber` : null].filter(Boolean).sort().join(",");
+    if (filas !== esper) errores.push(`consumo canal: marcas mal guardadas (${filas} ≠ ${esper})`);
+    await P.evaluate(() => cerrarModal(true)); await P.waitForTimeout(300);
+    if (!(await P.$("#sr .tag.t-cons"))) errores.push("consumo canal: la tarjeta no muestra la etiqueta de consumo");
+    await P.screenshot({ path: "/tmp/w_marca_stock.png" });
+    await P.evaluate(() => ir("enconsumo")); await P.waitForTimeout(800);
+    const nC = (await P.$$(".mc-card")).length;
+    if (nC !== esper.split(",").length) errores.push("consumo canal: la sección no lista las marcas: " + nC);
+    await P.screenshot({ path: "/tmp/w_enconsumo.png" });
+    await P.click(".mc-card [data-quitar]"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(900);
+    if ((await P.$$(".mc-card")).length !== nC - 1) errores.push("consumo canal: quitar no funcionó");
+    q("delete from marcas_consumo");
+    await P.evaluate(() => api("webMarcas").then(guardarMarcas));
+  }
   // --- Limbo: SKU, cantidades y editar ---
   const idL2 = await P.evaluate(() => api("webLimboAgregar", { nombre: "Pony lata suelta", fecha: "2027-03-01", pres: "Lata", cub: "330", sku: "2222", e: "1", c: "12", u: "4" }));
   if (q(`select sku || '|' || estibas || '|' || cajas || '|' || unidades from limbo where id='${idL2}'`) !== "2222|1|12|4") errores.push("limbo: SKU y cantidades no llegaron: " + q(`select sku || '|' || estibas || '|' || cajas || '|' || unidades from limbo where id='${idL2}'`));

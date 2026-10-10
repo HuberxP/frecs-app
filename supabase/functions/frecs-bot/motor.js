@@ -5599,6 +5599,9 @@ function webRotMarcar(tk) { return rotSoloNueva_(tk); }
 function webRotQuitar(tk) { return rotSoloNueva_(tk); }
 function webRotEliminar(tk) { return rotSoloNueva_(tk); }
 // Secciones por rol: se guardan en Supabase desde la versión nueva
+function webMarcas(tk) { return webAuth_(tk, "verificador", () => []); }
+function webMarcaPoner(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Los módulos en consumo se marcan en la versión nueva de Frecs."); }); }
+function webMarcaQuitar(tk) { return webAuth_(tk, "verificador", () => { throw new Error("Los módulos en consumo se marcan en la versión nueva de Frecs."); }); }
 function webPocosVigilarGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("La alerta de pocos se configura en la versión nueva de Frecs."); }); }
 function webVistasRolGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("Las secciones por rol se cambian en la versión nueva de Frecs."); }); }
 

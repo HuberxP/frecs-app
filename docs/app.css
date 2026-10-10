@@ -1496,7 +1496,27 @@
   .foto-g a.foto-mal { display: flex; align-items: center; justify-content: center; padding: 20px; }
   .foto-g a.foto-mal::after { content: "No se pudo cargar la foto (toca para abrirla)"; color: var(--muted); font-size: 13px; }
   .foto-g a.foto-mal img { display: none; }
-  html[data-tema="claro"] .foto-btn { border-color: #0f8fb5; background: #e3f5fb; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .foto-btn { border-color: #0f8fb5; background: #e3f5fb; }
+
+  /* ---------- Alerta de pocos: lista de vigilados ---------- */
+  .pv-f { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .pv-st { margin-top: 3px; } .pv-mods { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 6px; }
+  .pv-acc { display: flex; gap: 6px; } .pv-vig { margin-bottom: 14px; } .pv-vig .pv-tabla { margin-top: 6px; }
+  @media (max-width: 600px) { .pv-f { grid-template-columns: minmax(0, 1fr) auto; } .pv-f .pv-acc { grid-column: 1 / -1; } }
+
+  /* ---------- Módulos en consumo por canal ---------- */
+  .tag.t-cons { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.14); font-weight: 750; }
+  .tag.t-forz { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); font-weight: 800; }
+  .mc-btn { align-self: flex-start; margin-top: 4px; border-color: #f59e0b; }
+  .mc-info { padding: 10px 12px; border-radius: 12px; background: var(--bg2); border: 1px solid var(--line2); display: grid; gap: 4px; }
+  .mc-cans { display: grid; gap: 8px; margin: 10px 0 4px; }
+  .mc-can { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line2); }
+  .mc-can.si { background: var(--ok-soft); } .mc-can.no { background: var(--bad-soft); }
+  .mc-can.on { box-shadow: 0 0 0 2px #f59e0b inset; }
+  .mc-canal { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.14); margin-left: 6px; font-weight: 800; }
+  .mc-act { font-size: 12.5px; font-weight: 700; padding: 4px 8px; border-radius: 8px; align-self: flex-start; }
+  .mc-act.act-v { background: var(--ok-soft); } .mc-act.act-a { background: var(--warn-soft); } .mc-act.act-n { background: rgba(255,159,67,.16); } .mc-act.act-r { background: var(--bad-soft); }
+  html[data-tema="claro"] .tag.t-cons, html[data-tema="claro"] .mc-canal { color: #92400e; border-color: #d97706; background: #fff4e0; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

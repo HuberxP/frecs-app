@@ -491,6 +491,9 @@
       if (ROT[fn]) { const [f, p] = ROT[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Secciones por rol (solo el administrador)
       if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }
+      // Módulos en consumo por canal (verificador, rotador o administrador): la lista fresca de las activas
+      const MARCA = { webMarcaPoner: a => ["marca_poner", { p_item: a[1] || {} }], webMarcaQuitar: a => ["marca_quitar", { p_id: Number(a[1]) }], webMarcas: a => ["marcas_listar", {}] };
+      if (MARCA[fn]) { const [f, p] = MARCA[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p)); if (datos) { datos.marcas = v; guardarLS(); } return ok(v); }
       // Productos vigilados para la alerta de pocos (solo el administrador)
       if (fn === "webPocosVigilarGuardar") { const v = await rpc("pocos_vigilar_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.pocos_vigilar = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
@@ -520,7 +523,7 @@
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
         if (r.ok && r.data.inv) conFotos(r.data.inv);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

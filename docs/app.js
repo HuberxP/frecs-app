@@ -29,6 +29,7 @@ const NAV = [
   { g: "Operación", items: [
     { id: "stock", ic: "📡", t: "Stock por SKU" },
     { id: "producto", ic: "🔍", t: "Información de producto" },
+    { id: "enconsumo", ic: "🚚", t: "Módulos en consumo" },
     { id: "grupo", ic: "📦", t: "Búsqueda grupal" },
     { id: "modulo", ic: "📍", t: "Por módulo" },
     { id: "pk", ic: "🛒", t: "Picking / Preventa" },
@@ -68,7 +69,7 @@ const NAV = [
     { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
     { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" },
     { id: "consumolista", ic: "🥤", t: "Lista de consumo" },
-    { id: "pocosvig", ic: "🔔", t: "Alerta de pocos" },
+    { id: "pocosvig", ic: "🔔", t: "Alerta de pocos (vigilados)" },
     { id: "vistasrol", ic: "🔐", t: "Secciones por rol" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
@@ -99,8 +100,12 @@ const ICO_DEL = `<svg class="ico-del" viewBox="0 0 24 24" width="18" height="18"
 const qty = (e, c, u, emp) => `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 // Verificador: solo estas pantallas
-const VERIF_VISTAS = new Set(["stock", "producto", "modulo", "repvacio", "repconflicto", "repgen"]);
+const VERIF_VISTAS = new Set(["stock", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
+// El rol «validador» se muestra como «Rotador» (por dentro sigue siendo validador)
+const ROL_NOMBRE = { validador: "rotador" };
+const rolTxt = r => ROL_NOMBRE[r] || r;
+const conRotador = t => String(t === undefined || t === null ? "" : t).replace(/\bvalidadores\b/g, "rotadores").replace(/\bValidadores\b/g, "Rotadores").replace(/\bvalidador\b/g, "rotador").replace(/\bValidador\b/g, "Rotador");
 const esVerif = () => !!S.usuario && ROLES_VERIF.has(S.usuario.rol);
 // Reportes de módulos (vacío / conflicto) que llegan con los datos; pendientes = contador del menú
 const repPend = () => (S.rep || []).filter(r => r.estado === "PENDIENTE");
@@ -186,7 +191,7 @@ function api(fn, ...args) {
         if (!r) return rej(new Error("Sin respuesta del servidor"));
         if (r.ok) return res(r.data);
         if (r.sesion) { mostrarLogin(r.error); const er = new Error(r.error); er.sesion = true; return rej(er); }
-        rej(new Error(r.error || "Error desconocido"));
+        rej(new Error(conRotador(r.error || "Error desconocido")));
       })
       .withFailureHandler(e => {
         if (!fin()) return;
@@ -562,7 +567,7 @@ function mostrarLogin(msg) {
         <div id="lgE" style="margin-top:10px"></div><button class="btn primary" id="lgB">Entrar</button>`;
       // Nombres sugeridos mientras se escribe, separados por rol
       const us = (p.usuarios && p.usuarios.length ? p.usuarios : p.nombres.map(n => ({ n: n, r: "" })));
-      const ROL_T = { administrador: "Administradores", validador: "Validadores", lector: "Lectores", verificador: "Verificadores", opm: "OPM", "": "Usuarios" };
+      const ROL_T = { administrador: "Administradores", validador: "Rotadores", lector: "Lectores", verificador: "Verificadores", opm: "OPM", "": "Usuarios" };
       const exacto = v => us.find(u => norm(u.n).trim() === norm(v).trim());
       const pintarSug = () => {
         const q = norm($("#lgN").value).trim(), box = $("#lgS");
@@ -665,7 +670,7 @@ $("#userChip").onclick = () => {
   if (!S.usuario) return;
   const u = S.usuario;
   const c = abrirModal(`<h3>👤 ${h(u.nombre)}</h3>
-    <div class="ficha"><span>Rol</span><b>${h(u.rol)}</b>${u.correo ? `<span>Correo</span><b>${h(u.correo)}</b>` : `<span>Correo</span><b class="muted">No disponible (cuenta Gmail)</b>`}</div>
+    <div class="ficha"><span>Rol</span><b>${h(rolTxt(u.rol))}</b>${u.correo ? `<span>Correo</span><b>${h(u.correo)}</b>` : `<span>Correo</span><b class="muted">No disponible (cuenta Gmail)</b>`}</div>
     ${S.sync ? `<div class="ficha sync-f"><span>🔄 Última sincronización con el WMS</span><b>${h(S.sync.bot)}</b><span>📦 Último movimiento en el WMS</span><b>${h(S.sync.wms)}</b></div>` : ""}
     ${esVerif() ? "" : `<label class="sw-fila"><span><b>Sugerencias del WMS</b><br><span class="small muted">En validaciones: cuántas cajas tiene el WMS y el aviso cuando tiene menos</span></span><span class="sw"><input type="checkbox" id="pfW" ${verWms() ? "checked" : ""}><i></i></span></label>`}
     <details class="card" style="margin-top:14px"><summary>Cambiar mi PIN</summary>
@@ -692,11 +697,11 @@ function pintarNav() {
   // Secciones desplegables: la de la pantalla actual siempre abierta; las demás como las dejó la persona
   const ab = ls.getJ("navAb", {}), nPend = repPend().length, nPocos = typeof pocosAlerta === "function" ? pocosAlerta().length : 0;
   const cnt = (n, t) => n ? `<span class="nav-n" title="${t || "Reportes pendientes"}">${n}</span>` : "";
-  const cntDe = id => id === "repgen" ? cnt(nPend) : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados bajo su mínimo") : "";
+  const cntDe = id => id === "repgen" ? cnt(nPend) : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados en un solo módulo o agotados") : "";
   const link = i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span><span class="nav-t">${h(i.t)}</span>${cntDe(i.id)}</a>`;
   const grupo = (g, items) => {
     const abierto = esVerif() || items.some(i => i.id === S.vista) || ab[g.g] === true;
-    return `<div class="nav-g ${g.cls || ""} ${abierto ? "abierto" : ""}"><button type="button" class="nav-gt" data-navg="${h(g.g)}" aria-expanded="${abierto}"><span>${h(g.g)}</span>${items.some(i => i.id === "repgen") ? cnt(nPend) : items.some(i => i.id === "pocos") ? cnt(nPocos, "Productos vigilados bajo su mínimo") : ""}<span class="nav-fl" aria-hidden="true">▾</span></button><div class="nav-gi">${items.map(link).join("")}</div></div>`;
+    return `<div class="nav-g ${g.cls || ""} ${abierto ? "abierto" : ""}"><button type="button" class="nav-gt" data-navg="${h(g.g)}" aria-expanded="${abierto}"><span>${h(g.g)}</span>${items.some(i => i.id === "repgen") ? cnt(nPend) : items.some(i => i.id === "pocos") ? cnt(nPocos, "Productos vigilados en un solo módulo o agotados") : ""}<span class="nav-fl" aria-hidden="true">▾</span></button><div class="nav-gi">${items.map(link).join("")}</div></div>`;
   };
   $("#nav").innerHTML = NAV.map(g => [g, g.items.filter(i => ver(g, i))]).filter(([g, it]) => it.length).map(([g, it]) => g.g ? grupo(g, it) : it.map(link).join("")).join("") +
     grupo({ g: "Pantalla" }, []).replace(`<div class="nav-gi"></div>`, `<div class="nav-gi"><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a></div>`);
@@ -896,7 +901,7 @@ function avisoSync(r, antes, err) {
   const alerta = antes && antes.filas && dif < -0.15 ? `Trajo <b>${Math.round(-dif * 100)} % menos</b> ubicaciones que la vez anterior (${fm(antes.filas)} → ${fm(filas)}). Puede que el WMS respondiera a medias: revisa antes de confiar.` : "";
   const mov = S.sync && S.sync.wms ? S.sync.wms : "N/A";
   const movViejo = /🔴/.test(mov);
-  // Productos vigilados que quedaron bajo su mínimo (alerta de pocos)
+  // Productos vigilados que quedaron en un solo módulo o agotados (alerta de pocos)
   const pocos = typeof pocosAlerta === "function" ? pocosAlerta() : [];
   if (S.usuario) pintarNav();
   abrirModal(`<div class="sync-res ${alerta ? "rev" : "ok"}"><div class="sync-ic">${alerta ? "⚠️" : "✅"}</div><h3>${alerta ? "Se actualizó, pero revisa" : "Base actualizada"}</h3>
@@ -906,7 +911,7 @@ function avisoSync(r, antes, err) {
     ${alerta ? `<div class="note warn" style="margin-top:12px">${alerta}</div>` : ""}
     ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
     ${r && r.fotos && r.fotos.conFoto ? `<div class="note" style="margin-top:12px">📷 ${r.fotos.conFoto} foto${r.fotos.conFoto > 1 ? "s" : ""} nueva${r.fotos.conFoto > 1 ? "s" : ""} de productos con prioridad.</div>` : ""}
-    ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `≈ ${fm(x.eq)} de ${fm(x.min)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
+    ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `solo en ${h(x.mods[0].m)}`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
     <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
 }
 // Recordatorio: si la última sincronización tiene más de 3 horas, una franja arriba para sincronizar
@@ -1117,6 +1122,8 @@ function invCard(i, o) {
   const rp = repDe(i.m);
   if (rp.v) tags.unshift(`<span class="tag t-rv" title="Reportado por ${h(rp.v.por)} · ${h(fechaCorta(rp.v.en))}">🟠 Reportado como vacío</span>`);
   if (rp.c) tags.unshift(`<span class="tag t-rc" title="Encontraron ${h(rp.c.skuEnc)} · ${h(rp.c.prodEnc)}">⚠️ Conflicto reportado</span>`);
+  // Módulo en consumo para un canal (lo marcó un verificador / rotador)
+  if (typeof tagsMarcas === "function") tags.unshift(...tagsMarcas(i.s, i.m));
   const est = i.disp ? `<span class="pill ok">DISPONIBLE</span>` : `<span class="pill bad">BLOQ · ${h(i.est)}</span>`;
   let obs = "";
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
@@ -1131,6 +1138,7 @@ function invCard(i, o) {
     ${obs}
     ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
     ${i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : ""}
+    ${o.marcar !== false && typeof botonMarcar === "function" ? botonMarcar(i) : ""}
   </article>`;
 }
 
@@ -1596,10 +1604,15 @@ VISTAS.resumen = async (el, p, vigente) => {
 VISTAS.pocos = async (el, p, vigente) => {
   const lis = await api("webPocos");
   if (!vigente()) return;
-  el.innerHTML = cab("🧯 Pocos en bodega", "SKUs con menos estibas disponibles que su mínimo (columna Minimo de la hoja Sku; vacío = 10)", botonesPDF("POCOS", "Formato de auditoría")) +
-    `<div class="lista-tools"><input type="search" id="pq" placeholder="Filtrar SKU o producto…"><span class="count" id="pc"></span></div><div id="pr"></div>`;
-  // Los vigilados (alerta de pocos) van primero, marcados con 🔔
+  // Los vigilados (alerta de pocos) van primero, marcados con 🔔; arriba, la lista de vigilados para todos
+  await cargarCat().catch(() => null);
   const vig = new Set(S.pocosVig || []);
+  const nAl = typeof pocosAlerta === "function" ? pocosAlerta().length : 0;
+  const abV = abierto("pocos", "vig");
+  el.innerHTML = cab("🧯 Pocos en bodega", "SKUs con menos estibas disponibles que su mínimo (columna Minimo de la hoja Sku; vacío = 10)", botonesPDF("POCOS", "Formato de auditoría")) +
+    `<section class="card plegable pv-vig ${abV ? "abierto" : ""}"><div class="pl-cab" data-plegar="pocos|vig" role="button" tabindex="0" aria-expanded="${abV}"><h3 style="margin:0">🔔 Productos vigilados <span class="muted small">(${(S.pocosVig || []).length})</span>${nAl ? ` <span class="nav-n" title="En un solo módulo o agotados">${nAl}</span>` : ""}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo"><p class="small muted" style="margin-top:0">Avisan cuando quedan en un solo módulo de bodega o se agotan.${puede("administrador") ? ` <button class="link" data-admvig>Agregar o quitar →</button>` : ""}</p>${tablaVigilados(false)}</div></section>` +
+    `<div class="lista-tools"><input type="search" id="pq" placeholder="Filtrar SKU o producto…"><span class="count" id="pc"></span></div><div id="pr"></div>`;
   lis.sort((a, b) => (vig.has(b.s) ? 1 : 0) - (vig.has(a.s) ? 1 : 0));
   const pintar = () => {
     const q = norm($("#pq", el).value).split(/\s+/).filter(x => x);
@@ -1614,6 +1627,7 @@ VISTAS.pocos = async (el, p, vigente) => {
   };
   $("#pq", el).oninput = pintar;
   $("#pr", el).onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
+  $(".pv-vig", el).onclick = e => { if (e.target.closest("[data-admvig]")) return ir("pocosvig"); const v = e.target.closest("[data-ver]"); if (v) ir("stock", { sku: v.dataset.ver }); };
   pintar();
 };
 
@@ -1976,7 +1990,7 @@ function pintarBarra(cont, te, compacto, extra) {
     html = `<section class="card turno cerrado"><div class="turno-info"><div class="turno-num" style="color:var(--bad)">—</div>
       <div><div class="k">Turno</div><div class="v">No hay turno abierto</div></div>
       ${te && te.ultimo ? `<div class="solo-escritorio"><div class="k">Último</div><div class="v">${h(te.ultimo.texto)} · cerrado por ${h(te.ultimo.cerradoPor)}</div></div>` : ""}</div>
-      <div class="acciones">${compacto ? `<span class="muted small">Se abre desde Entrega de turno</span>` : esc ? `<button class="btn primary" data-t="abrir">Abrir turno</button>` : `<span class="muted small">Un validador debe abrir el turno.</span>`}</div></section>`;
+      <div class="acciones">${compacto ? `<span class="muted small">Se abre desde Entrega de turno</span>` : esc ? `<button class="btn primary" data-t="abrir">Abrir turno</button>` : `<span class="muted small">Un rotador debe abrir el turno.</span>`}</div></section>`;
   } else {
     const t = te.turno;
     html = `<section class="card turno${clsInfo()}" data-info="turno"><div class="turno-info"><div class="turno-num">T${h(t.numero)}</div>
@@ -3417,7 +3431,7 @@ VISTAS.repvacio = async (el, p, vigente) => {
   if (!vigente()) return;
   const mods = modulosConProducto(inv), sel = new Set();
   if (p.m && mods.some(x => x.m === p.m) && !repVacio(p.m)) sel.add(p.m);
-  el.innerHTML = cab("⬜ Reportar módulo vacío", "Escribe el módulo que encontraste vacío (o búscalo en la lista), márcalo y guarda. A los validadores les llega un aviso para ponerlo en cero en el WMS. Mientras tanto el módulo sale con la etiqueta «Reportado como vacío» y el FEFO lo salta.") +
+  el.innerHTML = cab("⬜ Reportar módulo vacío", "Escribe el módulo que encontraste vacío (o búscalo en la lista), márcalo y guarda. A los rotadores les llega un aviso para ponerlo en cero en el WMS. Mientras tanto el módulo sale con la etiqueta «Reportado como vacío» y el FEFO lo salta.") +
     `<div class="rep-busca"><input type="search" id="rvQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div>
     <div class="rep-elegidos" id="rvS"></div><div id="rvL"></div>
     <div class="rep-pie card hidden" id="rvP"><label class="field"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: quedó una estiba rota"></label>
@@ -3514,7 +3528,7 @@ VISTAS.repgen = async (el, p, vigente) => {
   guardarRep(d.lista);
   let lis = d.lista, filtro = ls.get("repFiltro", "PEND"), mios = ls.get("repMios", esVerif() ? "1" : "") === "1";
   const yo = norm(S.usuario ? S.usuario.nombre : "");
-  el.innerHTML = cab("📣 Reportes generados", "Módulos reportados vacíos o con conflicto. Quien tenga rol validador o administrador lo pone en el WMS y lo marca como completado. Si una sincronización posterior ya lo muestra corregido en el WMS, se cierra solo. Se ven los pendientes y lo de los últimos 30 días.") +
+  el.innerHTML = cab("📣 Reportes generados", "Módulos reportados vacíos o con conflicto. Quien tenga rol rotador o administrador lo pone en el WMS y lo marca como completado. Si una sincronización posterior ya lo muestra corregido en el WMS, se cierra solo. Se ven los pendientes y lo de los últimos 30 días.") +
     `<div class="lista-tools"><div class="seg" id="rgF"></div><label class="toggle"><input type="checkbox" id="rgM" ${mios ? "checked" : ""}> Solo los míos</label></div><div id="rgL"></div>`;
   const fecha = t => h(fechaCorta(t));
   const tarjeta = r => {
@@ -3827,6 +3841,103 @@ VISTAS.actualizacion = async (el, p, vigente) => {
 };
 
 // =====================================================================
+// MÓDULOS EN CONSUMO POR CANAL
+// El verificador, el rotador o el administrador marcan de qué módulo se está cargando un producto
+// para T1, T2 o KA (un módulo puede estar en varios canales). Si la fecha no cumple los días
+// mínimos del canal se avisa y se puede marcar igual (queda «forzado»). La marca se quita a mano
+// o sola cuando, al sincronizar, ese producto ya no está en el módulo. Todos los roles la ven.
+// =====================================================================
+const puedeMarcar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
+// S.marcas: [id, sku, producto, módulo, canal, forzado, días, mínimo, por, en]
+const marcaObj = r => ({ id: r[0], sku: r[1], prod: r[2], m: r[3], canal: r[4], forzado: !!r[5], dias: r[6], min: r[7], por: r[8], en: r[9] });
+const marcasTodas = () => (S.marcas || []).map(marcaObj);
+const marcasDe = (sku, m) => marcasTodas().filter(x => x.sku === String(sku) && x.m === String(m)).sort((a, b) => a.canal.localeCompare(b.canal));
+function guardarMarcas(lista) { S.marcas = Array.isArray(lista) ? lista : []; ls.setJ("marcas", S.marcas); if (S.usuario) pintarNav(); }
+// Etiquetas para las tarjetas
+function tagsMarcas(sku, m) {
+  return marcasDe(sku, m).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}">⚠️ Forzado ${h(x.canal)}</span>` : ""}`);
+}
+const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}">🚚 ${marcasDe(i.s, i.m).length ? "Consumo" : "Marcar consumo"}</button>` : "";
+// Ventana: escoger el canal (o quitar el que ya está)
+function modalMarcar(sku, m) {
+  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis);
+  if (!lotes.length) return toast("Ese producto ya no está en el módulo.", "warn");
+  const i = lotes.slice().sort((a, b) => a.d - b.d)[0];   // el que vence primero manda
+  const tot = lotes.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
+  const pintar = () => {
+    const ya = marcasDe(sku, m);
+    return `<h3>🚚 Módulo en consumo</h3><div class="mc-info">${modChip(m)} <b>${skuTxt(sku, i.p)}</b><div class="small">${qty(tot.e, tot.c, tot.u)} · vence <b>${h(i.vf)}</b> (${i.d === 9999 ? "sin fecha" : i.d + " días"})${!i.disp ? ` · <span class="pill bad">BLOQ</span>` : ""}</div></div>
+      <p class="small muted">¿Para qué canal se está cargando de este módulo? Puede estar en varios.</p>
+      <div class="mc-cans">${["T1", "T2", "KA"].map(c => { const mk = ya.find(x => x.canal === c), ok = cumpleCanal(i, c), mn = (i.min || {})[c];
+        return `<div class="mc-can ${mk ? "on" : ""} ${ok ? "si" : "no"}"><div><b>${h(CANALES[c])}</b><div class="small">${ok ? `✅ Cumple (mínimo ${h(mn)} días)` : `⛔ No cumple${!i.disp ? " (bloqueado)" : ` · mínimo ${h(mn)} días`}`}</div>
+          ${mk ? `<div class="small">Marcado por <b>${h(mk.por)}</b> · ${h(fechaCorta(mk.en))}${mk.forzado ? ` <span class="tag t-forz">⚠️ Forzado</span>` : ""}</div>` : ""}</div>
+          ${mk ? `<button class="btn sm del" data-q="${h(mk.id)}">Quitar</button>` : `<button class="btn sm ${ok ? "primary" : "warn"}" data-c="${c}">Marcar</button>`}</div>`; }).join("")}</div>
+      <div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`;
+  };
+  const c = abrirModal(pintar());
+  c.onclick = async e => {
+    const b = e.target.closest("[data-c],[data-q]"); if (!b || b.disabled) return;
+    if (b.dataset.q) {
+      b.disabled = true;
+      try { guardarMarcas(await api("webMarcaQuitar", b.dataset.q)); toast("Se quitó de consumo", "ok"); c.innerHTML = pintar(); repintar(); } catch (er) { b.disabled = false; toast(er.message, "bad", 6000); }
+      return;
+    }
+    const canal = b.dataset.c, ok = cumpleCanal(i, canal), mn = (i.min || {})[canal];
+    if (!ok) {
+      const motivo = !i.disp ? "está <b>bloqueado</b> en el WMS" : `vence en <b>${i.d === 9999 ? "?" : i.d} días</b> y ${h(CANALES[canal])} pide <b>${h(mn)}</b>`;
+      cerrarModal(true);
+      if (!(await confirmar(`⛔ No está disponible para ${CANALES[canal]}`, `${h(m)} · ${skuTxt(sku, i.p)} ${motivo}.<br><br>¿Marcarlo de todas formas? Quedará con la etiqueta <b>⚠️ Marcado forzado</b>.`, "Marcar forzado", true))) return;
+    }
+    if (b.isConnected) b.disabled = true;
+    try {
+      guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn) }));
+      toast(`${m} en consumo para ${CANALES[canal]}${ok ? "" : " (forzado)"}`, ok ? "ok" : "warn", 3500);
+      if (c.isConnected) c.innerHTML = pintar(); repintar();
+    } catch (er) { if (b.isConnected) b.disabled = false; toast(er.message, "bad", 6000); }
+  };
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-marcar]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m] = b.dataset.marcar.split("|"); modalMarcar(s, m); }, true);
+
+// Sección «Módulos en consumo»: las marcas activas con lo que hay hoy en el módulo y su última actualización
+VISTAS.enconsumo = async (el, p, vigente) => {
+  const [inv] = await Promise.all([cargarInv(), api("webMarcas").then(guardarMarcas).catch(() => null)]);
+  if (!vigente()) return;
+  let canal = ls.get("mcCanal", "") , q = "";
+  el.innerHTML = cab("🚚 Módulos en consumo", "De qué módulo se está cargando cada producto y para qué canal. Los marca el verificador, el rotador o el administrador; se quitan a mano o solos cuando el producto sale del módulo. Arriba, los que llevan más tiempo sin actualizarse en el WMS.") +
+    `<div class="lista-tools"><div class="seg" id="mcF"><button data-c="">Todos</button>${["T1", "T2", "KA"].map(c => `<button data-c="${c}">${h(CANALES[c])}</button>`).join("")}</div>
+      <input type="search" id="mcQ" placeholder="Buscar SKU, producto o módulo…" autocomplete="off"><span class="count" id="mcC"></span></div><div id="mcL"></div>`;
+  const pintar = () => {
+    $$("#mcF button", el).forEach(b => b.classList.toggle("on", b.dataset.c === canal));
+    const nq = norm(q).split(/\s+/).filter(x => x);
+    const lis = marcasTodas().filter(x => (!canal || x.canal === canal) && (!nq.length || coincide(norm(`${x.sku} ${x.prod} ${x.m}`), nq) > 0)).map(x => {
+      const lotes = inv.filter(i => i.s === x.sku && i.m === x.m && i.fis);
+      const t = lotes.reduce((a, i) => { const tt = i.act ? new Date(i.act).getTime() : NaN; return isNaN(tt) ? a : Math.max(a, tt); }, 0);
+      const hrs = t ? Math.max(0, (Date.now() - t) / 36e5) : null;
+      return Object.assign(x, { lotes: lotes, hrs: hrs, niv: nivelAct(hrs), tot: lotes.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 }), vf: lotes[0] ? lotes[0].vf : "", d: lotes.length ? Math.min(...lotes.map(i => i.d)) : null, vida: lotes[0] ? lotes[0].vida : "sin" });
+    }).sort((a, b) => (b.hrs === null ? -1 : b.hrs) - (a.hrs === null ? -1 : a.hrs));
+    $("#mcC", el).textContent = `${lis.length} módulos`;
+    $("#mcL", el).innerHTML = lis.length ? `<div class="grid">${lis.map(x => `<article class="card inv mc-card v-${h(x.vida)}">
+        <div class="row sb"><span class="mod-l">${modChip(x.m)}<span class="pill mc-canal">${h(CANALES[x.canal])}</span>${x.forzado ? `<span class="tag t-forz">⚠️ Forzado</span>` : ""}</span>${puedeMarcar() ? `<button class="btn sm del" data-quitar="${h(x.id)}" title="Quitar de consumo">Quitar</button>` : ""}</div>
+        <div class="prod">${skuTxt(x.sku, x.prod)}</div>
+        ${x.lotes.length ? `${qty(x.tot.e, x.tot.c, x.tot.u)}<div class="vence">Vence <b>${h(x.vf)}</b>${x.d !== null && x.d !== 9999 ? ` · ${x.d} días` : ""}</div>` : `<div class="muted small">El WMS ya no muestra el producto aquí (se quita en la próxima sincronización).</div>`}
+        <div class="mc-act act-${h(x.niv)}">${ACT_EMO[x.niv]} Actualizado en el WMS ${h(haceTxt(x.hrs))}</div>
+        <div class="small muted">Marcado por <b>${h(x.por)}</b> · ${h(fechaCorta(x.en))}${x.forzado && x.min !== null ? ` · tenía ${h(x.dias)} d (pide ${h(x.min)})` : ""}</div>
+        <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button></div></article>`).join("")}</div>`
+      : vacio(marcasTodas().length ? "Nada coincide." : "No hay módulos marcados en consumo. Se marcan con «🚚 Marcar consumo» en Stock o Por módulo.", "🚚");
+  };
+  $("#mcF", el).onclick = e => { const b = e.target.closest("[data-c]"); if (!b) return; canal = b.dataset.c; ls.set("mcCanal", canal); pintar(); };
+  $("#mcQ", el).oninput = e => { q = e.target.value.trim(); pintar(); };
+  el.onclick = async e => {
+    const s = e.target.closest("[data-sku]"); if (s) return ir("stock", { sku: s.dataset.sku });
+    const b = e.target.closest("[data-quitar]"); if (!b) return;
+    const x = marcasTodas().find(y => y.id === b.dataset.quitar); if (!x) return;
+    if (!(await confirmar("Quitar de consumo", `¿Quitar ${h(x.m)} · ${skuTxt(x.sku, x.prod)} de consumo para ${h(CANALES[x.canal])}?`, "Quitar", true))) return;
+    try { guardarMarcas(await api("webMarcaQuitar", x.id)); toast("Se quitó de consumo", "ok"); pintar(); } catch (er) { toast(er.message, "bad", 6000); }
+  };
+  pintar();
+};
+
+// =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)
 // =====================================================================
 VISTAS.usuarios = async (el, p, vigente) => {
@@ -3834,9 +3945,9 @@ VISTAS.usuarios = async (el, p, vigente) => {
   if (!vigente()) return;
   const pintar = lis2 => {
     el.innerHTML = cab("👥 Usuarios y PIN", "Quién entra al dashboard y qué puede hacer", `<button class="btn primary" data-a="nuevo">＋ Nuevo usuario</button>`) +
-      `<div class="note ayuda">Roles: <b>verificador</b> solo ve Stock, Información de producto y Por módulo, y reporta módulos vacíos o con conflicto · <b>opm</b> igual que el verificador; es el que surte PK (T2), T1 o KA y usa el switch 🚦 de canal · <b>lector</b> solo consulta · <b>validador</b> abre y cierra turnos, valida, hace la entrega, la conciliación y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku, los canales, la lista de consumo y la alerta de pocos.</div>
+      `<div class="note ayuda">Roles: <b>verificador</b> solo ve Stock, Información de producto y Por módulo, y reporta módulos vacíos o con conflicto · <b>opm</b> igual que el verificador; es el que surte PK (T2), T1 o KA y usa el switch 🚦 de canal · <b>lector</b> solo consulta · <b>rotador</b> abre y cierra turnos, valida, hace la entrega, la conciliación y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku, los canales, la lista de consumo y la alerta de pocos.</div>
       <table class="tabla resp"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Creado</th><th></th></tr></thead><tbody>
-      ${lis2.map(u => `<tr><td data-l="Nombre"><b>${h(u.nombre)}</b></td><td data-l="Rol">${h(u.rol)}</td><td data-l="Estado">${u.activo ? `<span class="pill ok">Activo</span>` : `<span class="pill bad">Inactivo</span>`}</td>
+      ${lis2.map(u => `<tr><td data-l="Nombre"><b>${h(u.nombre)}</b></td><td data-l="Rol">${h(rolTxt(u.rol))}</td><td data-l="Estado">${u.activo ? `<span class="pill ok">Activo</span>` : `<span class="pill bad">Inactivo</span>`}</td>
         <td data-l="Último acceso">${h(fechaCorta(u.ultimo) || "—")}</td><td data-l="Creado" class="small">${h(fechaCorta(u.creado))} · ${h(u.creadoPor)}</td>
         <td class="acc"><button class="btn sm" data-a="editar" data-n="${h(u.nombre)}">Editar</button> <button class="btn sm del" data-a="borrar" data-n="${h(u.nombre)}">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`;
     el.onclick = async e => {
@@ -3855,7 +3966,7 @@ VISTAS.usuarios = async (el, p, vigente) => {
 function modalUsuario(u, alGuardar) {
   const c = abrirModal(`<h3>${u ? "Editar usuario" : "Nuevo usuario"}</h3>
     <label class="field"><span>Nombre</span><input type="text" id="uN" maxlength="40" value="${h(u ? u.nombre : "")}"></label>
-    <label class="field"><span>Rol</span><select id="uR">${ROL_LISTA.map(r => `<option ${u && u.rol === r ? "selected" : (!u && r === "validador" ? "selected" : "")}>${r}</option>`).join("")}</select></label>
+    <label class="field"><span>Rol</span><select id="uR">${ROL_LISTA.map(r => `<option value="${r}" ${u && u.rol === r ? "selected" : (!u && r === "validador" ? "selected" : "")}>${rolTxt(r)}</option>`).join("")}</select></label>
     <label class="field"><span>PIN (4 a 8 números)${u ? " · déjalo vacío para no cambiarlo" : ""}</span><input type="password" inputmode="numeric" id="uP" maxlength="8"></label>
     <label class="check"><input type="checkbox" id="uA" ${!u || u.activo ? "checked" : ""}><span>Activo (puede entrar)</span></label>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="uOk">Guardar</button></div>`);
@@ -4090,47 +4201,54 @@ function modalModuloConsumo(x) {
 }
 
 // ---------- Alerta de pocos: productos vigilados ----------
-// El administrador escoge qué productos vigilar; la página avisa (Inicio, menú y al sincronizar)
-// cuando uno queda por debajo de su mínimo (columna Mínimo de la hoja Sku; vacío = 10 estibas).
-// Estibas disponibles = cajas ÷ cant. por estiba (como en «Pocos»), en toda la bodega.
-const POCOS_DEFECTO = 10;
+// El administrador escoge qué productos vigilar. La página avisa (Inicio, menú, Pocos y al sincronizar)
+// cuando uno queda en UN SOLO módulo de bodega o ya no está en ninguno. Cuentan los módulos con producto
+// disponible, sin KA ni PREV y sin los reportados como vacíos.
 function estadoVigilado(sku) {
   const c = (S.cat || []).find(x => x.sku === sku);
-  const disp = (S.inv || []).filter(i => i.s === sku && i.fis && i.disp);
-  const eq = disp.reduce((a, i) => a + (i.cpe > 1 ? i.c / i.cpe : i.e), 0);
-  const min = c && c.minimo !== "" && c.minimo !== null && c.minimo !== undefined && !isNaN(+c.minimo) ? +c.minimo : POCOS_DEFECTO;
-  return { sku: sku, prod: c ? c.prod : (disp[0] ? disp[0].p : "SKU " + sku), c: c, eq: Math.round(eq * 10) / 10, min: min, cajas: disp.reduce((a, i) => a + i.c, 0), mods: new Set(disp.filter(i => !i.esOp).map(i => i.m)).size, bajo: eq < min, agotado: !disp.length };
+  const disp = (S.inv || []).filter(i => i.s === sku && i.fis && i.disp && !i.esOp && !repVacio(i.m));
+  const porMod = {};
+  disp.forEach(i => { const m = porMod[i.m] = porMod[i.m] || { m: i.m, e: 0, c: 0, u: 0, vf: i.vf, d: i.d }; m.e += i.e; m.c += i.c; m.u += i.u; if (i.d < m.d) { m.d = i.d; m.vf = i.vf; } });
+  const mods = Object.values(porMod).sort(cmpMod);
+  const tot = disp.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
+  return { sku: sku, prod: c ? c.prod : ((S.inv || []).find(i => i.s === sku) || {}).p || "SKU " + sku, mods: mods, tot: tot, bajo: mods.length <= 1, agotado: !mods.length, unico: mods.length === 1 };
 }
-const pocosAlerta = () => (S.pocosVig || []).map(estadoVigilado).filter(x => x.bajo).sort((a, b) => (a.eq / (a.min || 1)) - (b.eq / (b.min || 1)));
-const barraPocos = x => `<span class="pv-bar" title="${fm(x.eq)} de ${fm(x.min)} estibas"><i style="width:${Math.min(100, x.min ? x.eq / x.min * 100 : 100)}%"></i></span>`;
+const pocosAlerta = () => (S.pocosVig || []).map(estadoVigilado).filter(x => x.bajo).sort((a, b) => (b.agotado ? 1 : 0) - (a.agotado ? 1 : 0) || a.sku.localeCompare(b.sku));
+const estadoVigTxt = x => x.agotado ? `<b>Agotado</b> en bodega` : x.unico ? `Solo en ${modChip(x.mods[0].m)} · ${qty(x.tot.e, x.tot.c, x.tot.u)}` : `${x.mods.length} módulos · ${qty(x.tot.e, x.tot.c, x.tot.u)}`;
+const pillVig = x => x.agotado ? `<span class="pill bad">🛑 Agotado</span>` : x.unico ? `<span class="pill warn">⚠️ Un solo módulo</span>` : `<span class="pill ok">🟢 ${x.mods.length} módulos</span>`;
 // Aviso en Inicio (siempre a la vista si hay alguno)
 function avisoPocos(box) {
   if (!box) return;
   const l = pocosAlerta();
   if (!l.length) { box.innerHTML = ""; return; }
-  box.innerHTML = `<section class="card pv-aviso"><div class="pv-cab"><b>🔔 Quedan pocos</b><span class="nav-n">${l.length}</span><span class="small muted">productos vigilados por debajo de su mínimo</span></div>
+  box.innerHTML = `<section class="card pv-aviso"><div class="pv-cab"><b>🔔 Quedan pocos</b><span class="nav-n">${l.length}</span><span class="small muted">productos vigilados en un solo módulo o agotados</span></div>
     <div class="pv-l">${l.map(x => `<button type="button" class="pv-i ${x.agotado ? "agot" : ""}" data-sku="${h(x.sku)}"><span class="pv-n">${skuTxt(x.sku, x.prod)}</span>
-      <span class="pv-d">${x.agotado ? "<b>Agotado</b> en bodega" : `≈ <b>${fm(x.eq)}</b> de ${fm(x.min)} estibas · ${fm(x.cajas)} cj`}</span>${barraPocos(x)}</button>`).join("")}</div></section>`;
+      <span class="pv-d">${estadoVigTxt(x)}</span></button>`).join("")}</div></section>`;
   box.onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
+}
+// Lista de vigilados (la ven todos en «Pocos»; el administrador además agrega y quita)
+function tablaVigilados(editar) {
+  const l = (S.pocosVig || []).map(estadoVigilado).sort((a, b) => (b.agotado ? 2 : b.unico ? 1 : 0) - (a.agotado ? 2 : a.unico ? 1 : 0) || a.sku.localeCompare(b.sku));
+  return l.length ? `<div class="pv-tabla">${l.map(x => `<div class="pv-f ${x.bajo ? "bajo" : "bien"}" data-vsku="${h(x.sku)}">
+      <div class="pv-p">${skuTxt(x.sku, x.prod)}<div class="small pv-st">${estadoVigTxt(x)}</div>
+        ${x.mods.length > 1 ? `<div class="pv-mods">${x.mods.map(m => `${modChip(m.m)}<span class="small muted">${fm(m.e)} est · ${fm(m.c)} cj</span>`).join(" ")}</div>` : ""}</div>
+      ${pillVig(x)}
+      <div class="pv-acc"><button class="btn sm" data-ver="${h(x.sku)}">📡 Stock</button>${editar ? `<button class="btn sm del" data-quitar="${h(x.sku)}" title="Dejar de vigilar" aria-label="Dejar de vigilar ${h(x.sku)}">${ICO_DEL}</button>` : ""}</div></div>`).join("")}</div>`
+    : vacio(editar ? "Todavía no vigilas ningún producto. Agrégalo arriba." : "No hay productos vigilados.", "🔔");
 }
 VISTAS.pocosvig = async (el, p, vigente) => {
   await Promise.all([cargarCat(), cargarInv().catch(() => null)]);
   if (!vigente()) return;
+  const pintar = () => {
+    const l = (S.pocosVig || []).map(estadoVigilado);
+    $("#pvC", el).textContent = `${l.length} vigilados · ${l.filter(x => x.unico).length} en un solo módulo · ${l.filter(x => x.agotado).length} agotados`;
+    $("#pvL", el).innerHTML = tablaVigilados(true);
+  };
   const guardarLista = async (lista, msj) => {
     try { S.pocosVig = await api("webPocosVigilarGuardar", lista); ls.setJ("pocosVig", S.pocosVig); toast(msj, "ok"); pintarNav(); pintar(); }
     catch (e) { toast(e.message, "bad", 6000); }
   };
-  const pintar = () => {
-    const l = (S.pocosVig || []).map(estadoVigilado).sort((a, b) => (b.bajo ? 1 : 0) - (a.bajo ? 1 : 0) || (a.eq / (a.min || 1)) - (b.eq / (b.min || 1)));
-    $("#pvL", el).innerHTML = l.length ? `<div class="pv-tabla">${l.map(x => `<div class="pv-f ${x.bajo ? "bajo" : "bien"}">
-        <div class="pv-p">${skuTxt(x.sku, x.prod)}<div class="small muted">${x.agotado ? "Agotado en bodega" : `≈ ${fm(x.eq)} estibas · ${fm(x.cajas)} cj · ${fm(x.mods)} mód.`}</div>${barraPocos(x)}</div>
-        <span class="pill ${x.bajo ? "bad" : "ok"}">${x.bajo ? "🔔 Bajo el mínimo" : "🟢 Bien"}</span>
-        <label class="pv-min"><span>Mínimo</span><input type="text" inputmode="decimal" value="${h(x.c && x.c.minimo !== "" && x.c.minimo !== null && x.c.minimo !== undefined ? x.c.minimo : "")}" placeholder="${POCOS_DEFECTO}" data-min="${h(x.sku)}" ${x.c ? "" : "disabled"}></label>
-        <button class="btn sm del" data-quitar="${h(x.sku)}" title="Dejar de vigilar" aria-label="Dejar de vigilar ${h(x.sku)}">${ICO_DEL}</button></div>`).join("")}</div>`
-      : vacio("Todavía no vigilas ningún producto. Agrégalo arriba.", "🔔");
-    $("#pvC", el).textContent = `${l.length} vigilados · ${l.filter(x => x.bajo).length} bajo el mínimo`;
-  };
-  el.innerHTML = cab("🔔 Alerta de pocos", "Escoge los productos a vigilar. Cuando uno queda por debajo de su mínimo de estibas (el de la hoja Sku; vacío = 10), sale el aviso en Inicio, en el menú y al sincronizar. El mínimo se cambia aquí mismo.") +
+  el.innerHTML = cab("🔔 Alerta de pocos", "Los productos que se vigilan. Avisa cuando uno queda en un solo módulo de bodega (sin KA ni PREV) o ya no queda en ninguno: en Inicio, en el menú, en «Pocos» y al sincronizar.") +
     `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Vigilar un producto</h3><div style="max-width:520px">${campoAuto("pvA", "Nombre o SKU (ej: 22613)")}</div></div>
     <div class="lista-tools"><span class="count" id="pvC"></span></div><div id="pvL"></div>`;
   autoSku($("#pvA", el), c => {
@@ -4138,21 +4256,10 @@ VISTAS.pocosvig = async (el, p, vigente) => {
     guardarLista((S.pocosVig || []).concat(c.sku), `Vigilando ${c.sku} · ${c.prod}`);
   }, { limpiar: true });
   el.onclick = async e => {
+    const v = e.target.closest("[data-ver]"); if (v) return ir("stock", { sku: v.dataset.ver });
     const q = e.target.closest("[data-quitar]"); if (!q) return;
-    if (!(await confirmar("Dejar de vigilar", `¿Dejar de vigilar ${h(q.dataset.quitar)}? Ya no saldrá la alerta de pocos para ese producto.`, "Dejar de vigilar", true))) return;
+    if (!(await confirmar("Dejar de vigilar", `¿Dejar de vigilar ${h(q.dataset.quitar)}? Ya no saldrá la alerta para ese producto.`, "Dejar de vigilar", true))) return;
     guardarLista((S.pocosVig || []).filter(x => x !== q.dataset.quitar), "Ya no se vigila");
-  };
-  // El mínimo se guarda en la hoja Sku (el mismo de «Pocos»)
-  el.onchange = async e => {
-    const i = e.target.closest("[data-min]"); if (!i) return;
-    const c = S.cat.find(x => x.sku === i.dataset.min); if (!c) return;
-    const v = i.value.trim().replace(",", ".");
-    if (v !== "" && (isNaN(+v) || +v < 0)) { toast("Escribe un número (o déjalo vacío para usar 10)", "warn"); return; }
-    if (String(c.minimo === null || c.minimo === undefined ? "" : c.minimo) === v) return;   // sin cambio
-    const obj = {}; SKU_CAMPOS_UI.forEach(([k]) => obj[k] = c[k] === null || c[k] === undefined ? "" : String(c[k])); obj.minimo = v;
-    i.disabled = true;
-    try { S.cat = await api("webSkuGuardar", c.sku, obj); ls.setJ("cat", S.cat); toast(`Mínimo de ${c.sku}: ${v || POCOS_DEFECTO + " (general)"}`, "ok"); pintarNav(); pintar(); }
-    catch (er) { toast(er.message, "bad", 6000); i.disabled = false; }
   };
   pintar();
 };
@@ -4160,7 +4267,7 @@ VISTAS.pocosvig = async (el, p, vigente) => {
 // ---------- Secciones por rol: qué pantallas ve cada rol ----------
 VISTAS.vistasrol = async (el) => {
   let cfg = JSON.parse(JSON.stringify(S.vistasRol || {}));
-  const RT = { verificador: "Verif.", opm: "OPM", lector: "Lector", validador: "Valid.", administrador: "Admin" };
+  const RT = { verificador: "Verif.", opm: "OPM", lector: "Lector", validador: "Rotad.", administrador: "Admin" };
   const pintar = () => {
     const grupos = NAV.map(g => ({ t: g.g || "General", items: g.items }));
     el.innerHTML = cab("🔐 Secciones por rol", "Marca qué secciones ve cada rol en el menú. Solo se puede dar lo que el rol alcanza a hacer (— = ese rol no tiene permiso para esa sección). Al administrador nunca se le quitan Usuarios ni Secciones por rol. Esto controla lo que se ve; lo que cada rol puede guardar lo sigue revisando el servidor.",
@@ -4214,6 +4321,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     const cambioVistas = JSON.stringify(S.vistasRol || {}) !== JSON.stringify(i.vistasRol || {});
     S.vistasRol = i.vistasRol || {}; ls.setJ("vistasRol", S.vistasRol);
     S.pocosVig = Array.isArray(i.pocosVig) ? i.pocosVig : []; ls.setJ("pocosVig", S.pocosVig);
+    S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
     avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
@@ -4251,7 +4359,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

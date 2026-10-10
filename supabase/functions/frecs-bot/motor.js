@@ -1255,9 +1255,10 @@ const SKU_CAMPOS = {
   cantEst: ["cantxestibas", "cantxestiba", "cantidadxestiba", "cantidadxestibas", "cantidadporestiba", "estibado", "cajasxestiba", "cajasporestiba"],
   pres: ["presentacion"], usuario: ["usuario"], ctx: ["contexto"],
   minimo: ["minimo", "minimoestibas"], t1: ["t1"], t2: ["t2"], ka: ["ka"],
-  estCara: ["estibasporcara", "estibasxcara", "porcara"]
+  estCara: ["estibasporcara", "estibasxcara", "porcara"],
+  vida: ["vidautil", "vidautildias", "diasvidautil", "vidautil(dias)"]
 };
-const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara" };
+const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util" };
 
 function claveEncabezado_(t) { return normalizarTexto(String(t || "")).toLowerCase().replace(/[^a-z0-9ñ]/g, ""); }
 
@@ -1274,7 +1275,7 @@ function leerSku_() {
     if (idx !== -1) cols[k] = idx;
   });
   // Columnas nuevas que faltan: se agregan al final con su encabezado
-  const faltan = ["minimo", "t1", "t2", "ka", "estCara"].filter(k => cols[k] === undefined);
+  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida"].filter(k => cols[k] === undefined);
   if (faltan.length && cols.sku !== undefined) {
     let col = sh.getLastColumn();
     faltan.forEach(k => { sh.getRange(1, col + 1).setValue(SKU_ENCABEZADOS[k]).setFontWeight("bold"); cols[k] = col; col++; });
@@ -1292,7 +1293,7 @@ function leerSku_() {
       fila: j + 1, idHoja: String(val(r, "id")), sku: sku, prod: String(val(r, "prod")), cub: String(val(r, "cub")), piso: String(val(r, "piso")),
       plancha: String(val(r, "plancha")), cantEst: String(val(r, "cantEst")), pres: String(val(r, "pres")),
       usuario: String(val(r, "usuario")), ctx: String(val(r, "ctx")),
-      minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara"))
+      minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara")), vida: num(val(r, "vida"))
     };
     if (!mapa[sku]) { mapa[sku] = o; lista.push(o); }
   }
@@ -2063,6 +2064,32 @@ function calcularFechaEnvasado(fechaStr, meses) {
   return { ok: true, fecha: `${String(fecha.getDate()).padStart(2, "0")}/${String(fecha.getMonth() + 1).padStart(2, "0")}/${fecha.getFullYear()}` };
 }
 
+// Con la vida útil del producto (días, hoja Sku): fecha de producción = vencimiento − vida útil, y
+// fecha límite de salida de cada canal = vencimiento − días mínimos del canal (los del producto o las reglas de Canales).
+// vidaDias (opcional) reemplaza la de la hoja Sku.
+function calcularEnvasadoProducto(sku, fechaIso, vidaDias) {
+  sku = String(sku || "").trim();
+  const f = skuInfo_(sku);
+  if (!f) throw new Error(`El SKU ${sku} no existe en la hoja Sku.`);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fechaIso || ""));
+  if (!m) throw new Error("Escoge la fecha de vencimiento.");
+  const venc = new Date(+m[1], +m[2] - 1, +m[3]);
+  const v = vidaDias === "" || vidaDias === null || vidaDias === undefined ? f.vida : Number(String(vidaDias).replace(",", "."));
+  if (v === null || v === undefined || !isFinite(v) || v <= 0) throw new Error("Este producto no tiene vida útil en la hoja Sku: escríbela en días.");
+  const menos = d => { const x = new Date(venc.getTime()); x.setDate(x.getDate() - Math.round(d)); return x; };
+  const dmy = x => `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}/${x.getFullYear()}`;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const faltan = x => Math.round((x.getTime() - hoy.getTime()) / 86400000);
+  const lote = obtenerInventarioLocal().find(i => i.s === sku);
+  const fam = lote ? lote.fam : "";
+  const prod = menos(v);
+  return {
+    sku: sku, prod: String(f.prod), vida: v, vidaHoja: f.vida, vence: dmy(venc), venceFaltan: faltan(venc),
+    produccion: dmy(prod), edad: -faltan(prod),
+    canales: ["T1", "T2", "KA"].map(c => { const min = diasMinimos_(c, fam, sku, f.prod), l = menos(min); return { c: c, min: min, limite: dmy(l), faltan: faltan(l) }; })
+  };
+}
+
 function calcularEnvasado(fechaStr, meses) {
   const r = calcularFechaEnvasado(fechaStr, meses);
   if (!r.ok) return r.error;
@@ -2341,6 +2368,36 @@ function ejecutarEliminarConsumo(sku) {
 function ejecutarEliminarConsumoBot_(sku) {
   const volver = { inline_keyboard: [[{ text: "Volver al panel", callback_data: "CONSO|1" }]] };
   return { text: eliminarConsumoCore_(sku) ? `✅ SKU ${sku} eliminado.` : `❌ SKU ${sku} no estaba en la lista.`, markup: volver };
+}
+
+// Nombre con el que sale en Pony (vacío = el de la hoja Sku) y orden de la lista. Solo el administrador.
+function consumoReescribir_(filas) {
+  tReescribir_(CONSUMO_DEF, () => false);
+  tAgregar_(CONSUMO_DEF, filas);
+  sbEspejo_("consumo");
+}
+function renombrarConsumoCore_(sku, nombre) {
+  sku = String(sku || "").trim();
+  nombre = String(nombre || "").trim().replace(/\s+/g, " ").substring(0, 120);
+  return conLock_(() => {
+    const filas = tLeer_(CONSUMO_DEF);
+    const f = filas.find(r => txt_(r[0]) === sku);
+    if (!f) throw new Error(`El SKU ${sku} no está en la lista de consumo.`);
+    f[1] = nombre || String((skuInfo_(sku) || {}).prod || "");
+    consumoReescribir_(filas);
+    return f[1];
+  });
+}
+function ordenarConsumoCore_(skus) {
+  if (!Array.isArray(skus)) throw new Error("Orden no válido.");
+  return conLock_(() => {
+    const filas = tLeer_(CONSUMO_DEF).filter(r => txt_(r[0]));
+    const pos = {}; skus.forEach((s, k) => { pos[String(s).trim()] = k; });
+    // Los que no vengan en la lista nueva quedan al final, en su orden
+    const nuevas = filas.map((r, k) => ({ r: r, k: pos[txt_(r[0])] === undefined ? 1e6 + k : pos[txt_(r[0])] })).sort((a, b) => a.k - b.k).map(x => x.r);
+    consumoReescribir_(nuevas);
+    return nuevas.map(r => txt_(r[0]));
+  });
 }
 
 // Elegir a mano el módulo de consumo ("" = volver al automático)
@@ -2743,8 +2800,9 @@ function buscarFichaTecnicaPaginada(termino, pagina) {
 // ---------------------------------------------------------
 // 2. ADMINISTRAR LA HOJA SKU (solo administrador)
 // ---------------------------------------------------------
-const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara"];
-const SKU_NUMERICOS = ["minimo", "t1", "t2", "ka", "estCara"];
+// vida: días de vida útil (de la producción al vencimiento), para la calculadora de envasado
+const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara", "vida"];
+const SKU_NUMERICOS = ["minimo", "t1", "t2", "ka", "estCara", "vida"];
 
 function validarSku_(obj) {
   let o = {};
@@ -4868,7 +4926,7 @@ function sbFilasSku_() {
   return sbSinRepetir_(catalogoSku_().map(c => ({
     sku: c.sku, id_hoja: sbTxt_(c.idHoja),
     producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
-    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara
+    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara, vida_util: c.vida
   })), x => x.sku);
 }
 function sbFilasCanales_(omitir) {
@@ -4961,7 +5019,7 @@ function sbBajarMaestros_(tablas) {
       if (sk.sh) {
         const ancho = sk.sh.getLastColumn();
         const campos = { id: "id_hoja", sku: "sku", prod: "producto", cub: "cubicaje", piso: "piso", plancha: "plancha", cantEst: "cant_x_estiba",
-          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara" };
+          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util" };
         const enBase = new Set();
         m.sku.forEach(x => {
           enBase.add(String(x.sku));
@@ -5577,7 +5635,7 @@ function inventarioPayload_() {
 function webInventario(tk) { return webAuth_(tk, L_, () => inventarioPayload_()); }
 
 function catalogoWeb_() {
-  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara }));
+  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida }));
 }
 function webCatalogo(tk) { return webAuth_(tk, L_, () => catalogoWeb_()); }
 function webCanales(tk) { return webAuth_(tk, L_, () => ({ reglas: canalesListar_(), defecto: POCOS_DEFECTO })); }
@@ -5616,6 +5674,7 @@ function webAcomodar(tk, sku, fecha) {
     return r;
   });
 }
+function webEnvasadoProducto(tk, sku, fechaIso, vidaDias) { return webAuth_(tk, L_, () => calcularEnvasadoProducto(sku, fechaIso, vidaDias)); }
 function webEnvasado(tk, fecha, meses) { return webAuth_(tk, L_, () => { const r = calcularFechaEnvasado(fecha, parseInt(meses, 10) || 0); if (!r.ok) throw new Error(r.error.replace(/⚠️\s*/, "")); return r.fecha; }); }
 
 function miniLote_(l) { return { m: l.m, z: zonaModulo_(l.m), s: l.s, p: l.p, e: l.e, c: l.c, u: l.u, est: l.est, disp: l.est === "DISPONIBLE", v: l.v, vf: l.v ? formatearFecha(l.v) : "Sin fecha", d: l.d, prio: l.prio, tpc: l.tpc, obs: l.obs, cand: l.cand, actTxt: formatoActualizacion(l.act), vida: vidaUtilInfo(l.d).clave }; }
@@ -5664,6 +5723,8 @@ function webSincronizar(tk, forzar) {
 }
 function webConsumoAgregar(tk, sku) { return webAuth_(tk, A_, () => { const r = agregarConsumoCore_(sku); if (!r.ok) throw new Error(r.error); return r.nombre; }); }
 function webConsumoEliminar(tk, sku) { return webAuth_(tk, A_, () => { if (!eliminarConsumoCore_(sku)) throw new Error(`El SKU ${sku} no estaba en la lista.`); return true; }); }
+function webConsumoNombre(tk, sku, nombre) { return webAuth_(tk, A_, () => renombrarConsumoCore_(sku, nombre)); }
+function webConsumoOrden(tk, skus) { return webAuth_(tk, A_, () => ordenarConsumoCore_(skus)); }
 function webConsumoElegir(tk, sku, modulo) { return webAuth_(tk, A_, u => elegirModuloConsumoCore_(sku, modulo, u.nombre)); }
 function webLimboAgregar(tk, obj) {
   return webAuth_(tk, V_, () => {

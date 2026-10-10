@@ -294,6 +294,9 @@ let llamadasSb = 0, sinRed = false;
   if (!/No hay turno abierto/.test(cerr)) errores.push("validar sin turno abierto no avisa: " + cerr);
   // Abrir el siguiente heredando el saldo
   const saldo = JSON.parse(q(`select jsonb_object_agg(p.sku, p.inicial - coalesce((select sum(cantidad) from val_registros r where r.turno_id=p.turno_id and r.sku=p.sku and r.estado='ACTIVO'),0)) from val_productos p where p.turno_id='${T}'`));
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(800);
+  if (await P.$('#tb [data-t="abrir"]')) errores.push("inicio: todavía deja abrir el turno");
+  await P.evaluate(() => ir("entrega")); await P.waitForTimeout(800);
   await P.click('[data-t="abrir"]'); await P.waitForSelector("#atOk", { timeout: 10000 });
   if (await P.$eval("#atH", x => x.checked).catch(() => true)) errores.push("heredar el saldo viene marcado por defecto");
   await P.click('#np [data-n="3"]'); await P.check("#atH"); await P.waitForTimeout(450); await P.click("#atOk"); await P.waitForTimeout(1500);
@@ -641,6 +644,41 @@ let llamadasSb = 0, sinRed = false;
   // --- Consumo: solo el administrador la cambia ---
   const rCons = await vAna.page.evaluate(() => api("webConsumoAgregar", "2222").then(() => "ok", e => e.message));
   if (!/permiso/i.test(rCons)) errores.push("consumo: un validador todavía cambia la lista: " + rCons);
+  // --- Lista de consumo en Administración: nombre y orden; Pony solo muestra ---
+  await P.evaluate(() => ir("consumolista")); await P.waitForTimeout(900);
+  const ordenA = await P.$$eval(".cl-f", fs => fs.map(f => f.dataset.sku));
+  if (ordenA.length >= 2) {
+    await P.click(`.cl-f[data-sku="${ordenA[1]}"] [data-a="sube"]`); await P.waitForTimeout(900);
+    const ordenB = q("select string_agg(sku, ',' order by orden) from consumo").split(",");
+    if (ordenB[0] !== ordenA[1] || ordenB[1] !== ordenA[0]) errores.push("consumo: subir no cambió el orden: " + ordenB);
+    await P.fill(`[data-nom="${ordenA[0]}"]`, "Nombre de prueba Pony"); await P.press(`[data-nom="${ordenA[0]}"]`, "Enter"); await P.waitForTimeout(900);
+    if (q(`select producto from consumo where sku='${ordenA[0]}'`) !== "Nombre de prueba Pony") errores.push("consumo: el nombre no se guardó");
+    await P.screenshot({ path: "/tmp/w_consumolista2.png" });
+    await P.evaluate(() => ir("consumo")); await P.waitForTimeout(900);
+    const pony = await P.evaluate(() => ({ editar: !!$("[data-lista]"), elegir: !!$("[data-el]"), auto: !!$("[data-auto]"), primero: ($(".cs-lista .cs-row .cs-p") || {}).textContent || "", nombre: $("#view").textContent.includes("Nombre de prueba Pony") }));
+    if (pony.editar || pony.elegir || pony.auto) errores.push("Pony: todavía tiene botones para cambiar la lista: " + JSON.stringify(pony));
+    if (!pony.primero.includes(ordenA[1]) || !pony.nombre) errores.push("Pony: no sale en el orden o con el nombre del administrador: " + JSON.stringify(pony));
+    await P.evaluate(() => ir("consumolista")); await P.waitForTimeout(700);
+    await P.fill(`[data-nom="${ordenA[0]}"]`, ""); await P.press(`[data-nom="${ordenA[0]}"]`, "Enter"); await P.waitForTimeout(900);
+    if (q(`select producto from consumo where sku='${ordenA[0]}'`) === "Nombre de prueba Pony") errores.push("consumo: el nombre vacío no volvió al de la hoja Sku");
+  } else errores.push("consumo: la lista de prueba tiene menos de 2 productos");
+  // --- Vida útil y fecha de envasado ---
+  q("update sku set vida_util = 270 where sku = '2222'");
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300); await P.reload(); await P.waitForSelector(".kpis", { timeout: 15000 }); await P.waitForTimeout(2500);
+  await P.evaluate(() => ir("envasado")); await P.waitForTimeout(700);
+  await P.fill("#eP", "2222"); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(200);
+  if (await P.inputValue("#eV") !== "270") errores.push("envasado: no trae la vida útil de la hoja Sku: " + await P.inputValue("#eV"));
+  await P.fill("#ef", "2027-06-30"); await P.click("#eb"); await P.waitForTimeout(600);
+  const envT = await P.textContent("#er");
+  if (!envT.includes("03/10/2026")) errores.push("envasado: fecha de producción mal (30/06/2027 − 270 d = 03/10/2026): " + envT.slice(0, 200));
+  const envR = await P.evaluate(() => api("webEnvasadoProducto", "2222", "2027-06-30", ""));
+  const t2 = envR.canales.find(c => c.c === "T2");
+  const espT2 = (() => { const d = new Date(2027, 5, 30); d.setDate(d.getDate() - t2.min); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; })();
+  if (t2.limite !== espT2) errores.push(`envasado: límite T2 mal (${t2.limite} ≠ ${espT2})`);
+  await P.screenshot({ path: "/tmp/w_envasado.png" });
+  await P.evaluate(() => { ls.set("ultProd", "2222"); ir("producto"); }); await P.waitForTimeout(600);
+  if (!(await P.textContent("#br")).includes("270 días")) errores.push("información de producto: no muestra la vida útil");
+  q("update sku set vida_util = null where sku = '2222'");
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

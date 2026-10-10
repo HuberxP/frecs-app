@@ -770,7 +770,7 @@ function ir(vista, params, esAtras) {
   pintarNav(); abrirMenu(false);
   window.scrollTo(0, 0);
   const el = $("#view");
-  el.onclick = el.oninput = el.onchange = null;
+  el.onclick = el.oninput = el.onchange = el.onkeydown = null;
   el.classList.remove("ver-ayuda");
   const id = ++renderId;
   el.innerHTML = loader();
@@ -1296,7 +1296,7 @@ function filaProducto(c, opts) {
   const ab = abierto(opts.grupo || "pf", c.sku);
   const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
   const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], ["Plancha", c.plancha], ["Cant x estiba", c.cantEst]]
-    .concat(opts.todo ? [["Est. por cara", c.estCara], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
+    .concat(opts.todo ? [["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
   return `<article class="pf plegable ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="${opts.grupo || "pf"}|${h(c.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
       <div class="pf-t"><div class="pf-n">${skuTxt(c.sku, c.prod)}</div><div class="pf-s">${c.pres ? `<span>${h(c.pres)}</span>` : ""}${opts.todo ? "" : `<span>Disponible <b>${fm(cajas)}</b> cj</span>`}</div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
@@ -1320,7 +1320,7 @@ function detalleProducto(c) {
     <div class="dp-stock">${fis.length ? `<div class="dp-k"><span>Disponible</span><b>${fm(t.c)}</b><small>cajas · ${fm(t.e)} estibas</small></div><div class="dp-k"><span>Módulos de bodega</span><b>${fm(mods.size)}</b><small>${mods.size === 1 ? "⚠️ único módulo" : "con producto disponible"}</small></div><div class="dp-k"><span>Bloqueado</span><b>${fm(fis.length - disp.length)}</b><small>ubicaciones</small></div>` : `<div class="note">Sin existencias físicas en bodega.</div>`}</div>
     ${fis.length ? `<div class="dp-cans">${["T1", "T2", "KA"].map(canalFila).join("")}</div>` : ""}
     ${g("📦 Estiba y presentación", [["Presentación", c.pres], ["Cant x estiba", c.cantEst], ["Cubicaje", c.cub], ["Piso", c.piso], ["Plancha", c.plancha], ["Est. por cara", c.estCara]])}
-    ${g("🚦 Reglas", [["Mínimo (pocos)", c.minimo || "10 (general)"], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]])}
+    ${g("🚦 Reglas", [["Vida útil", c.vida ? c.vida + " días" : ""], ["Mínimo (pocos)", c.minimo || "10 (general)"], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]])}
   </article>`;
 }
 VISTAS.producto = async (el, p, vigente) => {
@@ -1792,16 +1792,42 @@ VISTAS.acomodar = async (el, p) => {
     } catch (e) { $("#ar", el).innerHTML = errBox(e); }
   };
 };
-VISTAS.envasado = async el => {
-  el.innerHTML = cab("🧮 Fecha de envasado", "Resta los meses de vida útil a la fecha de vencimiento") +
-    `<div class="form-row"><label class="field" style="max-width:220px"><span>Fecha de vencimiento</span><input type="date" id="ef"></label>
-      <label class="field" style="max-width:140px"><span>Meses</span><input type="number" min="0" id="em" value="6"></label><button class="btn primary" id="eb">Calcular</button></div><div id="er"></div>`;
-  $("#eb", el).onclick = async () => {
-    const f = $("#ef", el).value, m = $("#em", el).value;
-    if (!f) { toast("Escoge la fecha de vencimiento.", "bad"); return; }
-    try { const r = await api("webEnvasado", fechaDMY(f), m); $("#er", el).innerHTML = `<div class="card"><div class="muted">Fecha de envasado</div><div class="big-result">${h(r)}</div><div class="small muted">${fechaDMY(f)} menos ${h(m)} meses</div></div>`; }
-    catch (e) { $("#er", el).innerHTML = errBox(e); }
+// Fecha de envasado: producto + vencimiento → fecha de producción (vencimiento − vida útil)
+// y fecha límite de salida de cada canal (vencimiento − días mínimos del canal)
+VISTAS.envasado = async (el, p, vigente) => {
+  await cargarCat();
+  if (!vigente()) return;
+  let prod = null;
+  el.innerHTML = cab("🧮 Fecha de envasado", "Escoge el producto y la fecha de vencimiento: sale la fecha de producción (vencimiento menos la vida útil de la hoja Sku) y hasta cuándo puede salir a cada canal (vencimiento menos sus días mínimos).") +
+    `<div class="card env-form"><div class="env-campos">
+      <div class="env-prod">${campoAuto("eP", "Nombre o SKU")}</div>
+      <label class="field env-f"><span>Fecha de vencimiento</span><input type="date" id="ef"></label>
+      <label class="field env-v"><span>Vida útil (días)</span><input type="text" inputmode="numeric" id="eV" placeholder="de la hoja Sku"></label>
+      <button class="btn primary" id="eb">Calcular</button></div><div class="small muted" id="eVh"></div></div><div id="er"></div>`;
+  const pintarVida = () => {
+    $("#eV", el).value = prod && prod.vida ? prod.vida : "";
+    $("#eVh", el).textContent = !prod ? "" : prod.vida ? `Vida útil de ${prod.sku} en la hoja Sku: ${prod.vida} días (puedes cambiarla solo para este cálculo).` : `${prod.sku} no tiene vida útil en la hoja Sku: escríbela en días${puede("administrador") ? " (o guárdala en Productos)" : ""}.`;
   };
+  autoSku($("#eP", el), c => { prod = c; pintarVida(); });
+  $("#eP", el).addEventListener("input", () => { prod = null; pintarVida(); });
+  const calcular = async () => {
+    if (!prod) { toast("Escoge el producto de la lista.", "bad"); return; }
+    const f = $("#ef", el).value;
+    if (!f) { toast("Escoge la fecha de vencimiento.", "bad"); return; }
+    const v = $("#eV", el).value.trim();
+    try {
+      const r = await api("webEnvasadoProducto", prod.sku, f, String(v) === String(prod.vida || "") ? "" : v);
+      const est = n => n < 0 ? `<span class="pill bad">Ya pasó (hace ${-n} d)</span>` : n === 0 ? `<span class="pill warn">Hoy es el último día</span>` : `<span class="pill ok">Faltan ${n} d</span>`;
+      $("#er", el).innerHTML = `<div class="card env-res"><div class="env-t">${skuTxt(r.sku, r.prod)}</div>
+        <div class="env-g">
+          <div class="env-k env-prodk"><span>🏭 Fecha de producción</span><b>${h(r.produccion)}</b><small>${h(r.vence)} menos ${fm(r.vida)} días de vida útil${r.edad >= 0 ? ` · tiene ${fm(r.edad)} días` : ""}</small></div>
+          <div class="env-k"><span>⏳ Vencimiento</span><b>${h(r.vence)}</b><small>${r.venceFaltan < 0 ? `Vencido hace ${-r.venceFaltan} días` : `Faltan ${fm(r.venceFaltan)} días`}</small></div></div>
+        <div class="env-st">Fecha límite de salida por canal</div>
+        <div class="env-cans">${r.canales.map(c => `<div class="env-can ${c.faltan < 0 ? "no" : "si"}"><b>${h(CANALES[c.c] || c.c)}</b><span class="env-l">${h(c.limite)}</span><small>Mínimo ${fm(c.min)} días antes de vencer</small>${est(c.faltan)}</div>`).join("")}</div></div>`;
+    } catch (e) { $("#er", el).innerHTML = errBox(e); }
+  };
+  $("#eb", el).onclick = calcular;
+  $("#ef", el).addEventListener("keydown", e => { if (e.key === "Enter") calcular(); });
 };
 
 // =====================================================================
@@ -1936,7 +1962,7 @@ function pintarBarra(cont, te, compacto, extra) {
     html = `<section class="card turno cerrado"><div class="turno-info"><div class="turno-num" style="color:var(--bad)">—</div>
       <div><div class="k">Turno</div><div class="v">No hay turno abierto</div></div>
       ${te && te.ultimo ? `<div class="solo-escritorio"><div class="k">Último</div><div class="v">${h(te.ultimo.texto)} · cerrado por ${h(te.ultimo.cerradoPor)}</div></div>` : ""}</div>
-      <div class="acciones">${esc ? `<button class="btn primary" data-t="abrir">Abrir turno</button>` : `<span class="muted small">Un validador debe abrir el turno.</span>`}</div></section>`;
+      <div class="acciones">${compacto ? `<span class="muted small">Se abre desde Entrega de turno</span>` : esc ? `<button class="btn primary" data-t="abrir">Abrir turno</button>` : `<span class="muted small">Un validador debe abrir el turno.</span>`}</div></section>`;
   } else {
     const t = te.turno;
     html = `<section class="card turno${clsInfo()}" data-info="turno"><div class="turno-info"><div class="turno-num">T${h(t.numero)}</div>
@@ -3073,8 +3099,8 @@ function pintarPre(el) {
 VISTAS.consumo = async (el, p, vigente) => {
   const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
   if (!vigente()) return;
-  // Solo el administrador cambia la lista y el módulo a consumir (Administración › Lista de consumo)
-  const esc = puede("administrador");
+  // Pony solo muestra: la lista, el nombre, el orden y el módulo se cambian en Administración › Lista de consumo
+  const esc = false;
   // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
       ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" : ""}
@@ -3104,8 +3130,7 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${x.estado === "solo_bloqueado" ? `<div class="note warn">Todos los módulos están bloqueados.</div>` : ""}
       ${x.estado === "solo_operativa" ? `<div class="note warn">Solo hay en KA / PREV (ya surtido para despacho): no se consume de ahí.</div>` : ""}
       <div class="mini-list">${visibles(x).map(l => lote(x, l)).join("")}</div></div></article>`; }).join("")}</div>`;
-  const editar = esc ? `<button class="btn sm" data-lista>⚙️ Editar lista (${lis.length})</button>` : "";
-  el.innerHTML = cab("🥤 Consumo / Pony gasto", "", editar) +
+  el.innerHTML = cab("🥤 Consumo / Pony gasto", "") +
     (lis.length ? tarjetaV("solo", abS, "🎯 Módulos a consumir", solo) + tarjetaV("todo", abT, "📦 Módulos completos", todo) : vacio(`La lista de consumo está vacía.${esc ? " Agrégala desde Administración › Lista de consumo." : " El administrador la arma."}`, "🛒"));
   const todas = abrir => { S.abiertos.cons = {}; lis.forEach(x => { S.abiertos.cons[x.sku] = abrir; }); $$(".cons-card", el).forEach(c => c.classList.toggle("abierto", abrir)); };
   if ($("#cAll", el)) { $("#cAll", el).onclick = () => todas(true); $("#cNone", el).onclick = () => todas(false); }
@@ -3831,7 +3856,7 @@ function modalUsuario(u, alGuardar) {
 // ---------- Productos (hoja Sku) ----------
 const SKU_CAMPOS_UI = [
   ["sku", "SKU", "numeric"], ["prod", "Producto"], ["pres", "Presentación"], ["cub", "Cubicaje"], ["piso", "Piso"], ["plancha", "Plancha"], ["cantEst", "Cant x estiba", "numeric"],
-  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"]
+  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"], ["vida", "Vida útil (días)", "numeric"]
 ];
 VISTAS.skus = async (el, p, vigente) => {
   await cargarCat(true);
@@ -3862,12 +3887,12 @@ VISTAS.skus = async (el, p, vigente) => {
   pintar();
 };
 // Grupos de la ventana de edición (más compacta: etiquetas y cuadros pequeños)
-const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "estCara"]], ["Reglas", ["minimo", "t1", "t2", "ka"]]];
+const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "estCara"]], ["Reglas", ["vida", "minimo", "t1", "t2", "ka"]]];
 function modalSku(c, alGuardar) {
   const campo = k => { const [, t, im] = SKU_CAMPOS_UI.find(x => x[0] === k); return `<label class="field ${k === "prod" || k === "ctx" ? "ancho" : ""}"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`; };
   const m = abrirModal(`<div class="m-sku"><h3>${c ? `✎ ${h(c.sku)}` : "Nuevo producto"}</h3>
     ${SKU_GRUPOS.map(([g, ks]) => `<div class="msk-g"><div class="msk-t">${g}</div><div class="msk-c">${ks.map(campo).join("")}</div></div>`).join("")}
-    <p class="small muted" style="margin:6px 0 0">Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
+    <p class="small muted" style="margin:6px 0 0">Vida útil: días que dura desde la producción hasta vencer (para la fecha de envasado). Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="skOk">Guardar</button></div></div>`);
   $("#skOk", m).onclick = async () => {
     const obj = {}; $$("input[data-k]", m).forEach(i => obj[i.dataset.k] = i.value.trim());
@@ -3982,32 +4007,54 @@ VISTAS.canales = async (el, p, vigente) => {
 };
 
 // ---------- Lista de consumo (Pony gasto): agregar, ver, cambiar el módulo, volver a automático y quitar ----------
+// Lista de consumo (solo el administrador): qué productos salen en Pony, con qué nombre, en qué orden y de qué módulo se consumen
 VISTAS.consumolista = async (el, p, vigente) => {
-  const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
+  let [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
   if (!vigente()) return;
-  const lugar = x => { const t = x.locs.filter(l => l.sel), l = t[0];
-    if (!l) return `<span class="muted">${x.estado === "sin_fisico" ? "Sin existencias" : x.estado === "solo_operativa" ? "Solo en KA / PREV" : "Sin módulo disponible"}</span>`;
+  const lugar = x => { const l = x.locs.filter(y => y.sel)[0];
+    if (!l) return `<span class="muted small">${x.estado === "sin_fisico" ? "Sin existencias" : x.estado === "solo_operativa" ? "Solo en KA / PREV" : "Sin módulo disponible"}</span>`;
     return `${modChip(l.m)} <span class="small muted">FEFO ${l.fefo || "?"} · vence ${h(l.vf)}</span>`; };
-  el.innerHTML = cab("🥤 Lista de consumo", "Productos que salen en Consumo / Pony gasto. Solo el administrador los agrega, los quita y cambia el módulo a consumir.", `<button class="btn sm" data-a="ver">Ver consumo →</button>`) +
-    `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Agregar producto</h3><div style="max-width:520px">${campoAuto("clA", "Nombre o SKU")}</div></div>` +
-    (lis.length ? `<table class="tabla resp"><thead><tr><th>#</th><th>SKU</th><th>Producto</th><th>Módulo a consumir</th><th>Modo</th><th></th></tr></thead><tbody>
-      ${lis.map((x, k) => `<tr><td data-l="#" class="muted">${k + 1}</td><td data-l="SKU" class="sku">${h(x.sku)}</td><td data-l="Producto">${h(x.nom)}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}</td>
-        <td data-l="Módulo">${lugar(x)}</td>
-        <td data-l="Modo">${x.modo === "manual" ? `<span class="pill mano-p">✋ A mano</span> <span class="small muted">${h(x.elegidoPor)} · ${h(fechaCorta(x.elegidoEn))}</span>` : `<span class="small">⚙️ Automático</span>`}${x.manualVencido ? ` <span class="small" style="color:var(--warn)">(el elegido a mano se vació)</span>` : ""}</td>
-        <td class="acc"><button class="btn sm" data-a="mod" data-sku="${h(x.sku)}">Cambiar módulo</button> ${x.modo === "manual" ? `<button class="btn sm" data-a="auto" data-sku="${h(x.sku)}">Automático</button> ` : ""}<button class="btn sm del" data-a="del" data-sku="${h(x.sku)}" title="Quitar de la lista" aria-label="Quitar ${h(x.sku)} de la lista">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`
-      : vacio("La lista de consumo está vacía. Agrega un producto arriba.", "🛒"));
+  const catNom = sku => ((S.cat || []).find(c => c.sku === sku) || {}).prod || "";
+  const pintar = () => {
+    $("#clL", el).innerHTML = lis.length ? `<div class="cl-lista">${lis.map((x, k) => `<div class="cl-f" data-sku="${h(x.sku)}">
+        <div class="cl-ord"><span class="cl-n">${k + 1}</span><button class="btn sm icon" data-a="sube" ${k ? "" : "disabled"} title="Subir" aria-label="Subir ${h(x.sku)}">▲</button><button class="btn sm icon" data-a="baja" ${k < lis.length - 1 ? "" : "disabled"} title="Bajar" aria-label="Bajar ${h(x.sku)}">▼</button></div>
+        <div class="cl-d"><label class="cl-nom"><span class="sku">${h(x.sku)}</span><input type="text" value="${h(x.nom)}" data-nom="${h(x.sku)}" maxlength="120" aria-label="Nombre que sale en Pony"></label>
+          ${catNom(x.sku) && catNom(x.sku) !== x.nom ? `<div class="small muted">En la hoja Sku: ${h(catNom(x.sku))}</div>` : ""}
+          <div class="cl-m">${lugar(x)} ${x.modo === "manual" ? `<span class="pill mano-p">✋ A mano</span>` : `<span class="small muted">⚙️ Automático</span>`}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}</div></div>
+        <div class="cl-acc"><button class="btn sm" data-a="mod">Cambiar módulo</button>${x.modo === "manual" ? `<button class="btn sm" data-a="auto">Automático</button>` : ""}<button class="btn sm del" data-a="del" title="Quitar de la lista" aria-label="Quitar ${h(x.sku)} de la lista">${ICO_DEL}</button></div></div>`).join("")}</div>`
+      : vacio("La lista de consumo está vacía. Agrega un producto arriba.", "🛒");
+  };
+  const recargar = async () => { lis = await api("webConsumo"); if (vigente()) pintar(); };
+  el.innerHTML = cab("🥤 Lista de consumo", "Lo que sale en Consumo / Pony gasto. Agrega productos, cambia el nombre con el que se muestran (vacío = el de la hoja Sku), el orden (▲ ▼), el módulo a consumir o quítalos. Pony solo muestra la lista.", `<button class="btn sm" data-a="ver">Ver Pony →</button>`) +
+    `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Agregar producto</h3><div style="max-width:520px">${campoAuto("clA", "Nombre o SKU")}</div></div><div id="clL"></div>`;
+  pintar();
   autoSku($("#clA", el), async c => {
-    try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista de consumo`, "ok"); ir("consumolista"); } catch (e) { toast(e.message, "bad", 6000); }
+    try { await api("webConsumoAgregar", c.sku); toast(`${c.prod} añadido a la lista de consumo`, "ok"); await recargar(); } catch (e) { toast(e.message, "bad", 6000); }
   }, { limpiar: true });
+  // Nombre: se guarda al salir del cuadro (o con Enter)
+  // (#view se reusa en todas las pantallas: onchange / onkeydown, no addEventListener, para no acumular)
+  el.onchange = async e => {
+    const i = e.target.closest("[data-nom]"); if (!i) return;
+    const x = lis.find(y => y.sku === i.dataset.nom); if (!x || i.value.trim() === x.nom) return;
+    i.disabled = true;
+    try { x.nom = await api("webConsumoNombre", x.sku, i.value.trim()); i.value = x.nom; toast(`Nombre de ${x.sku}: ${x.nom}`, "ok"); } catch (er) { toast(er.message, "bad", 6000); i.value = x.nom; }
+    i.disabled = false;
+  };
+  el.onkeydown = e => { if (e.key === "Enter" && e.target.closest("[data-nom]")) e.target.blur(); };
   el.onclick = async e => {
     const b = e.target.closest("[data-a]"); if (!b) return;
     if (b.dataset.a === "ver") return ir("consumo");
-    const x = lis.find(y => y.sku === b.dataset.sku); if (!x) return;
-    if (b.dataset.a === "del") {
+    const f = b.closest("[data-sku]"); const x = f && lis.find(y => y.sku === f.dataset.sku); if (!x) return;
+    const k = lis.indexOf(x);
+    if (b.dataset.a === "sube" || b.dataset.a === "baja") {
+      const j = b.dataset.a === "sube" ? k - 1 : k + 1; if (j < 0 || j >= lis.length) return;
+      [lis[k], lis[j]] = [lis[j], lis[k]]; pintar();
+      try { await api("webConsumoOrden", lis.map(y => y.sku)); } catch (er) { toast(er.message, "bad", 6000); await recargar(); }
+    } else if (b.dataset.a === "del") {
       if (!(await confirmar("Quitar de consumo", `¿Quitar ${skuTxt(x.sku, x.nom)} de la lista de consumo?`, "Quitar", true))) return;
-      try { await api("webConsumoEliminar", x.sku); toast("Producto quitado de la lista", "ok"); ir("consumolista"); } catch (er) { toast(er.message, "bad"); }
+      try { await api("webConsumoEliminar", x.sku); toast("Producto quitado de la lista", "ok"); await recargar(); } catch (er) { toast(er.message, "bad"); }
     } else if (b.dataset.a === "auto") {
-      try { await api("webConsumoElegir", x.sku, ""); toast("Volvió al cálculo automático", "ok"); ir("consumolista"); } catch (er) { toast(er.message, "bad"); }
+      try { await api("webConsumoElegir", x.sku, ""); toast("Volvió al cálculo automático", "ok"); await recargar(); } catch (er) { toast(er.message, "bad"); }
     } else if (b.dataset.a === "mod") modalModuloConsumo(x);
   };
 };

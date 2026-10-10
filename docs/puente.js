@@ -77,7 +77,7 @@
 
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
-    "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webConsumo",
+    "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webEnvasadoProducto", "webConsumo",
     "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial", "webFinal"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
@@ -109,7 +109,7 @@
   // (guardar_filas), que revisa la sesión y el rol. Si Supabase lo rechaza, se deshace.
   const ESCRITURA = {
     webLimboAgregar: ["Limbo"], webLimboEditar: ["Limbo"], webLimboEliminar: ["Limbo"],
-    webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"],
+    webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"], webConsumoNombre: ["Consumo"], webConsumoOrden: ["Consumo"],
     webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"],
     webCapacidadGuardar: ["Capacidad_Bodega"], webCapacidadEliminar: ["Capacidad_Bodega"]
   };
@@ -131,7 +131,7 @@
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
       return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
         cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
-        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")) };
+        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")) };
     } },
     Capacidad_Bodega: { tabla: "capacidad_bodega", pk: "modulo", clave: f => f.modulo,
       fila: r => ({ modulo: txt(r[0]).toUpperCase(), caras: Math.round(num(r[1]) || 0), capacidad: num(r[2]) === null ? null : Math.round(num(r[2])) }) },

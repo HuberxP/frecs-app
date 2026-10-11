@@ -1855,7 +1855,13 @@ function calcularOrganizar(secciones) {
     prodLocs[i.s].locs.push({ mod: i.m, est: usa, e: i.e, c: i.c, u: i.u, v: i.v, d: i.d, t: tV(i.v), act: i.act });
   });
   let sugerencias = [];
-  Object.keys(prodLocs).forEach(sku => {
+  // Módulo lleno compartido: 2 o más productos que juntos llenan el módulo → no se toca (ni da ni recibe)
+  const llenoCompartido = m => { const o = occ[m]; if (!o || Object.keys(o.skus).length < 2) return false; const c = capacidadModulo_(m, o, cap); return !!c && c.usadas >= c.capTot; };
+  // En toda la hoja: lo que queda libre en cada módulo (se descuenta con cada sugerencia) y qué papel tiene,
+  // para no encadenar (un módulo que recibe no se vacía después, y uno que se vacía no recibe)
+  const libresMod = {}, papel = {};
+  // Primero los productos con menos estibas por mover (los movimientos más fáciles)
+  Object.keys(prodLocs).sort((a, b) => prodLocs[a].locs.reduce((x, l) => x + l.est, 0) - prodLocs[b].locs.reduce((x, l) => x + l.est, 0)).forEach(sku => {
     const data = prodLocs[sku];
     let porMod = {};
     data.locs.forEach(l => {
@@ -1864,25 +1870,28 @@ function calcularOrganizar(secciones) {
       pm.est += l.est; pm.e += l.e; pm.c += l.c; pm.u += l.u;
       if (l.t < pm.tMin) { pm.tMin = l.t; pm.v = l.v; pm.d = l.d; }
     });
-    const modKeys = Object.keys(porMod);
+    const modKeys = Object.keys(porMod).filter(k => !llenoCompartido(k));
     if (modKeys.length < 2) return;
     let receptores = [], emisores = [];
     modKeys.forEach(k => {
       const obj = porMod[k];
       const o = capacidadModulo_(k, occ[k], cap, sku, data.fam);
-      if (o && o.libres > 0) receptores.push({ mod: k, libres: o.libres, tMin: obj.tMin, v: obj.v, d: obj.d });
-      emisores.push(Object.assign({ mod: k }, obj));
+      if (o && libresMod[k] === undefined) libresMod[k] = o.libres;
+      if (o && papel[k] !== "da" && libresMod[k] > 0) receptores.push({ mod: k, tMin: obj.tMin, v: obj.v, d: obj.d });
+      if (papel[k] !== "recibe") emisores.push(Object.assign({ mod: k, otros: occ[k] ? Object.keys(occ[k].skus).length - 1 : 0 }, obj));
     });
-    receptores.sort((a, b) => b.libres - a.libres);
+    receptores.sort((a, b) => libresMod[b.mod] - libresMod[a.mod]);
     emisores.sort((a, b) => a.est - b.est);
     let handled = new Set();
     emisores.forEach(emi => {
-      if (handled.has(emi.mod)) return;
-      const rec = receptores.find(r => r.mod !== emi.mod && r.libres >= emi.est && !handled.has(r.mod));
+      if (handled.has(emi.mod) || papel[emi.mod] === "recibe") return;
+      const rec = receptores.find(r => r.mod !== emi.mod && libresMod[r.mod] >= emi.est && !handled.has(r.mod) && papel[r.mod] !== "da");
       if (!rec) return;
       const f = fefoMovimiento_(emi, rec);
-      sugerencias.push({ p: data.prod, sku: sku, e: emi.e, c: emi.c, u: emi.u, est: emi.est, v: emi.v, d: emi.d, act: emi.act, from: emi.mod, to: rec.mod, fefo: f.titulo, fefoDet: f.detalle, fefoOk: f.ok, score: emi.est });
-      rec.libres -= emi.est;
+      // ¿Queda libre el módulo? Solo si no tiene otros productos
+      sugerencias.push({ p: data.prod, sku: sku, e: emi.e, c: emi.c, u: emi.u, est: emi.est, v: emi.v, d: emi.d, act: emi.act, from: emi.mod, to: rec.mod, fefo: f.titulo, fefoDet: f.detalle, fefoOk: f.ok, libera: emi.otros === 0, otros: emi.otros, score: emi.est });
+      libresMod[rec.mod] -= emi.est;
+      papel[rec.mod] = "recibe"; papel[emi.mod] = "da";
       handled.add(emi.mod);
     });
   });
@@ -1911,7 +1920,7 @@ function obtenerOrganizar(pagina) {
   const lim = 6, ini = (pagina - 1) * lim;
   let msj = `🧩 *SLOTTING: ORGANIZAR BODEGA* (Pág ${pagina})\n${obtenerEstadoSync()}\n_Sugerencias para vaciar módulos_\n${SEP_}`;
   s.slice(ini, ini + lim).forEach((x, idx) => {
-    msj += `*${ini + idx + 1}.* ${skuProdMd_(x.sku, x.p)}\nCondición: ${x.fefo}\n${x.fefoOk ? "" : "_" + escapeMd(x.fefoDet) + "_\n"}👉 *Mover de ${x.from} a ${x.to}:*\n${formatoCantidades(x.e, x.c, x.u, x.p)}\nVence: ${fVD(x.v, x.d)}\nAct: ${formatoActualizacion(x.act)}\n_Beneficio: ${x.from} queda libre._\n${SEP_}`;
+    msj += `*${ini + idx + 1}.* ${skuProdMd_(x.sku, x.p)}\nCondición: ${x.fefo}\n${x.fefoOk ? "" : "_" + escapeMd(x.fefoDet) + "_\n"}👉 *Mover de ${x.from} a ${x.to}:*\n${formatoCantidades(x.e, x.c, x.u, x.p)}\nVence: ${fVD(x.v, x.d)}\nAct: ${formatoActualizacion(x.act)}\n_Beneficio: ${x.libera === false ? `se junta el producto (en ${x.from} quedan otros productos)` : `${x.from} queda libre`}._\n${SEP_}`;
   });
   return { text: msj, markup: generarBotoneraPaginacion("ORG", pagina, s.length, lim) };
 }
@@ -3363,10 +3372,10 @@ function obtenerTurnoBot() {
 // ya no alcanzaba el saldo: no descuenta hasta que alguien lo corrija o lo anule).
 // =========================================================
 const VAL_T = {
-  productos: { libro: "VAL", nombre: "Val_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Actualizado", "Usuario", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar", "Conteo_final", "Final_en"], texto: [1, 2, 3, 5, 6, 7, 13] },
+  productos: { libro: "VAL", nombre: "Val_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Actualizado", "Usuario", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar", "Conteo_final", "Final_en", "Reempaque"], texto: [1, 2, 3, 5, 6, 7, 13] },
   registros: { libro: "VAL", nombre: "Val_Registros", cab: ["ID", "Turno_ID", "Fecha", "SKU", "Producto", "Destino", "Cantidad", "Usuario", "Nota", "Estado", "Modificado_por", "Contado_en"], texto: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12] },
   destinos: { libro: "VAL", nombre: "Val_Destinos", cab: ["Destino"], texto: [1], inicial: [["Tradicional"], ["Bodegas"], ["KA"]] },
-  histProd: { libro: "VAL", nombre: "Val_Hist_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Validado", "Disponible", "Detalle_destinos", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar", "Conteo_final", "Final_en"], texto: [1, 2, 3, 7, 8, 14] },
+  histProd: { libro: "VAL", nombre: "Val_Hist_Productos", cab: ["Turno_ID", "SKU", "Producto", "Inicial", "Validado", "Disponible", "Detalle_destinos", "Contado_en", "Bodega", "PK", "KA", "Por_confirmar", "Conteo_final", "Final_en", "Reempaque"], texto: [1, 2, 3, 7, 8, 14] },
   histReg: { libro: "VAL", nombre: "Val_Hist_Registros", cab: ["ID", "Turno_ID", "Fecha", "SKU", "Producto", "Destino", "Cantidad", "Usuario", "Nota", "Estado", "Modificado_por", "Contado_en"], texto: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12] }
 };
 
@@ -3409,7 +3418,7 @@ function valCalcular_(turnoId, filasProd, filasReg) {
     if (!sku || mapa[sku]) return;
     const p = { sku: sku, producto: txt_(r[2]), inicial: Number(r[3]) || 0, actualizado: txt_(r[4]), usuario: txt_(r[5]), contadoEn: txt_(r[6]), validado: 0, porDestino: {}, nReg: 0, conflictos: 0,
       bodega: numVacio_(r[7]), pk: numVacio_(r[8]), ka: numVacio_(r[9]), porConfirmar: esSi_(r[10]), familia: familiaDeSku_(sku, txt_(r[2])),
-      final: numVacio_(r[11]), finalEn: txt_(r[12]) };
+      final: numVacio_(r[11]), finalEn: txt_(r[12]), reempaque: numVacio_(r[13]) };
     mapa[sku] = p; productos.push(p);
   });
   let registros = [];
@@ -3457,8 +3466,8 @@ function valCtx_(turnoId) {
   const cerrado = t.estado !== "ABIERTO";
   return { t: t, cerrado: cerrado, prod: cerrado ? VAL_T.histProd : VAL_T.productos, reg: cerrado ? VAL_T.histReg : VAL_T.registros };
 }
-// Productos en formato común: [Turno_ID, SKU, Producto, Inicial, Actualizado, Usuario, Contado_en, Bodega, PK, KA, Por_confirmar, Conteo_final, Final_en]
-const histAComun_ = r => [r[0], r[1], r[2], r[3], "", "", r[7], r[8], r[9], r[10], r[11], r[12], r[13]];
+// Productos en formato común: [Turno_ID, SKU, Producto, Inicial, Actualizado, Usuario, Contado_en, Bodega, PK, KA, Por_confirmar, Conteo_final, Final_en, Reempaque]
+const histAComun_ = r => [r[0], r[1], r[2], r[3], "", "", r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14]];
 function valProdFilas_(cx) {
   const filas = tLeer_(cx.prod);
   return cx.cerrado ? filas.map(histAComun_) : filas;
@@ -3561,7 +3570,11 @@ function valAgregarProductosCore_(items, usuario, turnoId) {
       existentes.add(sku);
       const prod = String(it.producto || (skuInfo_(sku) || {}).prod || ("SKU " + sku)).trim();
       const contado = normalizarFechaHora_(it.contadoEn) || ahora_();
-      filas.push(cx.cerrado ? [cx.t.id, sku, prod, inicial, 0, inicial, "", contado, z.bodega, z.pk, z.ka, pc] : [cx.t.id, sku, prod, inicial, ahora_(), usuario, contado, z.bodega, z.pk, z.ka, pc]);
+      // Reempaque: cuántas cajas de lo contado son reempaque (vacío = no se dijo)
+      let reemp = "";
+      try { reemp = zonaNum_(it.reempaque); } catch (e) { omitidos.push(`${sku}: reempaque inválido`); return; }
+      if (reemp !== "" && reemp > inicial) { omitidos.push(`${sku}: el reempaque (${reemp}) es más que lo contado (${inicial})`); return; }
+      filas.push(cx.cerrado ? [cx.t.id, sku, prod, inicial, 0, inicial, "", contado, z.bodega, z.pk, z.ka, pc, "", "", reemp] : [cx.t.id, sku, prod, inicial, ahora_(), usuario, contado, z.bodega, z.pk, z.ka, pc, "", "", reemp]);
     });
     tAgregar_(cx.prod, filas);
     if (filas.length) valTrasEditar_(cx, usuario);
@@ -3595,6 +3608,12 @@ function valActualizarInicialCore_(sku, inicial, contadoEn, usuario, turnoId) {
       r[base] = z.bodega; r[base + 1] = z.pk; r[base + 2] = z.ka;
     }
     if (obj && obj.porConfirmar !== undefined) r[base + 3] = esSi_(obj.porConfirmar);
+    // Reempaque: cuántas cajas de lo contado son reempaque (se fija, no se suma; vacío = ninguno)
+    if (obj && obj.reempaque !== undefined) {
+      const re = zonaNum_(obj.reempaque);
+      if (re !== "" && re > n) throw new Error(`El reempaque (${re}) no puede ser más que lo contado (${n}).`);
+      r[base + 6] = re;
+    } else if (r[base + 6] !== "" && r[base + 6] !== null && Number(r[base + 6]) > n) r[base + 6] = n;
     r[3] = n;
     if (contadoEn !== null && contadoEn !== undefined && contadoEn !== "") r[cx.cerrado ? 7 : 6] = normalizarFechaHora_(contadoEn) || ahora_();
     if (!cx.cerrado) { r[4] = ahora_(); r[5] = usuario; }
@@ -3720,7 +3739,7 @@ function valDetalleDestinos_(p) { return Object.keys(p.porDestino).map(d => `${d
 function valArchivarTurno_(turnoId) {
   const filasProd = tLeer_(VAL_T.productos), filasReg = tLeer_(VAL_T.registros);
   const calc = valCalcular_(turnoId, filasProd, filasReg);
-  tAgregar_(VAL_T.histProd, calc.productos.map(p => [turnoId, p.sku, p.producto, p.inicial, p.validado, p.disponible, valDetalleDestinos_(p), p.contadoEn, p.bodega, p.pk, p.ka, p.porConfirmar, p.final, p.finalEn]));
+  tAgregar_(VAL_T.histProd, calc.productos.map(p => [turnoId, p.sku, p.producto, p.inicial, p.validado, p.disponible, valDetalleDestinos_(p), p.contadoEn, p.bodega, p.pk, p.ka, p.porConfirmar, p.final, p.finalEn, p.reempaque]));
   tAgregar_(VAL_T.histReg, filasReg.filter(r => txt_(r[1]) === turnoId));
   tReescribir_(VAL_T.productos, r => txt_(r[0]) !== turnoId);
   tReescribir_(VAL_T.registros, r => txt_(r[1]) !== turnoId);
@@ -3736,7 +3755,10 @@ function valHeredar_(nuevoId, prev, usuario, blanco) {
     const sku = txt_(r[1]);
     if (!sku || vistos.has(sku)) return;
     vistos.add(sku);
-    nuevas.push([nuevoId, sku, txt_(r[2]), blanco ? 0 : Math.max(Number(r[5]) || 0, 0), ahora_(), `Heredado${blanco ? " (en blanco)" : ""} de turno ${prev.numero || "?"} de ${nombreCorto_(prev.cerradoPor)}`, ""]);
+    const saldo = blanco ? 0 : Math.max(Number(r[5]) || 0, 0);
+    // El reempaque se hereda con los saldos (sin pasar del saldo); en blanco no
+    const re = numVacio_(r[14]), reemp = blanco || re === "" || re === null ? "" : Math.min(Number(re) || 0, saldo);
+    nuevas.push([nuevoId, sku, txt_(r[2]), saldo, ahora_(), `Heredado${blanco ? " (en blanco)" : ""} de turno ${prev.numero || "?"} de ${nombreCorto_(prev.cerradoPor)}`, "", "", "", "", "", "", "", reemp || ""]);
   });
   tAgregar_(VAL_T.productos, nuevas);
   entAsegurarValidados_(nuevoId, nuevas.map(f => ({ sku: f[1], producto: f[2] })), usuario);
@@ -3804,7 +3826,7 @@ function cuerpoPDFVal_(dt, parteDeFinal, todo) {
   const dif = p => { if (p.final === "" || p.final === null || p.final === undefined) return ""; const d = p.final - p.disponible; return d ? ` <span class="dif ${d < 0 ? "neg" : "pos"}">(${d > 0 ? "+" : ""}${fM(d)})</span>` : ` <span class="dif ok">✓</span>`; };
   let filas = prods.map(p => {
     const bg = p.disponible <= 0 ? "#ffcccc" : (p.inicial > 0 && p.disponible / p.inicial < 0.2 ? "#fff2cc" : "#e2efda");
-    return `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}</td>` +
+    return `<tr><td>${escHtml_(p.sku)}</td><td class="izq"><b>${escHtml_(p.producto)}</b>${p.porConfirmar ? ` <span class="pc">(por confirmar)</span>` : ""}${Number(p.reempaque) > 0 ? `<div class="pc">Reempaque: ${fM(p.reempaque)} cj</div>` : ""}</td>` +
       (todo ? `<td>${z(p.bodega)}</td><td>${z(p.ka)}</td><td>${z(p.pk)}</td>` : "") + `<td class="ini"><b>${fM(p.inicial)}</b></td>` +
       cols.map(d => `<td>${p.porDestino[d] ? fM(p.porDestino[d]) : "—"}</td>`).join("") +
       `<td><b>${fM(p.validado)}</b></td><td style="background-color:${bg} !important"><b>${fM(p.disponible)}</b></td><td class="fin"><b>${z(p.final)}</b>${dif(p)}${p.faltan && p.faltan.length ? `<div class="falta">falta ${escHtml_(p.faltan.join(", "))}</div>` : ""}</td></tr>`;
@@ -4363,7 +4385,7 @@ function obtenerEntregaBot() {
 // =========================================================
 const CONC_T = {
   conc: { libro: "CONC", nombre: "Conciliaciones", cab: ["ID", "Turno_ID", "Turno", "Fecha", "Estado", "Inicio", "Abierto_por", "Cierre", "Cerrado_por", "Nota", "Editado_por", "Eliminado_por"], texto: [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
-  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota"], texto: [1, 2, 3, 9, 10, 11, 12] },
+  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota", "Reempaque"], texto: [1, 2, 3, 9, 10, 11, 12] },
   pre: { libro: "CONC", nombre: "Preconciliacion", cab: ["ID", "Fecha", "Turno", "SKU", "Producto", "Motivo", "Usuario", "Estado", "Conc_ID"], texto: [1, 2, 4, 5, 6, 7, 8, 9] }
 };
 
@@ -4386,7 +4408,7 @@ function marcarConcEditada_(c, usuario) { if (c && c.estado === "CERRADA") tEscr
 const numVacio_ = v => (v === "" || v === null || v === undefined || String(v).trim() === "") ? "" : numero_(v);
 
 function concItems_(concId) {
-  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]) }))
+  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]), reempaque: numVacio_(r[12]) }))
     .filter(x => x.concId === concId)
     .map(x => {
       x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0);
@@ -4545,7 +4567,7 @@ function concCopiarCore_(desdeId, usuario, concId) {
   });
 }
 
-// campos = { bodega, ka, pk, fact, bloqueo, nota } (solo los que cambian); con sumar: true, Bodega/KA/PK se suman a lo que había
+// campos = { bodega, ka, pk, fact, bloqueo, nota, reempaque } (solo los que cambian; reempaque = cajas de lo contado que son reempaque); con sumar: true, Bodega/KA/PK se suman a lo que había
 function concGuardarItemCore_(sku, campos, usuario, concId) {
   campos = campos || {};
   const val = v => { if (v === "" || v === null) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
@@ -4563,6 +4585,7 @@ function concGuardarItemCore_(sku, campos, usuario, concId) {
     if (campos.bloqueo !== undefined) r[7] = campos.bloqueo === true || campos.bloqueo === "true";
     while (r.length < CONC_T.items.cab.length) r.push("");
     if (campos.nota !== undefined) r[11] = String(campos.nota || "").trim().substring(0, 300);
+    if (campos.reempaque !== undefined) r[12] = val(campos.reempaque);
     r[8] = ahora_(); r[9] = usuario;
     tEscribir_(CONC_T.items, f.fila, 1, r);
     marcarConcEditada_(c, usuario);
@@ -4642,7 +4665,7 @@ function cuerpoPDFConc_(c, sinFirmas) {
   const v = x => x === "" ? "—" : fM(x);
   const grupo = () => "";
   const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
+  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${Number(x.reempaque) > 0 ? `<div class="nota-p">Reempaque: ${fM(x.reempaque)} cj</div>` : ""}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
     (items.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td>${fM(suma("bodega"))}</td><td>${fM(suma("ka"))}</td><td>${fM(suma("pk"))}</td><td>${fM(suma("total"))}</td><td>${fM(suma("fact"))}</td><td></td><td></td></tr>` : "") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
   return `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
@@ -4693,7 +4716,7 @@ function obtenerConciliacionBot() {
   teclado[0].push({ text: "📄 PDF", callback_data: "CONCPDF" });
   let msj = `⚖️ *CONCILIACIÓN TURNO ${e.conc.numero}* · ${formatearFecha(e.conc.fecha)}\nAbierta por ${escapeMd(e.conc.abiertoPor)}\n${e.faltantes ? `❌ *${e.faltantes} con facturación de más*` : "✅ Sin faltantes"}\n${SEP_}`;
   e.items.forEach(x => {
-    msj += `${x.nivel === "mal" ? "❌" : x.nivel === "sobra" ? "🔵" : x.nivel === "ok" ? "✅" : "▫️"} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}\n`;
+    msj += `${x.nivel === "mal" ? "❌" : x.nivel === "sobra" ? "🔵" : x.nivel === "ok" ? "✅" : "▫️"} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}${Number(x.reempaque) > 0 ? ` · ♻️ reempaque ${fM(x.reempaque)}` : ""}\n`;
   });
   return { text: msj, markup: { inline_keyboard: teclado } };
 }

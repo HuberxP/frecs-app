@@ -1516,7 +1516,14 @@
   .mc-canal { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.14); margin-left: 6px; font-weight: 800; }
   .mc-act { font-size: 12.5px; font-weight: 700; padding: 4px 8px; border-radius: 8px; align-self: flex-start; }
   .mc-act.act-v { background: var(--ok-soft); } .mc-act.act-a { background: var(--warn-soft); } .mc-act.act-n { background: rgba(255,159,67,.16); } .mc-act.act-r { background: var(--bad-soft); }
-  html[data-tema="claro"] .tag.t-cons, html[data-tema="claro"] .mc-canal { color: #92400e; border-color: #d97706; background: #fff4e0; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .tag.t-cons, html[data-tema="claro"] .mc-canal { color: #92400e; border-color: #d97706; background: #fff4e0; }
+
+  /* ---------- Reempaque en validación y conciliación ---------- */
+  .reemp-p { display: inline-block; font-size: 11.5px; font-weight: 750; padding: 1px 7px; border-radius: 999px; border: 1px solid #c084fc; color: #d8b4fe; background: rgba(192,132,252,.14); margin-left: 4px; }
+  .vc-reemp { color: #d8b4fe; }
+  .f-reemp { margin-top: 8px; } .f-reemp > span { color: #d8b4fe; }
+  .cc-reempaque > span { color: #d8b4fe; }
+  html[data-tema="claro"] .reemp-p { color: #6d28d9; border-color: #8b5cf6; background: #f1eaff; } html[data-tema="claro"] .vc-reemp, html[data-tema="claro"] .f-reemp > span, html[data-tema="claro"] .cc-reempaque > span { color: #6d28d9; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

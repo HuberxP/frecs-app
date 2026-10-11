@@ -618,7 +618,8 @@ let llamadasSb = 0, sinRed = false;
   if (movs.some(m => !/^[A-D]\d/.test(m.from) || !/^[A-D]\d/.test(m.to))) errores.push("organizar: se sale de las secciones de retornable");
   await P.evaluate(() => api("webPref", "orgSecs", null));
   // --- Alerta de pocos: productos vigilados (avisa con un solo módulo o agotado) ---
-  const skuUno = await P.evaluate(() => { const c = {}; S.inv.filter(i => i.fis && i.disp && !i.esOp && !repVacio(i.m)).forEach(i => { (c[i.s] = c[i.s] || new Set()).add(i.m); }); return (Object.keys(c).find(s => c[s].size === 1 && S.cat.some(x => x.sku === s)) || ""); });
+  // Un producto con 1 estiba o menos (o agotado) avisa; 2222 (muchas estibas) no
+  const skuUno = await P.evaluate(() => (S.cat.map(c => c.sku).find(s => s !== "2222" && estadoVigilado(s).poco) || S.cat.map(c => c.sku).find(s => s !== "2222" && estadoVigilado(s).agotado) || ""));
   await P.evaluate(() => ir("pocosvig")); await P.waitForTimeout(600);
   for (const sk of ["2222", skuUno]) { await P.fill("#pvA", sk); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(700); }
   if (JSON.parse(q("select valor from frecs_config where clave='pocos_vigilar'") || "[]").sort().join() !== ["2222", skuUno].sort().join()) errores.push("pocos: los vigilados no quedaron guardados");
@@ -626,9 +627,9 @@ let llamadasSb = 0, sinRed = false;
   if ((await P.$$(".pv-f")).length !== 2) errores.push("pocos: el panel no lista los vigilados");
   await P.screenshot({ path: "/tmp/w_pocosvig.png" });
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
-  if (!(await P.$(`#pvI .pv-aviso [data-sku="${skuUno}"]`))) errores.push("pocos: Inicio no avisa del producto en un solo módulo: " + skuUno);
-  if (await P.$('#pvI .pv-aviso [data-sku="2222"]')) errores.push("pocos: avisa de un producto que está en 2 módulos");
-  if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados en un solo módulo");
+  if (!(await P.$(`#pvI .pv-aviso [data-sku="${skuUno}"]`))) errores.push("pocos: Inicio no avisa del producto con 1 estiba o menos: " + skuUno);
+  if (await P.$('#pvI .pv-aviso [data-sku="2222"]')) errores.push("pocos: avisa de un producto que tiene más de 1 estiba");
+  if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados con 1 estiba o menos");
   await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
   await P.evaluate(() => ir("pocos")); await P.waitForTimeout(700);
   if (!(await P.$(".pv-vig"))) errores.push("pocos: la vista Pocos no muestra los vigilados");
@@ -737,6 +738,36 @@ let llamadasSb = 0, sinRed = false;
     if (sinPrio) errores.push("fotos: aparece en lotes sin prioridad");
     q("delete from wms_fotos where actividad_id = 999001");
   }
+  // --- Bodega arranca en estibas (lo guardado en cajas se muestra bien) ---
+  const cz = await P.evaluate(() => [campoZona("x", "Bodega", "", 24), campoZona("x", "Bodega", 48, 24), campoZona("x", "Bodega", 50, 24), campoZona("x", "KA", "", 24)].map(t => (t.match(/data-unt="(\w+)"/) || [])[1] + ":" + (t.match(/value="([^"]*)"/) || [])[1]));
+  if (cz.join() !== "est:,est:2,cj:50,cj:") errores.push("bodega en estibas: " + cz.join());
+  // --- Validación: «Estoy en» un área y reempaque ---
+  if (q("select count(*) from turnos where estado='ABIERTO'") === "1") {
+    await P.evaluate(() => api("webValAgregar", [{ sku: "3128", producto: "Prueba área", bodega: 48, pk: "", ka: "" }]));
+    await P.evaluate(() => ir("validacion")); await P.waitForTimeout(800);
+    if (!(await P.$('[data-vz-sel="ka"]'))) errores.push("validación: no deja escoger el área");
+    else {
+      await P.click('[data-vz-sel="ka"]'); await P.waitForTimeout(400);
+      const inp = '[data-vz="ka"][data-sku="3128"]';
+      if (!(await P.$(inp))) errores.push("validación: en KA no sale lo que falta contar");
+      else {
+        await P.fill(inp, "7"); await P.$eval(inp, i => i.dispatchEvent(new Event("change", { bubbles: true }))); await P.waitForTimeout(900);
+        const kaV = q(`select ka || '|' || bodega || '|' || inicial from val_productos where sku='3128' and turno_id=(select id from turnos where estado='ABIERTO')`);
+        if (kaV !== "7|48|55") errores.push("validación: lo del área no se guardó bien: " + kaV);
+        await P.screenshot({ path: "/tmp/w_val_zona.png" });
+      }
+      await P.click('[data-vz-sel=""]'); await P.waitForTimeout(400);
+    }
+    // Reempaque desde «Cantidad»
+    const pR = await P.evaluate(() => { const p = S.val.productos.find(x => x.sku === "3128"); modalInicial(p); return !!p; });
+    await P.waitForTimeout(400);
+    if (pR) { await P.fill("#iR", "10"); await P.waitForTimeout(500); await P.click("#iok"); await P.waitForTimeout(900); }
+    if (q(`select reempaque from val_productos where sku='3128' and turno_id=(select id from turnos where estado='ABIERTO')`) !== "10") errores.push("validación: el reempaque no se guardó");
+    await P.evaluate(() => ir("validacion")); await P.waitForTimeout(600);
+    if (!(await P.$(".vcard .reemp-p"))) errores.push("validación: la tarjeta no muestra el reempaque");
+    await P.screenshot({ path: "/tmp/w_val_reemp.png" });
+    await P.evaluate(() => api("webValQuitar", "3128"));
+  } else errores.push("validación: no hay turno abierto para probar el área");
   // --- Fase 4d: con el cambio definitivo, cada cambio de turno se copia a las hojas ---
   q("insert into frecs_config values ('turnos_en_supabase','si') on conflict (clave) do update set valor='si'");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(300);

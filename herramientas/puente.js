@@ -151,9 +151,9 @@
       editado_por: nul(r[11]), eliminado_por: nul(r[12]) }) } },
     { tabla: "val_productos", pk: ["turno_id", "sku"], hojas: {
       Val_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, actualizado: ts(r[4]), usuario: nul(r[5]), contado_en: ts(r[6]),
-        bodega: num(r[7]), pk: num(r[8]), ka: num(r[9]), por_confirmar: bool(r[10]), final: num(r[11]), final_en: ts(r[12]) }),
+        bodega: num(r[7]), pk: num(r[8]), ka: num(r[9]), por_confirmar: bool(r[10]), final: num(r[11]), final_en: ts(r[12]), reempaque: num(r[13]) }),
       Val_Hist_Productos: r => ({ turno_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), inicial: num(r[3]) || 0, contado_en: ts(r[7]),
-        bodega: num(r[8]), pk: num(r[9]), ka: num(r[10]), por_confirmar: bool(r[11]), final: num(r[12]), final_en: ts(r[13]) }) } },
+        bodega: num(r[8]), pk: num(r[9]), ka: num(r[10]), por_confirmar: bool(r[11]), final: num(r[12]), final_en: ts(r[13]), reempaque: num(r[14]) }) } },
     { tabla: "val_registros", pk: ["id"], hojas: { Val_Registros: filaReg, Val_Hist_Registros: filaReg } },
     { tabla: "destinos", pk: ["nombre"], hojas: { Val_Destinos: (r, k) => ({ nombre: txt(r[0]), orden: k + 1 }) } },
     { tabla: "ent_items", pk: ["turno_id", "seccion", "sku"], hojas: { Ent_Items: r => ({ turno_id: txt(r[0]), seccion: txt(r[1]).toUpperCase(), sku: txt(r[2]),
@@ -162,7 +162,7 @@
     { tabla: "conciliaciones", pk: ["id"], hojas: { Conciliaciones: r => ({ id: txt(r[0]), turno_id: nul(r[1]), numero: num(r[2]), fecha: nul(txt(r[3]).substring(0, 10)),
       estado: txt(r[4]).toUpperCase(), inicio: ts(r[5]), abierto_por: nul(r[6]), cierre: ts(r[7]), cerrado_por: nul(r[8]), nota: nul(r[9]), editado_por: nul(r[10]), eliminado_por: nul(r[11]) }) } },
     { tabla: "conc_items", pk: ["conc_id", "sku"], hojas: { Conc_Items: r => ({ conc_id: txt(r[0]), sku: txt(r[1]), producto: nul(r[2]), bodega: num(r[3]), ka: num(r[4]), pk: num(r[5]),
-      facturacion: num(r[6]), bloqueo: bool(r[7]), actualizado: ts(r[8]), usuario: nul(r[9]), origen: nul(r[10]), nota: nul(r[11]) }) } },
+      facturacion: num(r[6]), bloqueo: bool(r[7]), actualizado: ts(r[8]), usuario: nul(r[9]), origen: nul(r[10]), nota: nul(r[11]), reempaque: num(r[12]) }) } },
     { tabla: "preconciliacion", pk: ["id"], hojas: { Preconciliacion: r => ({ id: txt(r[0]), fecha: ts(r[1]), turno: num(r[2]), sku: txt(r[3]), producto: nul(r[4]), motivo: nul(r[5]),
       usuario: nul(r[6]), estado: txt(r[7]).toUpperCase() || "PENDIENTE", conc_id: nul(r[8]) }) } }
   ];

@@ -960,6 +960,20 @@ async function descargarPDF(tipo, id, btn) {
   catch (e) { toast(e.message, "bad", 6000); }
   finally { if (btn) btn.disabled = false; }
 }
+// Descargar como foto (JPG): una por cada hoja del PDF
+async function descargarFoto(tipo, id, btn) {
+  if (btn) btn.disabled = true;
+  toast("Generando foto…", "", 2500);
+  try {
+    const r = await api("webPDFFotos", tipo, idPdf(tipo, id)), base = r.nombre.replace(/\.pdf$/i, "");
+    r.fotos.forEach((u, k) => setTimeout(() => {
+      const a = document.createElement("a"); a.href = u; a.download = `${base}${r.fotos.length > 1 ? "_" + (k + 1) : ""}.jpg`;
+      document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 1000);
+    }, k * 500));
+    toast(r.fotos.length > 1 ? `${r.fotos.length} fotos listas (una por hoja)` : "Foto lista", "ok", 5000);
+  } catch (e) { toast(e.message, "bad", 6000); }
+  finally { if (btn) btn.disabled = false; }
+}
 // ---------- 👁 Ver el informe tal como sale en el PDF (sin convertirlo) ----------
 async function verInforme(tipo, id) {
   const todoV = tipo === "VALIDACION", riesgoV = tipo === "INFORME";
@@ -1099,6 +1113,7 @@ document.addEventListener("click", e => {
   const v = e.target.closest("[data-verinf]"); if (v) { verInforme(v.dataset.verinf, v.dataset.id || ""); return; }
   const w = e.target.closest("[data-wa]"); if (w) { compartirWA(w.dataset.wa, w.dataset.id || ""); return; }
   const p = e.target.closest("[data-pdf]"); if (p) { descargarPDF(p.dataset.pdf, p.dataset.id || "", p); return; }
+  const fo = e.target.closest("[data-jpg]"); if (fo) { descargarFoto(fo.dataset.jpg, fo.dataset.id || "", fo); return; }
   const t = e.target.closest("[data-tg]"); if (t) { enviarTG(t.dataset.tg, t.dataset.id || "", t); }
 });
 
@@ -3723,7 +3738,7 @@ async function vistaRotulo(el, id, vigente) {
     pintarForm();
   };
   el.innerHTML = `<div class="vh"><div><h1>🏷️ Rotulación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))}</h1><div class="sub">Abierta por <b>${h(rot.por)}</b></div></div>
-      <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button><button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
+      <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button>${botonesPDF("ROTULACION", "PDF rotulación", rot.id)}${window.FRECS_WEB ? `<button class="btn sm ic-only" data-jpg="ROTULACION" data-id="${h(rot.id)}" title="Descargar foto" aria-label="Descargar foto de la rotulación"><span class="ic">🖼️</span></button>` : ""}<button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
     <section class="card rot-agregar"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div><div id="roN"></div></div>
       <div id="roF" class="hidden"></div></section>
     <section id="roL"></section>`;

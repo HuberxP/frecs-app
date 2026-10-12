@@ -5628,6 +5628,35 @@ function webMarcaQuitar(tk) { return webAuth_(tk, "verificador", () => { throw n
 function webPocosVigilarGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("La alerta de pocos se configura en la versión nueva de Frecs."); }); }
 function webVistasRolGuardar(tk) { return webAuth_(tk, A_, () => { throw new Error("Las secciones por rol se cambian en la versión nueva de Frecs."); }); }
 
+// ---------- PDF / foto de una rotulación ----------
+// La página nueva trae la rotulación de Supabase (rot_ver) y la deja aquí antes de pedir el PDF
+let _ROT_PDF = null;
+function rotPdfCargar_(r) { _ROT_PDF = r || null; }
+function construirPDFRotulacion(id) {
+  const r = _ROT_PDF;
+  if (!r || String(r.id) !== String(id)) return { error: "La rotulación se hace en la versión nueva de Frecs." };
+  const its = r.items || [];
+  if (!its.length) return { error: "Esta rotulación todavía no tiene módulos." };
+  const num = x => x === null || x === undefined || x === "" ? "—" : fM(x);
+  const imp = its.filter(i => i.impreso).length, rot = its.filter(i => i.rotulado).length;
+  const totEst = its.reduce((a, i) => a + (Number(i.est) || 0), 0);
+  const filas = its.map((i, k) => {
+    const d = i.vence ? diasHastaFecha_(i.vence) : 9999;
+    const corregido = i.estSis !== null && i.estSis !== undefined && i.est !== null && i.est !== undefined && Number(i.est) !== Number(i.estSis);
+    return `${i.vence ? trVida_(d) : "<tr>"}<td>${k + 1}</td><td><b>${escHtml_(i.m)}</b></td><td>${escHtml_(i.sku)}</td><td class="izq">${escHtml_(i.prod) || '<span class="vacio">Sin producto</span>'}</td>` +
+      `<td>${i.vence ? fVD(i.vence, d) : "Sin fecha"}</td><td><b>${num(i.est)}</b>${corregido ? `<div class="sm">sistema ${num(i.estSis)}</div>` : ""}</td>` +
+      `<td>${i.impreso ? "☑" : "☐"}</td><td>${i.rotulado ? "☑" + (i.rotuladoPor ? `<div class="sm">${escHtml_(i.rotuladoPor)}</div>` : "") : "☐"}</td></tr>`;
+  }).join("");
+  const fecha = formatearFecha(r.fecha);
+  const info = `<table class="info"><tr><td class="k">Fecha</td><td>${escHtml_(fecha)}</td><td class="k">Turno</td><td>T${escHtml_(r.turno)}</td><td class="k">Abierta por</td><td>${escHtml_(r.por)}</td></tr>
+    <tr><td class="k">Módulos</td><td>${its.length}</td><td class="k">Impresos</td><td>${imp} / ${its.length}</td><td class="k">Rotulados</td><td>${rot} / ${its.length}</td></tr></table>`;
+  const tabla = `<table class="t"><thead><tr><th width="4%">#</th><th width="9%">Módulo</th><th width="9%">SKU</th><th class="izq">Producto</th><th width="17%">Vence</th><th width="8%">Estibas</th><th width="8%">Impreso</th><th width="11%">Rotulado</th></tr></thead>
+    <tbody>${filas}<tr class="tot"><td colspan="5" class="izq">Total</td><td>${fM(Math.round(totEst * 10) / 10)}</td><td>${imp}</td><td>${rot}</td></tr></tbody></table>`;
+  const html = pdfDoc_(`ROTULACIÓN · T${escHtml_(r.turno)} · ${escHtml_(fecha)}`, info + tabla, { leyenda: true });
+  const nombre = `Rotulacion_T${r.turno}_${String(r.fecha || "").replace(/-/g, "")}.pdf`;
+  return { blob: htmlAPdf_(html, nombre), caption: `🏷️ *Rotulación* · T${r.turno} · ${fecha} · ${its.length} módulos (rotulados ${rot}/${its.length})` };
+}
+
 ;
 // ===== 30_Web_Api.gs =====
 // =========================================================
@@ -6227,6 +6256,7 @@ function construirPDFPorTipo_(tipo, id) {
     case "ENTREGA": r = construirPDFEntrega(id || ""); break;
     case "CONCILIACION": r = construirPDFConciliacion(id || ""); break;
     case "FINAL": r = construirPDFEntregaFinal(id || ""); break;
+    case "ROTULACION": r = construirPDFRotulacion(id || ""); break;
     case "INSTRUCTIVO":
       if (!INSTRUCTIVO_DRIVE_ID) throw new Error("No está configurado el ID del instructivo.");
       r = { blob: DriveApp.getFileById(INSTRUCTIVO_DRIVE_ID).getBlob(), caption: "📘 *Instructivo WMS oficial*" };

@@ -70,6 +70,8 @@ return {
     SpreadsheetApp.openById(SHEET_ID).poner(REP_DEF.nombre, [REP_DEF.cab].concat(filas || []));
     delete _THOJAS["MAIN|" + REP_DEF.nombre];
   },
+  // Rotulación leída de Supabase (para su PDF o foto)
+  cargarRot(r) { rotPdfCargar_(r); },
   llamar(fn, args) {
     const f = __EXPORTAR[fn];
     if (typeof f !== "function") return JSON.stringify({ ok: false, error: "Función no disponible: " + fn });

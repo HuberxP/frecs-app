@@ -533,6 +533,20 @@ let llamadasSb = 0, sinRed = false;
   if (!fila.startsWith(modR + "|7|") || !fila.endsWith("|Huber")) errores.push("rotular: el módulo no quedó guardado: " + fila);
   await P.click(".rot-row [data-mk=impreso]"); await P.waitForTimeout(900);
   if (q("select impreso || '|' || impreso_por from rotulo_items order by id desc limit 1") !== "true|Huber") errores.push("rotular: la marca de impreso no se guardó");
+  // PDF, vista y foto de la rotulación (botones en la cabecera)
+  if (!(await P.$('[data-pdf="ROTULACION"]')) || !(await P.$('[data-jpg="ROTULACION"]'))) errores.push("rotular: faltan los botones de PDF / foto");
+  const idRot = await P.$eval('[data-pdf="ROTULACION"]', b => b.dataset.id);
+  const hRot = await P.evaluate(i => api("webPDFHtml", "ROTULACION", i), idRot);
+  if (!/ROTULACI/.test(hRot.html) || hRot.html.indexOf(modR) < 0 || !/Rotulacion_T1_\d{8}\.pdf/.test(hRot.nombre)) errores.push("rotular: el HTML del PDF no trae el módulo: " + hRot.nombre);
+  const pRot = await P.evaluate(i => api("webPDF", "ROTULACION", i), idRot);
+  if (!pRot || atob(pRot.b64.slice(0, 8)).slice(0, 4) !== "%PDF") errores.push("rotular: el PDF no salió");
+  const fRot = await P.evaluate(i => api("webPDFFotos", "ROTULACION", i), idRot);
+  if (!fRot.fotos || !fRot.fotos.length || !/^data:image\/jpeg/.test(fRot.fotos[0])) errores.push("rotular: la foto no salió");
+  else require("fs").writeFileSync("/tmp/w_rot_foto.jpg", Buffer.from(fRot.fotos[0].split(",")[1], "base64"));
+  const bajada = P.waitForEvent("download", { timeout: 20000 }).catch(() => null);
+  await P.click('[data-jpg="ROTULACION"]');
+  const dl = await bajada;
+  if (!dl || !/\.jpg$/.test(dl.suggestedFilename())) errores.push("rotular: el botón de foto no descargó un JPG");
   await P.evaluate(() => ir("rotular")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_rotulaciones.png" });
   q("delete from rotulaciones");
   // --- Sugerencias de módulo en Por módulo y Rotular (módulo que no existe: aviso, no error) ---

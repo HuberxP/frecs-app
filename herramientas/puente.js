@@ -507,6 +507,8 @@
       if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos") {
         await cargarDatos(args[0]);
         if (nuevoExtra || Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
+        // La rotulación vive solo en Supabase: se trae fresca para armar su PDF o foto
+        if (args[1] === "ROTULACION") MOTOR.cargarRot(await rpc("rot_ver", { p_token: args[0], p_id: Number(args[2]) }));
         // Ver el informe tal cual (sin convertirlo) o sacarlo como fotos
         if (fn === "webPDFHtml") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, html: p.html, caption: p.caption }); }
         if (fn === "webPDFFotos") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, fotos: await pdfDesdeHtml(p.html, "img") }); }

@@ -5619,21 +5619,36 @@ function construirPDFRotulacion(id) {
   const its = r.items || [];
   if (!its.length) return { error: "Esta rotulación todavía no tiene módulos." };
   const num = x => x === null || x === undefined || x === "" ? "—" : fM(x);
+  const hora = t => t ? String(t).slice(11, 16) : "";
   const imp = its.filter(i => i.impreso).length, rot = its.filter(i => i.rotulado).length;
   const totEst = its.reduce((a, i) => a + (Number(i.est) || 0), 0);
+  // Fondo blanco, sin colores de vida útil: solo la información
+  const marca = (si, por, extra) => si ? `<b>Sí</b>${por ? `<div class="sm">${escHtml_(por)}${extra ? " · " + escHtml_(extra) : ""}</div>` : ""}` : `<span class="no">No</span>`;
   const filas = its.map((i, k) => {
     const d = i.vence ? diasHastaFecha_(i.vence) : 9999;
     const corregido = i.estSis !== null && i.estSis !== undefined && i.est !== null && i.est !== undefined && Number(i.est) !== Number(i.estSis);
-    return `${i.vence ? trVida_(d) : "<tr>"}<td>${k + 1}</td><td><b>${escHtml_(i.m)}</b></td><td>${escHtml_(i.sku)}</td><td class="izq">${escHtml_(i.prod) || '<span class="vacio">Sin producto</span>'}</td>` +
-      `<td>${i.vence ? fVD(i.vence, d) : "Sin fecha"}</td><td><b>${num(i.est)}</b>${corregido ? `<div class="sm">sistema ${num(i.estSis)}</div>` : ""}</td>` +
-      `<td>${i.impreso ? "☑" : "☐"}</td><td>${i.rotulado ? "☑" + (i.rotuladoPor ? `<div class="sm">${escHtml_(i.rotuladoPor)}</div>` : "") : "☐"}</td></tr>`;
+    return `<tr><td>${k + 1}</td><td><b class="mod">${escHtml_(i.m)}</b></td><td>${escHtml_(i.sku) || "—"}</td><td class="izq">${escHtml_(i.prod) || '<span class="vacio">Sin producto</span>'}</td>` +
+      `<td>${i.vence ? formatearFecha(i.vence) : "Sin fecha"}</td><td>${!i.vence ? "—" : d < 0 ? `Vencido (${-d} d)` : `${d} d`}</td>` +
+      `<td><b>${num(i.est)}</b>${corregido ? `<div class="sm">sistema ${num(i.estSis)}</div>` : ""}</td>` +
+      `<td>${marca(i.impreso, i.impresoPor)}</td><td>${marca(i.rotulado, i.rotuladoPor, hora(i.rotuladoEn))}</td>` +
+      `<td class="sm">${escHtml_(i.por)}${i.editado ? `<div>corrigió ${escHtml_(i.editado)}</div>` : ""}</td></tr>`;
   }).join("");
   const fecha = formatearFecha(r.fecha);
-  const info = `<table class="info"><tr><td class="k">Fecha</td><td>${escHtml_(fecha)}</td><td class="k">Turno</td><td>T${escHtml_(r.turno)}</td><td class="k">Abierta por</td><td>${escHtml_(r.por)}</td></tr>
-    <tr><td class="k">Módulos</td><td>${its.length}</td><td class="k">Impresos</td><td>${imp} / ${its.length}</td><td class="k">Rotulados</td><td>${rot} / ${its.length}</td></tr></table>`;
-  const tabla = `<table class="t"><thead><tr><th width="4%">#</th><th width="9%">Módulo</th><th width="9%">SKU</th><th class="izq">Producto</th><th width="17%">Vence</th><th width="8%">Estibas</th><th width="8%">Impreso</th><th width="11%">Rotulado</th></tr></thead>
-    <tbody>${filas}<tr class="tot"><td colspan="5" class="izq">Total</td><td>${fM(Math.round(totEst * 10) / 10)}</td><td>${imp}</td><td>${rot}</td></tr></tbody></table>`;
-  const html = pdfDoc_(`ROTULACIÓN · T${escHtml_(r.turno)} · ${escHtml_(fecha)}`, info + tabla, { leyenda: true });
+  const dato = (k, v) => `<td><div class="k">${k}</div><div class="v">${v}</div></td>`;
+  const resumen = `<table class="res"><tr>${dato("Fecha", escHtml_(fecha))}${dato("Turno", `T${escHtml_(r.turno)}`)}${dato("Abierta por", escHtml_(r.por))}${dato("Módulos", its.length)}${dato("Estibas", fM(Math.round(totEst * 10) / 10))}${dato("Impresos", `${imp} / ${its.length}`)}${dato("Rotulados", `${rot} / ${its.length}`)}</tr></table>`;
+  const tabla = `<table class="t rot"><thead><tr><th width="3%">#</th><th width="7%">Módulo</th><th width="7%">SKU</th><th class="izq">Producto</th><th width="9%">Vence</th><th width="8%">Días</th><th width="7%">Estibas</th><th width="10%">Impreso</th><th width="12%">Rotulado</th><th width="10%">Agregó</th></tr></thead>
+    <tbody>${filas}<tr class="tot"><td colspan="6" class="izq">Total · ${its.length} módulos</td><td>${fM(Math.round(totEst * 10) / 10)}</td><td>${imp}</td><td>${rot}</td><td></td></tr></tbody></table>`;
+  const css = `table.res{width:calc(100% + 12px);border-collapse:separate;border-spacing:6px 0;margin:0 -6px 12px}
+    table.res td{border:1px solid #d0d0d0;border-radius:6px;padding:6px 8px;background:#fff}
+    table.res .k{font-size:8.5px;color:#666;text-transform:uppercase;letter-spacing:.4px}
+    table.res .v{font-size:13px;font-weight:bold;color:#111;margin-top:2px}
+    table.t.rot{border-color:#bbb}
+    table.t.rot th{background:#fff;color:#111;border-bottom:2px solid #333;font-size:9.5px}
+    table.t.rot td{border-color:#ccc;background:#fff;padding:5px}
+    table.t.rot .mod{font-size:11px}
+    table.t.rot .no{color:#999}
+    table.t.rot .tot td{background:#fff;border-top:2px solid #333}`;
+  const html = pdfDoc_(`ROTULACIÓN · T${escHtml_(r.turno)} · ${escHtml_(fecha)}`, resumen + tabla, { css: css, horizontal: true });
   const nombre = `Rotulacion_T${r.turno}_${String(r.fecha || "").replace(/-/g, "")}.pdf`;
   return { blob: htmlAPdf_(html, nombre), caption: `🏷️ *Rotulación* · T${r.turno} · ${fecha} · ${its.length} módulos (rotulados ${rot}/${its.length})` };
 }

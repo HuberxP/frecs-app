@@ -3964,16 +3964,15 @@ function totalCant_(arr) {
 function cantidadesPdf_(arr, seccion) {
   arr = (arr || []).filter(x => x && x.n !== "" && x.n !== null && x.n !== undefined);
   if (!arr.length) return `<span class="md">–</span>`;
-  // El total va en negrilla y solo en número (la negrilla ya dice que es el total).
-  // Si se mezclan unidades (estibas y cajas) se deja la abreviatura para no sumar peras con manzanas.
+  // El total va en negrilla y siempre dice si son estibas, cajas o unidades («20 cajas», «4 estibas»).
+  // Si se mezclan (estibas y cajas) cada total va con su palabra y no se suman: «4 estibas + 30 cajas».
   const tot = {};
   arr.forEach(x => { tot[x.un] = (tot[x.un] || 0) + (Number(x.n) || 0); });
   const us = ENT_UNIDADES.filter(u => tot[u] !== undefined);
-  // Si se mezclan unidades (estibas y cajas) se escribe cada total con su palabra: «4 estibas + 30 cajas»
   const pal = { Estibas: ["estiba", "estibas"], Cajas: ["caja", "cajas"], Unidades: ["unidad", "unidades"] };
   const ab = { Estibas: "est", Cajas: "cj", Unidades: "und" };
   const mezcla = us.length > 1;
-  const total = us.map(u => fM(tot[u]) + (mezcla ? " " + (pal[u] || [u, u])[tot[u] === 1 ? 0 : 1] : "")).join(" + ");
+  const total = us.map(u => fM(tot[u]) + " " + (pal[u] || [u, u])[tot[u] === 1 ? 0 : 1]).join(" + ");
   if (seccion === "KA" || seccion === "PK") return `<b class="tt">${escHtml_(total)}</b>`;
   if (arr.length === 1) return `<b class="tt">${escHtml_(total)}</b>${arr[0].m ? ` <span class="md">(${escHtml_(arr[0].m)})</span>` : ""}`;
   const parte = x => `${fM(x.n)}${mezcla ? " " + escHtml_(ab[x.un] || x.un) : ""}${x.m ? ` (${escHtml_(x.m)})` : ""}`;

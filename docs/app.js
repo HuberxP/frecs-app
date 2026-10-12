@@ -399,6 +399,22 @@ document.addEventListener("click", e => {
   ponerTema(t); try { localStorage.setItem("frecs_tema", t); } catch (x) {}
 });
 
+// Tarjetas en cuadrícula (unas al lado de otras) o en lista (una debajo de otra, como en el celular). Se recuerda en este equipo.
+function ponerVista(v) {
+  const lista = v === "lista";
+  if (lista) document.documentElement.dataset.vista = "lista"; else delete document.documentElement.dataset.vista;
+  const b = document.getElementById("vistaBtn");
+  if (b) { b.textContent = lista ? "▦" : "▤"; b.title = lista ? "Ver las tarjetas una al lado de otra" : "Ver las tarjetas en lista"; b.setAttribute("aria-label", b.title); b.setAttribute("aria-pressed", lista); }
+  $$("[data-vista-tog] .txt").forEach(t => { t.textContent = lista ? "Ver tarjetas una al lado de otra" : "Ver tarjetas en lista"; });
+}
+try { ponerVista(localStorage.getItem("frecs_vista") || ""); } catch (e) { ponerVista(""); }
+document.addEventListener("click", e => {
+  if (!e.target.closest("#vistaBtn, [data-vista-tog]")) return;
+  e.preventDefault();
+  const v = document.documentElement.dataset.vista === "lista" ? "" : "lista";
+  ponerVista(v); try { localStorage.setItem("frecs_vista", v); } catch (x) {}
+});
+
 let modalBusy = false, modalOnClose = null;
 let modalDesde = 0;
 function abrirModal(html, opts) {
@@ -713,14 +729,14 @@ function pintarNav() {
   // Secciones desplegables: la de la pantalla actual siempre abierta; las demás como las dejó la persona
   const ab = ls.getJ("navAb", {}), nPend = repPend().length, nPocos = typeof pocosAlerta === "function" ? pocosAlerta().length : 0;
   const cnt = (n, t) => n ? `<span class="nav-n" title="${t || "Reportes pendientes"}">${n}</span>` : "";
-  const cntDe = id => id === "repgen" ? cnt(nPend) : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados con 1 estiba o menos, o agotados") : "";
+  const cntDe = id => id === "repgen" ? cnt(nPend) : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados en un solo módulo, o agotados") : "";
   const link = i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span><span class="nav-t">${h(i.t)}</span>${cntDe(i.id)}</a>`;
   const grupo = (g, items) => {
     const abierto = esVerif() || items.some(i => i.id === S.vista) || ab[g.g] === true;
-    return `<div class="nav-g ${g.cls || ""} ${abierto ? "abierto" : ""}"><button type="button" class="nav-gt" data-navg="${h(g.g)}" aria-expanded="${abierto}"><span>${h(g.g)}</span>${items.some(i => i.id === "repgen") ? cnt(nPend) : items.some(i => i.id === "pocos") ? cnt(nPocos, "Productos vigilados con 1 estiba o menos, o agotados") : ""}<span class="nav-fl" aria-hidden="true">▾</span></button><div class="nav-gi">${items.map(link).join("")}</div></div>`;
+    return `<div class="nav-g ${g.cls || ""} ${abierto ? "abierto" : ""}"><button type="button" class="nav-gt" data-navg="${h(g.g)}" aria-expanded="${abierto}"><span>${h(g.g)}</span>${items.some(i => i.id === "repgen") ? cnt(nPend) : items.some(i => i.id === "pocos") ? cnt(nPocos, "Productos vigilados en un solo módulo, o agotados") : ""}<span class="nav-fl" aria-hidden="true">▾</span></button><div class="nav-gi">${items.map(link).join("")}</div></div>`;
   };
   $("#nav").innerHTML = NAV.map(g => [g, g.items.filter(i => ver(g, i))]).filter(([g, it]) => it.length).map(([g, it]) => g.g ? grupo(g, it) : it.map(link).join("")).join("") +
-    grupo({ g: "Pantalla" }, []).replace(`<div class="nav-gi"></div>`, `<div class="nav-gi"><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a></div>`);
+    grupo({ g: "Pantalla" }, []).replace(`<div class="nav-gi"></div>`, `<div class="nav-gi"><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a><a href="#" data-vista-tog class="solo-escritorio"><span class="ic">▤</span><span class="txt">${document.documentElement.dataset.vista === "lista" ? "Ver tarjetas una al lado de otra" : "Ver tarjetas en lista"}</span></a></div>`);
   pintarBarraAbajo();
   $$("#bottombar button").forEach(b => b.classList.toggle("on", b.dataset.v === S.vista));
 }
@@ -917,7 +933,7 @@ function avisoSync(r, antes, err) {
   const alerta = antes && antes.filas && dif < -0.15 ? `Trajo <b>${Math.round(-dif * 100)} % menos</b> ubicaciones que la vez anterior (${fm(antes.filas)} → ${fm(filas)}). Puede que el WMS respondiera a medias: revisa antes de confiar.` : "";
   const mov = S.sync && S.sync.wms ? S.sync.wms : "N/A";
   const movViejo = /🔴/.test(mov);
-  // Productos vigilados con 1 estiba o menos, o agotados (alerta de pocos)
+  // Productos vigilados en un solo módulo, o agotados (alerta de pocos)
   const pocos = typeof pocosAlerta === "function" ? pocosAlerta() : [];
   if (S.usuario) pintarNav();
   abrirModal(`<div class="sync-res ${alerta ? "rev" : "ok"}"><div class="sync-ic">${alerta ? "⚠️" : "✅"}</div><h3>${alerta ? "Se actualizó, pero revisa" : "Base actualizada"}</h3>
@@ -927,7 +943,7 @@ function avisoSync(r, antes, err) {
     ${alerta ? `<div class="note warn" style="margin-top:12px">${alerta}</div>` : ""}
     ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
     ${r && r.fotos && r.fotos.conFoto ? `<div class="note" style="margin-top:12px">📷 ${r.fotos.conFoto} foto${r.fotos.conFoto > 1 ? "s" : ""} nueva${r.fotos.conFoto > 1 ? "s" : ""} de productos con prioridad.</div>` : ""}
-    ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `≈ ${fm(x.eq)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
+    ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `${x.mods.length === 1 ? x.mods[0].m : x.mods.length + " módulos"} · ${fm(x.tot.e)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
     <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
 }
 // Recordatorio: si la última sincronización tiene más de 3 horas, una franja arriba para sincronizar
@@ -1641,8 +1657,8 @@ VISTAS.pocos = async (el, p, vigente) => {
   const nAl = typeof pocosAlerta === "function" ? pocosAlerta().length : 0;
   const abV = abierto("pocos", "vig");
   el.innerHTML = cab("🧯 Pocos en bodega", "SKUs con menos estibas disponibles que su mínimo (columna Minimo de la hoja Sku; vacío = 10)", botonesPDF("POCOS", "Formato de auditoría")) +
-    `<section class="card plegable pv-vig ${abV ? "abierto" : ""}"><div class="pl-cab" data-plegar="pocos|vig" role="button" tabindex="0" aria-expanded="${abV}"><h3 style="margin:0">🔔 Productos vigilados <span class="muted small">(${(S.pocosVig || []).length})</span>${nAl ? ` <span class="nav-n" title="Con 1 estiba o menos, o agotados">${nAl}</span>` : ""}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
-      <div class="pl-cuerpo"><p class="small muted" style="margin-top:0">Avisan cuando les queda 1 estiba o menos en bodega, o se agotan.${puede("validador") ? ` <button class="link" data-admvig>Agregar o quitar →</button>` : ` <button class="link" data-admvig>Ver todos →</button>`}</p>${tablaVigilados(false)}</div></section>` +
+    `<section class="card plegable pv-vig ${abV ? "abierto" : ""}"><div class="pl-cab" data-plegar="pocos|vig" role="button" tabindex="0" aria-expanded="${abV}"><h3 style="margin:0">🔔 Productos vigilados <span class="muted small">(${(S.pocosVig || []).length})</span>${nAl ? ` <span class="nav-n" title="En un solo módulo, o agotados">${nAl}</span>` : ""}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo"><p class="small muted" style="margin-top:0">Salen cuando les queda un solo módulo en bodega, o se agotan.${puede("validador") ? ` <button class="link" data-admvig>Agregar o quitar →</button>` : ` <button class="link" data-admvig>Ver todos →</button>`}</p>${tablaVigilados(false)}</div></section>` +
     `<div class="lista-tools"><input type="search" id="pq" placeholder="Filtrar SKU o producto…"><span class="count" id="pc"></span></div><div id="pr"></div>`;
   lis.sort((a, b) => (vig.has(b.s) ? 1 : 0) - (vig.has(a.s) ? 1 : 0));
   const pintar = () => {
@@ -1658,7 +1674,7 @@ VISTAS.pocos = async (el, p, vigente) => {
   };
   $("#pq", el).oninput = pintar;
   $("#pr", el).onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
-  $(".pv-vig", el).onclick = e => { if (e.target.closest("[data-admvig]")) return ir("pocosvig"); const v = e.target.closest("[data-ver]"); if (v) ir("stock", { sku: v.dataset.ver }); };
+  $(".pv-vig", el).onclick = e => { if (e.target.closest("[data-admvig]")) return ir("pocosvig"); const v = e.target.closest("[data-vsku]"); if (v) ir("stock", { sku: v.dataset.vsku }); };
   pintar();
 };
 
@@ -4277,8 +4293,8 @@ function modalModuloConsumo(x) {
 
 // ---------- Alerta de pocos: productos vigilados ----------
 // Se escogen los productos a vigilar. La página avisa (Inicio, menú, Pocos y al sincronizar) cuando a uno
-// le queda 1 ESTIBA O MENOS en bodega, o ya no hay. Cuenta lo disponible, sin KA ni PREV y sin los módulos
-// reportados como vacíos. Estibas = cajas ÷ cant. por estiba (como en «Pocos»).
+// le queda UN SOLO MÓDULO en bodega (o 1 estiba o menos), o ya no hay. Con 2 módulos o más no sale.
+// Cuenta lo disponible, sin KA ni PREV y sin los módulos reportados como vacíos.
 function estadoVigilado(sku) {
   const c = (S.cat || []).find(x => x.sku === sku);
   const disp = (S.inv || []).filter(i => i.s === sku && i.fis && i.disp && !i.esOp && !repVacio(i.m));
@@ -4287,37 +4303,41 @@ function estadoVigilado(sku) {
   const mods = Object.values(porMod).sort(cmpMod);
   const tot = disp.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
   const eq = Math.round(disp.reduce((a, i) => a + (i.cpe > 1 ? i.c / i.cpe : i.e), 0) * 10) / 10;
-  return { sku: sku, prod: c ? c.prod : ((S.inv || []).find(i => i.s === sku) || {}).p || "SKU " + sku, mods: mods, tot: tot, eq: eq, agotado: !mods.length, poco: !!mods.length && eq <= 1, bajo: !mods.length || eq <= 1 };
+  const agotado = !mods.length, unMod = mods.length === 1, poco = !agotado && eq <= 1;
+  return { sku: sku, prod: c ? c.prod : ((S.inv || []).find(i => i.s === sku) || {}).p || "SKU " + sku, mods: mods, tot: tot, eq: eq, agotado: agotado, unMod: unMod, poco: poco, bajo: agotado || unMod || poco };
 }
-const pocosAlerta = () => (S.pocosVig || []).map(estadoVigilado).filter(x => x.bajo).sort((a, b) => (b.agotado ? 1 : 0) - (a.agotado ? 1 : 0) || a.sku.localeCompare(b.sku));
-const estadoVigTxt = x => x.agotado ? `<b>Agotado</b> en bodega` : `≈ <b>${fm(x.eq)}</b> estiba${x.eq === 1 ? "" : "s"} · ${x.mods.length === 1 ? `en ${modChip(x.mods[0].m)}` : `${x.mods.length} módulos`} · ${qty(x.tot.e, x.tot.c, x.tot.u)}`;
-const pillVig = x => x.agotado ? `<span class="pill bad">🛑 Agotado</span>` : x.poco ? `<span class="pill warn">⚠️ 1 estiba o menos</span>` : `<span class="pill ok">🟢 ${fm(x.eq)} estibas</span>`;
+const pocosAlerta = () => (S.pocosVig || []).map(estadoVigilado).filter(x => x.bajo).sort((a, b) => (b.agotado ? 1 : 0) - (a.agotado ? 1 : 0) || a.eq - b.eq || a.sku.localeCompare(b.sku));
+const motivoVig = x => x.agotado ? "Agotado" : x.unMod ? "Un solo módulo" : "1 estiba o menos";
+// Tarjeta corta: SKU y producto · módulo · estibas · cajas · unidades (uno debajo del otro)
+const tarjetaVig = (x, quitar) => `<div class="pv-c ${x.agotado ? "agot" : ""}" data-vsku="${h(x.sku)}" role="button" tabindex="0">
+    <div class="pv-c1"><span class="pv-n">${skuTxt(x.sku, x.prod)}</span>${quitar ? `<button class="btn sm icon del" data-quitar="${h(x.sku)}" title="Dejar de vigilar" aria-label="Dejar de vigilar ${h(x.sku)}">${ICO_DEL}</button>` : ""}</div>
+    ${x.agotado ? `<div class="pv-ln pv-agot">🛑 Agotado en bodega</div>` : `<div class="pv-ln">📍 ${x.mods.map(m => modChip(m.m)).join(" ")}</div>
+    <div class="pv-ln">Estibas: <b>${fm(x.tot.e)}</b></div><div class="pv-ln">Cajas: <b>${fm(x.tot.c)}</b></div><div class="pv-ln">Unidades: <b>${fm(x.tot.u)}</b></div>`}
+  </div>`;
+const estadoVigTxt = x => x.agotado ? `<b>Agotado</b> en bodega` : `${x.mods.length === 1 ? `en ${modChip(x.mods[0].m)}` : `${x.mods.length} módulos`} · ${fm(x.tot.e)} est`;
 // Aviso en Inicio (siempre a la vista si hay alguno)
 function avisoPocos(box) {
   if (!box) return;
   const l = pocosAlerta();
   if (!l.length) { box.innerHTML = ""; return; }
-  box.innerHTML = `<section class="card pv-aviso"><div class="pv-cab"><b>🔔 Quedan pocos</b><span class="nav-n">${l.length}</span><span class="small muted">productos vigilados con 1 estiba o menos, o agotados</span></div>
-    <div class="pv-l">${l.map(x => `<button type="button" class="pv-i ${x.agotado ? "agot" : ""}" data-sku="${h(x.sku)}"><span class="pv-n">${skuTxt(x.sku, x.prod)}</span>
-      <span class="pv-d">${estadoVigTxt(x)}</span></button>`).join("")}</div></section>`;
-  box.onclick = e => { const b = e.target.closest("[data-sku]"); if (b) ir("stock", { sku: b.dataset.sku }); };
+  box.innerHTML = `<section class="card pv-aviso"><div class="pv-cab"><b>🔔 Quedan pocos</b><span class="nav-n">${l.length}</span><span class="small muted">productos vigilados en un solo módulo, o agotados</span></div>
+    <div class="pv-g">${l.map(x => tarjetaVig(x)).join("")}</div></section>`;
+  box.onclick = e => { const b = e.target.closest("[data-vsku]"); if (b) ir("stock", { sku: b.dataset.vsku }); };
 }
-// Lista de vigilados (la ven todos en «Pocos»; el administrador además agrega y quita)
+// Solo salen los que están en alerta; los demás vigilados quedan en una línea de chips (para ver o quitar)
 function tablaVigilados(editar) {
-  const l = (S.pocosVig || []).map(estadoVigilado).sort((a, b) => (b.agotado ? 2 : b.poco ? 1 : 0) - (a.agotado ? 2 : a.poco ? 1 : 0) || a.eq - b.eq || a.sku.localeCompare(b.sku));
-  return l.length ? `<div class="pv-tabla">${l.map(x => `<div class="pv-f ${x.bajo ? "bajo" : "bien"}" data-vsku="${h(x.sku)}">
-      <div class="pv-p">${skuTxt(x.sku, x.prod)}<div class="small pv-st">${estadoVigTxt(x)}</div>
-        ${x.mods.length > 1 ? `<div class="pv-mods">${x.mods.map(m => `${modChip(m.m)}<span class="small muted">${fm(m.e)} est · ${fm(m.c)} cj</span>`).join(" ")}</div>` : ""}</div>
-      ${pillVig(x)}
-      <div class="pv-acc"><button class="btn sm" data-ver="${h(x.sku)}">📡 Stock</button>${editar ? `<button class="btn sm del" data-quitar="${h(x.sku)}" title="Dejar de vigilar" aria-label="Dejar de vigilar ${h(x.sku)}">${ICO_DEL}</button>` : ""}</div></div>`).join("")}</div>`
-    : vacio(editar ? "Todavía no vigilas ningún producto. Agrégalo arriba." : "No hay productos vigilados.", "🔔");
+  const todos = (S.pocosVig || []).map(estadoVigilado), al = todos.filter(x => x.bajo).sort((a, b) => (b.agotado ? 1 : 0) - (a.agotado ? 1 : 0) || a.eq - b.eq || a.sku.localeCompare(b.sku));
+  const bien = todos.filter(x => !x.bajo).sort((a, b) => a.sku.localeCompare(b.sku));
+  if (!todos.length) return vacio(editar ? "Todavía no vigilas ningún producto. Agrégalo arriba." : "No hay productos vigilados.", "🔔");
+  return (al.length ? `<div class="pv-g">${al.map(x => tarjetaVig(x, editar)).join("")}</div>` : `<div class="note ok">✅ Ningún producto vigilado está en un solo módulo ni agotado.</div>`) +
+    (bien.length ? `<div class="pv-bien"><span class="small muted">Vigilados sin alerta (2 módulos o más):</span> ${bien.map(x => `<span class="chip pv-chip" data-vsku="${h(x.sku)}" title="${h(x.prod)} · ${x.mods.length} módulos" role="button" tabindex="0"><b>${h(x.sku)}</b> ${h(x.prod)}${editar ? `<button class="pv-x" data-quitar="${h(x.sku)}" title="Dejar de vigilar" aria-label="Dejar de vigilar ${h(x.sku)}">×</button>` : ""}</span>`).join("")}</div>` : "");
 }
 VISTAS.pocosvig = async (el, p, vigente) => {
   await Promise.all([cargarCat(), cargarInv().catch(() => null)]);
   if (!vigente()) return;
   const pintar = () => {
     const l = (S.pocosVig || []).map(estadoVigilado);
-    $("#pvC", el).textContent = `${l.length} vigilados · ${l.filter(x => x.poco).length} con 1 estiba o menos · ${l.filter(x => x.agotado).length} agotados`;
+    $("#pvC", el).textContent = `${l.length} vigilados · ${l.filter(x => x.bajo && !x.agotado).length} en un solo módulo · ${l.filter(x => x.agotado).length} agotados`;
     $("#pvL", el).innerHTML = tablaVigilados(editar);
   };
   const guardarLista = async (lista, msj) => {
@@ -4326,7 +4346,7 @@ VISTAS.pocosvig = async (el, p, vigente) => {
   };
   // La ven todos los que entran a Turnos; agregan y quitan el rotador y el administrador
   const editar = puede("validador");
-  el.innerHTML = cab("🔔 Alerta de pocos", `Los productos que se vigilan. Avisa cuando a uno le queda 1 estiba o menos en bodega (sin KA ni PREV) o se agota: en Inicio, en el menú, en «Pocos» y al sincronizar.${editar ? "" : " Los agrega o quita un rotador o el administrador."}`) +
+  el.innerHTML = cab("🔔 Alerta de pocos", `Los productos que se vigilan. Avisa cuando a uno le queda un solo módulo en bodega (sin KA ni PREV) o se agota; con 2 módulos o más no sale: en Inicio, en el menú, en «Pocos» y al sincronizar.${editar ? "" : " Los agrega o quita un rotador o el administrador."}`) +
     (editar ? `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Vigilar un producto</h3><div style="max-width:520px">${campoAuto("pvA", "Nombre o SKU (ej: 22613)")}</div></div>` : "") +
     `<div class="lista-tools"><span class="count" id="pvC"></span></div><div id="pvL"></div>`;
   if (editar) autoSku($("#pvA", el), c => {
@@ -4334,8 +4354,8 @@ VISTAS.pocosvig = async (el, p, vigente) => {
     guardarLista((S.pocosVig || []).concat(c.sku), `Vigilando ${c.sku} · ${c.prod}`);
   }, { limpiar: true });
   el.onclick = async e => {
-    const v = e.target.closest("[data-ver]"); if (v) return ir("stock", { sku: v.dataset.ver });
-    const q = e.target.closest("[data-quitar]"); if (!q) return;
+    const q = e.target.closest("[data-quitar]");
+    if (!q) { const v = e.target.closest("[data-vsku]"); if (v) ir("stock", { sku: v.dataset.vsku }); return; }
     if (!(await confirmar("Dejar de vigilar", `¿Dejar de vigilar ${h(q.dataset.quitar)}? Ya no saldrá la alerta para ese producto.`, "Dejar de vigilar", true))) return;
     guardarLista((S.pocosVig || []).filter(x => x !== q.dataset.quitar), "Ya no se vigila");
   };

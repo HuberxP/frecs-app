@@ -1504,6 +1504,22 @@
   .pv-acc { display: flex; gap: 6px; } .pv-vig { margin-bottom: 14px; } .pv-vig .pv-tabla { margin-top: 6px; }
   @media (max-width: 600px) { .pv-f { grid-template-columns: minmax(0, 1fr) auto; } .pv-f .pv-acc { grid-column: 1 / -1; } }
 
+  /* Tarjeta corta de vigilado: SKU y producto · módulo · estibas · cajas · unidades */
+  .pv-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 6px; }
+  .pv-c { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,210,63,.55); background: var(--bg2); font-size: 13px; line-height: 1.35; cursor: pointer; }
+  .pv-c.agot { border-color: var(--bad); }
+  .pv-c1 { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+  .pv-c1 .pv-n { font-weight: 700; } .pv-c1 .btn.icon { min-height: 30px; width: 30px; padding: 0; flex: none; }
+  .pv-ln { color: var(--muted); } .pv-ln b { color: var(--ink); } .pv-ln .mod-chip, .pv-ln .modchip { font-size: 12px; }
+  .pv-agot { color: var(--bad); font-weight: 700; }
+  .pv-bien { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  .pv-chip { font-size: 12px; padding: 3px 8px; cursor: pointer; } .pv-chip b { color: var(--cyan); }
+  .pv-x { border: 0; background: transparent; color: var(--bad); font-size: 16px; line-height: 1; padding: 0 2px; cursor: pointer; }
+  html[data-tema="claro"] .pv-c { background: #fff; } html[data-tema="claro"] .pv-chip b { color: #0f8fb5; }
+
+  /* ---------- Ver las tarjetas en lista (computador y tableta), como en el celular ---------- */
+  html[data-vista="lista"] .grid, html[data-vista="lista"] .grid.tarjetas, html[data-vista="lista"] .vgrid, html[data-vista="lista"] .pv-g { grid-template-columns: minmax(0, 1fr); }
+
   /* ---------- Módulos en consumo por canal ---------- */
   .tag.t-cons { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.14); font-weight: 750; }
   .tag.t-forz { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); font-weight: 800; }

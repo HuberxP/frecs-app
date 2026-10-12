@@ -632,17 +632,34 @@ let llamadasSb = 0, sinRed = false;
   if (movs.some(m => !/^[A-D]\d/.test(m.from) || !/^[A-D]\d/.test(m.to))) errores.push("organizar: se sale de las secciones de retornable");
   await P.evaluate(() => api("webPref", "orgSecs", null));
   // --- Alerta de pocos: productos vigilados (avisa con un solo módulo o agotado) ---
-  // Un producto con 1 estiba o menos (o agotado) avisa; 2222 (muchas estibas) no
-  const skuUno = await P.evaluate(() => (S.cat.map(c => c.sku).find(s => s !== "2222" && estadoVigilado(s).poco) || S.cat.map(c => c.sku).find(s => s !== "2222" && estadoVigilado(s).agotado) || ""));
+  // Un producto en un solo módulo (aunque tenga varias estibas) avisa; 2222 (2 módulos o más) no
+  const skuUno = await P.evaluate(() => (S.cat.map(c => c.sku).find(s => s !== "2222" && estadoVigilado(s).unMod && estadoVigilado(s).eq > 1) || ""));
+  if (!skuUno) errores.push("pocos: no hay producto de prueba en un solo módulo con varias estibas");
+  if (await P.evaluate(() => estadoVigilado("2222").mods.length < 2 || estadoVigilado("2222").bajo)) errores.push("pocos: 2222 debería tener 2 módulos o más y no avisar");
   await P.evaluate(() => ir("pocosvig")); await P.waitForTimeout(600);
   for (const sk of ["2222", skuUno]) { await P.fill("#pvA", sk); await P.waitForTimeout(300); await P.click(".ac-list .ac-item"); await P.waitForTimeout(700); }
   if (JSON.parse(q("select valor from frecs_config where clave='pocos_vigilar'") || "[]").sort().join() !== ["2222", skuUno].sort().join()) errores.push("pocos: los vigilados no quedaron guardados");
   if (await P.$("[data-min]")) errores.push("pocos: el panel todavía pide mínimo de estibas");
-  if ((await P.$$(".pv-f")).length !== 2) errores.push("pocos: el panel no lista los vigilados");
+  // En alerta solo el de un módulo (tarjeta corta); 2222 queda como chip abajo
+  if ((await P.$$(".pv-g .pv-c")).length !== 1 || !(await P.$(`.pv-g .pv-c[data-vsku="${skuUno}"]`))) errores.push("pocos: la lista no muestra solo el que está en un módulo");
+  if (!(await P.$('.pv-bien .pv-chip[data-vsku="2222"]'))) errores.push("pocos: el vigilado sin alerta no queda abajo como chip");
+  const lnV = await P.$$eval(`.pv-c[data-vsku="${skuUno}"] .pv-ln`, l => l.map(x => x.textContent.includes(":") ? x.textContent.trim().split(":")[0] : "mod"));
+  if (lnV.join() !== "mod,Estibas,Cajas,Unidades") errores.push("pocos: el orden de la tarjeta no es módulo, estibas, cajas, unidades: " + lnV);
   await P.screenshot({ path: "/tmp/w_pocosvig.png" });
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
-  if (!(await P.$(`#pvI .pv-aviso [data-sku="${skuUno}"]`))) errores.push("pocos: Inicio no avisa del producto con 1 estiba o menos: " + skuUno);
-  if (await P.$('#pvI .pv-aviso [data-sku="2222"]')) errores.push("pocos: avisa de un producto que tiene más de 1 estiba");
+  if (!(await P.$(`#pvI .pv-aviso [data-vsku="${skuUno}"]`))) errores.push("pocos: Inicio no avisa del producto en un solo módulo: " + skuUno);
+  if (await P.$('#pvI .pv-aviso [data-vsku="2222"]')) errores.push("pocos: avisa de un producto que tiene 2 módulos o más");
+  // Botón para ver las tarjetas en lista (computador): una sola columna; se recuerda
+  await P.evaluate(() => ir("rotular")); await P.waitForTimeout(300);
+  await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
+  const colsAntes = await P.evaluate(() => { const g = $("#view .grid"); return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0; });
+  await P.click("#vistaBtn"); await P.waitForTimeout(200);
+  const colsLista = await P.evaluate(() => { const g = $("#view .grid"); return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0; });
+  if (!(colsAntes > 1 && colsLista === 1) || (await P.evaluate(() => localStorage.getItem("frecs_vista"))) !== "lista") errores.push(`vista en lista: no cambió (${colsAntes} → ${colsLista})`);
+  await P.screenshot({ path: "/tmp/w_vista_lista.png" });
+  await P.click("#vistaBtn"); await P.waitForTimeout(200);
+  if (await P.evaluate(() => document.documentElement.dataset.vista === "lista")) errores.push("vista en lista: no vuelve a cuadrícula");
+  await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
   if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados con 1 estiba o menos");
   await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
   await P.evaluate(() => ir("pocos")); await P.waitForTimeout(700);

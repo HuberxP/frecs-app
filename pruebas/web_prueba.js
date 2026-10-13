@@ -607,7 +607,8 @@ let llamadasSb = 0, sinRed = false;
       await P.click("#acModo"); await P.waitForTimeout(300);
       if (!(await P.$(".act-mod.modo.falta")) || !(await P.$(`.act-mod.modo.ok[data-mod="${rojo}"]`))) errores.push("actualizar: el switch no pone el modo de actualizar");
       if (await P.$(".act-mod .ac-prod .small:not(.ac-cant)")) {}
-      if (/Cajas:|Unidades:/.test(await P.textContent("#acL"))) errores.push("actualizar: las tarjetas todavía muestran cajas y unidades");
+      const txtA = await P.textContent("#acL");
+      if (!/Estibas: \d/.test(txtA) || !/Fecha de vencimiento: \d{2}\/\d{2}\/\d{4}/.test(txtA) || /Estibas: [\d.,]+ ?\|/.test(txtA)) errores.push("actualizar: las tarjetas no dicen «Estibas:» y «Fecha de vencimiento:»");
       await P.screenshot({ path: "/tmp/w_actualizar.png" });
       await P.click("#acModo"); await P.waitForTimeout(200);
       await P.click(`.act-mod[data-mod="${rojo}"] [data-revquitar]`); await P.waitForTimeout(1200);

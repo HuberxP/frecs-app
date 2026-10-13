@@ -1533,8 +1533,9 @@
   .card.act-mod { display: block; padding: 10px 12px; border-left: 5px solid var(--bad); position: relative; } .card.act-mod.ok { border-left-color: var(--ok); }
   .card.act-mod.vacio { background: #e9edf2; color: #1d2733; border-color: #c9d1db; } .card.act-mod.vacio .muted, .card.act-mod.vacio .ac-quien { color: #5b6878; }
   html[data-tema="claro"] .card.act-mod.vacio { background: #f3f5f8; }
-  .ac-cant { font-size: 15px; margin-top: 2px; } .ac-cant b { font-size: 16px; }
-  .btn.ac-okb { background: transparent; border-color: transparent; box-shadow: none; color: var(--ink); padding-left: 4px; }
+  .ac-cant { font-size: 15px; margin-top: 4px; line-height: 1.45; } .ac-cant b { font-size: 16px; }
+  .btn.ac-okb { background: transparent; border: 1.5px solid #3b82f6; box-shadow: none; color: var(--ink); }
+  .btn.ac-okb:hover { background: rgba(59,130,246,.12); }
   .card.act-mod.vacio .btn.ac-okb { color: #1d2733; }
   .ac-modo { display: inline-flex; gap: 10px; align-items: center; margin: 0; }
   /* Modo «Estoy actualizando»: lo que falta con un borde rojo que gira; lo revisado, verde */

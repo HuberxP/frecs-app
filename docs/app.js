@@ -4393,8 +4393,8 @@ VISTAS.actualizar = async (el, p, vigente) => {
         const bloq = f.lotes.some(i => !i.disp), skus = [...new Set(f.lotes.map(i => i.s))];
         const prods = skus.map(s => { const l = f.lotes.filter(i => i.s === s), i0 = l.slice().sort((a, b) => a.d - b.d)[0], t = l.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
           // Solo lo que interesa: estibas (si no hay, cajas; si no, unidades) y la fecha
-          const cant = t.e > 0 ? `${fm(t.e)} est` : t.c > 0 ? `${fm(t.c)} ${t.c === 1 ? "caja" : "cajas"}` : `${fm(t.u)} und`;
-          return `<div class="ac-prod"><div><b>${skuTxt(s, i0.p)}</b>${!i0.disp ? ` <span class="pill bad">BLOQ · ${h(i0.est)}</span>` : ""}<div class="ac-cant"><b>${cant}</b> · vence <b>${h(i0.vf)}</b>${i0.cand ? ` <span class="small">· 🔑 ${h(i0.cand)}</span>` : ""}</div></div>
+          const cant = t.e > 0 ? `Estibas: <b>${fm(t.e)}</b>` : t.c > 0 ? `Cajas: <b>${fm(t.c)}</b>` : `Unidades: <b>${fm(t.u)}</b>`;
+          return `<div class="ac-prod"><div><b>${skuTxt(s, i0.p)}</b>${!i0.disp ? ` <span class="pill bad">BLOQ · ${h(i0.est)}</span>` : ""}<div class="ac-cant"><div>${cant}</div><div>Fecha de vencimiento: <b>${h(i0.vf)}</b></div>${i0.cand ? `<div class="small">🔑 Candado: ${h(i0.cand)}</div>` : ""}</div></div>
             <div class="ac-acc"><button class="btn sm aj-btn" data-fijar="${h(s)}|${h(f.m)}">✏️ Corregir</button><button class="btn sm aj-btn del" data-borrar="${h(s)}|${h(f.m)}">🗑️ Quitar</button></div></div>`; }).join("");
         return `<article class="card act-mod ${f.rev ? "ok" : "falta"} ${f.lotes.length ? "" : "vacio"} ${modo ? "modo" : ""}" data-mod="${h(f.m)}">
           <div class="ac-cab"><span class="ac-sem" title="${f.rev ? "Revisado" : "Falta revisar"}">${f.rev ? "🟢" : "🔴"}</span>${modChip(f.m)}${bloq ? ` <span class="pill bad">🔒 Bloqueado</span>` : ""}

@@ -590,6 +590,16 @@ let llamadasSb = 0, sinRed = false;
     const ordenOk = modsA.every((m, k) => !k || modsA[k - 1].localeCompare(m, undefined, { numeric: true }) < 0);
     if (!modsA.length || !ordenOk || modsA.some(m => m.replace(/\d.*$/, "") !== sec)) errores.push("actualizar: la sección no sale en orden: " + modsA.slice(0, 8));
     if (!(await P.$(`.act-mod.ok[data-mod="${lt.m}"]`))) errores.push("actualizar: el módulo con «Saqué» no sale en verde");
+    // Reportado vacío / conflicto: etiqueta en la tarjeta
+    {
+      const mR = modsA.find(m => m !== lt.m);
+      await P.evaluate(m => api("webReporteCrear", [{ tipo: "VACIO", modulo: m, nota: "prueba" }, { tipo: "CONFLICTO", modulo: m, sku_encontrado: "2222", producto_encontrado: "Pony", nota: "prueba" }]).then(r => guardarRep(r.lista)), mR);
+      await P.evaluate(s0 => ir("actualizar", { sec: s0 }), sec); await P.waitForTimeout(800);
+      const tg = await P.textContent(`.act-mod[data-mod="${mR}"] .ac-cab`).catch(() => "");
+      if (!/Reportado vacío/.test(tg) || !/Conflicto reportado/.test(tg)) errores.push("actualizar: la tarjeta no dice que fue reportado vacío / conflicto: " + tg);
+      q(`delete from reportes_modulo where modulo='${mR}'`); await P.evaluate(() => api("webReportes").then(r => guardarRep(r.lista)));
+      await P.evaluate(s0 => ir("actualizar", { sec: s0 }), sec); await P.waitForTimeout(700);
+    }
     // ✏️ Corregir; luego dice el puesto FEFO
     await P.click(`.act-mod [data-fijar="${lt.s}|${lt.m}"]`); await P.waitForSelector("#ajC"); await P.waitForTimeout(500);
     await P.fill("#ajC", "3"); await P.click("#ajOk"); await P.waitForTimeout(1800);

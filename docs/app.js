@@ -874,6 +874,7 @@ function pintarSync() {
 function guardarInv(d) {
   S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
   if (Array.isArray(d.fotos)) S.fotos = d.fotos;
+  if (Array.isArray(d.ajustes)) { S.ajustes = d.ajustes; ls.setJ("ajustes", S.ajustes); }
   ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, fotos: S.fotos || [], guardado: ahoraTxt() });
 }
 // Fotos del WMS (la que tomaron al marcar la prioridad), por producto y módulo: la más nueva
@@ -1171,6 +1172,8 @@ function invCard(i, o) {
   if (rp.c) tags.unshift(`<span class="tag t-rc" title="Encontraron ${h(rp.c.skuEnc)} · ${h(rp.c.prodEnc)}">⚠️ Conflicto reportado</span>`);
   // Módulo en consumo para un canal (lo marcó un verificador / rotador)
   if (typeof tagsMarcas === "function") tags.unshift(...tagsMarcas(i.s, i.m));
+  // Anotado a mano sin WMS (WMS caído): lo que se sacó o se guardó aquí
+  if (typeof tagsAjuste === "function") tags.unshift(...tagsAjuste(i.s, i.m));
   const est = i.disp ? `<span class="pill ok">DISPONIBLE</span>` : `<span class="pill bad">BLOQ · ${h(i.est)}</span>`;
   let obs = "";
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
@@ -1185,7 +1188,7 @@ function invCard(i, o) {
     ${obs}
     ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
     ${i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : ""}
-    ${o.marcar !== false && typeof botonMarcar === "function" ? botonMarcar(i) : ""}
+    ${(() => { const acc = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (typeof botonSacar === "function" ? botonSacar(i) : ""); return acc ? `<div class="inv-acc">${acc}</div>` : ""; })()}
   </article>`;
 }
 
@@ -1257,9 +1260,10 @@ function resumenTurno(box) {
 VISTAS.inicio = async (el, p, vigente) => {
   el.innerHTML = cab(`Hola, ${h(S.usuario ? S.usuario.nombre.split(" ")[0] : "")}`, "Resumen de la bodega y del turno") +
     `<div class="quick">${campoAuto("qq", "SKU, producto o módulo (ej: 3659, pony go, B12)")}</div>
-     <div id="pvI"></div><div id="tb"></div><div id="rsT"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
+     <div id="ajI"></div><div id="pvI"></div><div id="tb"></div><div id="rsT"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
   resumenTurno($("#rsT", el));
   avisoPocos($("#pvI", el));
+  if (typeof avisoAjustes === "function") avisoAjustes($("#ajI", el));
   autoSku($("#qq", el), c => ir("stock", { sku: c.sku }));
   $("#qq", el).addEventListener("keydown", e => {
     if (e.key !== "Enter" || e.defaultPrevented) return;
@@ -1492,7 +1496,7 @@ VISTAS.modulo = async (el, p, vigente) => {
     const o = S.ocup[q];
     arriba = `<div class="card" style="margin-bottom:12px"><b>Ocupación:</b> ${fm(o.usadas)} / ${fm(o.capTot)} estibas (${o.caras} caras × ${o.porCara}) · ${o.libres <= 0 ? `<span class="pill bad">MÓDULO LLENO</span>` : `<span class="pill ok">Faltan ${fm(o.libres)} estibas</span>`}</div>`;
   }
-  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button></div>`;
+  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button>${typeof botonPoner === "function" ? botonPoner(q) : ""}</div>`;
   el.onclick = e => { const b = e.target.closest("[data-rep]"); if (b) return ir(b.dataset.rep, { m: q });
     if (e.target.closest("[data-todo-canal]")) return ir("modulo", { mod: q, todo: 1 });
     if (e.target.closest("[data-solo-canal]")) return ir("modulo", { mod: q }); };
@@ -4029,6 +4033,117 @@ VISTAS.enconsumo = async (el, p, vigente) => {
 };
 
 // =====================================================================
+// AJUSTES SIN WMS (cuando el WMS está caído)
+// Se trabaja con la última sincronización y se anota a mano lo que cambió:
+//   · ➖ Saqué: cuántas estibas o cajas se sacaron de un producto en un módulo (primero el lote que vence antes)
+//   · 📥 Guardé: un producto que se guardó en un módulo (vacío o reemplazando lo que había)
+// Todo se ve al momento en Stock, Por módulo, FEFO, Pocos, PDF y el bot. Al sincronizar con el WMS
+// se reemplaza por lo real y los ajustes dejan de contar. Se pueden deshacer antes de sincronizar.
+// Lo hacen verificador, OPM, rotador y administrador.
+// =====================================================================
+const puedeAjustar = () => !!S.usuario && ["verificador", "opm", "validador", "administrador"].includes(S.usuario.rol);
+// S.ajustes: [id, tipo, módulo, sku, producto, cant, unidad, vence, reemplazo, por, en]
+const ajusteObj = r => ({ id: r[0], tipo: r[1], m: r[2], sku: r[3], prod: r[4], cant: Number(r[5]), un: r[6], vence: r[7], reemp: !!r[8], por: r[9], en: r[10] });
+const ajustesTodos = () => (S.ajustes || []).map(ajusteObj);
+const ajustesDe = (sku, m) => ajustesTodos().filter(x => x.m === String(m) && (!sku || x.sku === String(sku)));
+const cantAj = x => `${fm(x.cant)} ${x.un === "cj" ? (x.cant === 1 ? "caja" : "cajas") : (x.cant === 1 ? "estiba" : "estibas")}`;
+function guardarAjustes(l) { S.ajustes = Array.isArray(l) ? l : []; ls.setJ("ajustes", S.ajustes); }
+// Etiquetas en las tarjetas
+function tagsAjuste(sku, m) {
+  return ajustesDe(sku, m).map(x => x.tipo === "SACAR"
+    ? `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">➖ Sacaron ${h(cantAj(x))} · @${h(x.por)}</span>`
+    : `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">📥 Guardado sin WMS · @${h(x.por)}</span>`);
+}
+const botonSacar = i => puedeAjustar() && i.fis ? `<button type="button" class="btn sm aj-btn" data-sacar="${h(i.s)}|${h(i.m)}">➖ Saqué</button>` : "";
+const botonPoner = m => puedeAjustar() ? `<button class="btn sm aj-btn" data-poner="${h(m)}">📥 Guardé producto aquí</button>` : "";
+// Después de un ajuste: inventario fresco y la pantalla de nuevo
+async function trasAjuste(l, msj) {
+  guardarAjustes(l);
+  try { await cargarInv(true); } catch (e) {}
+  toast(msj, "ok", 3500);
+  if (S.usuario) pintarNav();
+  repintar();
+}
+// Lista de ajustes (con deshacer)
+const filaAjuste = (x, conMod) => `<div class="aj-f"><div><b>${x.tipo === "SACAR" ? "➖ Sacaron" : "📥 Guardaron"} ${h(cantAj(x))}</b>${conMod ? ` en ${modChip(x.m)}` : ""} · ${skuTxt(x.sku, x.prod)}${x.tipo === "PONER" && x.vence ? ` · vence ${h(fechaDMY(x.vence))}` : ""}${x.reemp ? ` <span class="small muted">(reemplazó lo que había)</span>` : ""}
+    <div class="small muted">@${h(x.por)} · ${h(fechaCorta(x.en))}</div></div>${puedeAjustar() ? `<button class="btn sm" data-desh="${h(x.id)}">↩︎ Deshacer</button>` : ""}</div>`;
+async function deshacerAjuste(id, btn) {
+  const x = ajustesTodos().find(a => a.id === String(id)); if (!x) return;
+  if (!(await confirmar("Deshacer", `¿Deshacer «${x.tipo === "SACAR" ? "sacaron" : "guardaron"} ${h(cantAj(x))}» en ${h(x.m)}?`, "Deshacer", true))) return;
+  if (btn && btn.isConnected) btn.disabled = true;
+  try { await trasAjuste(await api("webAjusteDeshacer", id), "Ajuste deshecho"); }
+  catch (er) { if (btn && btn.isConnected) btn.disabled = false; toast(er.message, "bad", 6000); }
+}
+// ➖ Saqué de este módulo
+function modalSacar(sku, m) {
+  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis);
+  if (!lotes.length) return toast("Ese producto ya no está en el módulo.", "warn");
+  const i = lotes.slice().sort((a, b) => a.d - b.d)[0];
+  const tot = lotes.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
+  let un = "est";
+  const c = abrirModal(`<h3>➖ Saqué de ${modChip(m)}</h3><div class="mc-info"><b>${skuTxt(sku, i.p)}</b><div class="small">Hay: ${qty(tot.e, tot.c, tot.u)} · vence <b>${h(i.vf)}</b></div></div>
+    <p class="small muted">Se descuenta de lo que trajo la última sincronización (primero el lote que vence antes). Cuando el WMS vuelva y se sincronice, manda lo del WMS.</p>
+    <div class="aj-cant"><label class="field"><span>¿Cuánto sacaste?</span><input type="text" inputmode="decimal" id="ajC" placeholder="0" autocomplete="off"></label>
+      <div class="seg seg-sm" id="ajU"><button type="button" data-u="est" class="on">Estibas</button><button type="button" data-u="cj">Cajas</button></div></div>
+    <div class="small"><button type="button" class="link" data-todo>Saqué todo (queda vacío)</button></div>
+    ${ajustesDe(sku, m).length ? `<div class="aj-lista"><div class="small muted">Ya anotado aquí:</div>${ajustesDe(sku, m).map(x => filaAjuste(x)).join("")}</div>` : ""}
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ajOk">➖ Descontar</button></div>`);
+  setTimeout(() => { const x = $("#ajC", c); if (x) x.focus(); }, 80);
+  c.onclick = async e => {
+    const u = e.target.closest("[data-u]"); if (u) { un = u.dataset.u; $$("#ajU button", c).forEach(b => b.classList.toggle("on", b === u)); return; }
+    if (e.target.closest("[data-todo]")) { const cpe = i.cpe > 1 ? i.cpe : 0; un = cpe ? "cj" : "est"; $$("#ajU button", c).forEach(b => b.classList.toggle("on", b.dataset.u === un)); $("#ajC", c).value = String(un === "cj" ? tot.c : tot.e); return; }
+    const d = e.target.closest("[data-desh]"); if (d) { cerrarModal(true); return deshacerAjuste(d.dataset.desh); }
+    if (!e.target.closest("#ajOk")) return;
+    const v = $("#ajC", c).value.trim().replace(",", ".");
+    if (!(Number(v) > 0)) { toast("Escribe cuánto sacaste.", "warn"); $("#ajC", c).focus(); return; }
+    const btn = $("#ajOk", c); ocupado(btn, true);
+    try { const l = await api("webAjusteSacar", { modulo: m, sku: sku, cant: v, unidad: un }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: se descontaron ${fm(Number(v))} ${un === "cj" ? "cajas" : "estibas"}`); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+}
+// 📥 Guardé un producto en este módulo
+async function modalPoner(m) {
+  await cargarCat().catch(() => null);
+  const hay = (S.inv || []).filter(i => i.m === m && i.fis);
+  const skus = [...new Set(hay.map(i => i.s))];
+  let prod = null, un = "est";
+  const c = abrirModal(`<h3>📥 Guardé producto en ${modChip(m)}</h3>
+    ${hay.length ? `<div class="mc-info small">Según la última sincronización hay: ${skus.map(s => { const ls2 = hay.filter(i => i.s === s); return `<div>${skuTxt(s, ls2[0].p)} · ${fm(ls2.reduce((a, i) => a + i.e, 0))} est</div>`; }).join("")}</div>` : `<p class="small muted">El módulo está vacío según la última sincronización.</p>`}
+    <div style="margin-top:10px">${campoAuto("ajP", "Nombre o SKU")}</div>
+    <div class="grid2 rot-campos"><label class="field"><span>Vencimiento</span><input type="date" id="ajV"></label>
+      <div class="aj-cant"><label class="field"><span>Cantidad</span><input type="text" inputmode="decimal" id="ajC" placeholder="0" autocomplete="off"></label>
+      <div class="seg seg-sm" id="ajU"><button type="button" data-u="est" class="on">Estibas</button><button type="button" data-u="cj">Cajas</button></div></div></div>
+    ${hay.length ? `<label class="toggle aj-reemp"><input type="checkbox" id="ajR" checked> Reemplaza lo que había (lo de antes ya no está en ${h(m)})</label>` : ""}
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ajOk">📥 Guardar</button></div>`);
+  autoSku($("#ajP", c), x => { prod = x; });
+  c.onclick = async e => {
+    const u = e.target.closest("[data-u]"); if (u) { un = u.dataset.u; $$("#ajU button", c).forEach(b => b.classList.toggle("on", b === u)); return; }
+    if (!e.target.closest("#ajOk")) return;
+    const v = $("#ajC", c).value.trim().replace(",", "."), venc = $("#ajV", c).value, r = $("#ajR", c);
+    if (!prod) { toast("Escoge el producto.", "warn"); $("#ajP", c).focus(); return; }
+    if (!venc) { toast("Escribe el vencimiento.", "warn"); return; }
+    if (!(Number(v) > 0)) { toast("Escribe la cantidad.", "warn"); $("#ajC", c).focus(); return; }
+    const btn = $("#ajOk", c); ocupado(btn, true);
+    try { const l = await api("webAjustePoner", { modulo: m, sku: prod.sku, cant: v, unidad: un, vence: venc, reemplazar: !!(r && r.checked) }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: ${prod.sku} guardado`); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-sacar],[data-poner],[data-desh]"); if (!b || b.closest(".modal-card")) return;
+  e.preventDefault(); e.stopPropagation();
+  if (b.dataset.sacar) { const [s, m] = b.dataset.sacar.split("|"); modalSacar(s, m); }
+  else if (b.dataset.poner) modalPoner(b.dataset.poner);
+  else deshacerAjuste(b.dataset.desh, b);
+}, true);
+// Aviso en Inicio: lo anotado a mano desde la última sincronización
+function avisoAjustes(box) {
+  if (!box) return;
+  const l = ajustesTodos();
+  box.innerHTML = l.length ? `<section class="card aj-aviso plegable ${abierto("inicio", "aj") ? "abierto" : ""}"><div class="pl-cab" data-plegar="inicio|aj" role="button" tabindex="0"><b>✍️ Anotado sin WMS</b> <span class="nav-n">${l.length}</span><span class="small muted">cambios a mano desde la última sincronización · al sincronizar manda el WMS</span><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo">${l.map(x => filaAjuste(x, true)).join("")}</div></section>` : "";
+}
+
+// =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)
 // =====================================================================
 VISTAS.usuarios = async (el, p, vigente) => {
@@ -4420,6 +4535,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     S.vistasRol = i.vistasRol || {}; ls.setJ("vistasRol", S.vistasRol);
     S.pocosVig = Array.isArray(i.pocosVig) ? i.pocosVig : []; ls.setJ("pocosVig", S.pocosVig);
     S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
+    S.ajustes = Array.isArray(i.ajustes) ? i.ajustes : []; ls.setJ("ajustes", S.ajustes);
     avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
@@ -4457,7 +4573,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

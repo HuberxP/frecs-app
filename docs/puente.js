@@ -494,6 +494,14 @@
       // Módulos en consumo por canal (verificador, rotador o administrador): la lista fresca de las activas
       const MARCA = { webMarcaPoner: a => ["marca_poner", { p_item: a[1] || {} }], webMarcaQuitar: a => ["marca_quitar", { p_id: Number(a[1]) }], webMarcas: a => ["marcas_listar", {}] };
       if (MARCA[fn]) { const [f, p] = MARCA[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p)); if (datos) { datos.marcas = v; guardarLS(); } return ok(v); }
+      // Ajustes sin WMS (WMS caído): cambian el inventario en Supabase (la página lo vuelve a traer con webInventario)
+      const AJ = { webAjusteSacar: a => ["ajuste_sacar", { p_item: a[1] || {} }], webAjustePoner: a => ["ajuste_poner", { p_item: a[1] || {} }],
+        webAjusteDeshacer: a => ["ajuste_deshacer", { p_id: Number(a[1]) }], webAjustes: a => ["ajustes_listar", {}] };
+      if (AJ[fn]) {
+        const [f, p] = AJ[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p));
+        if (datos) { datos.ajustes = v; guardarLS(); }
+        return ok(v);
+      }
       // Productos vigilados para la alerta de pocos (solo el administrador)
       if (fn === "webPocosVigilarGuardar") { const v = await rpc("pocos_vigilar_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.pocos_vigilar = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
@@ -521,11 +529,11 @@
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
         if (nuevoExtra || (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS)) { await cadena; await cargarTurnos(args[0]); }
         const res = MOTOR.llamar(fn, args);
-        if (fn === "webInventario") { const ri = JSON.parse(res); if (ri.ok) conFotos(ri.data); return JSON.stringify(ri); }
+        if (fn === "webInventario") { const ri = JSON.parse(res); if (ri.ok) { conFotos(ri.data); ri.data.ajustes = (datos && datos.ajustes) || []; } return JSON.stringify(ri); }
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
         if (r.ok && r.data.inv) conFotos(r.data.inv);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

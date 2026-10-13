@@ -1517,6 +1517,17 @@
   .pv-x { border: 0; background: transparent; color: var(--bad); font-size: 16px; line-height: 1; padding: 0 2px; cursor: pointer; }
   html[data-tema="claro"] .pv-c { background: #fff; } html[data-tema="claro"] .pv-chip b { color: #0f8fb5; }
 
+  /* ---------- Ajustes sin WMS (WMS caído) ---------- */
+  .tag.t-aj { border-color: #a78bfa; color: #c4b5fd; background: rgba(167,139,250,.14); font-weight: 700; }
+  .inv-acc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
+  .aj-btn { border-color: #a78bfa; }
+  .aj-cant { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; } .aj-cant .field { flex: 1; min-width: 120px; margin: 0; } .aj-cant .seg { margin-bottom: 2px; }
+  .aj-lista { margin-top: 12px; display: grid; gap: 6px; }
+  .aj-f { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); font-size: 13.5px; }
+  .aj-aviso { border-color: #a78bfa; margin-bottom: 14px; } .aj-aviso .pl-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .aj-aviso .pl-cuerpo { display: grid; gap: 6px; margin-top: 8px; }
+  .aj-reemp { margin-top: 10px; display: flex; gap: 8px; align-items: center; font-size: 14px; }
+  html[data-tema="claro"] .tag.t-aj { color: #6d28d9; background: #f1ebff; } html[data-tema="claro"] .aj-f { background: #fff; }
+
   /* ---------- Ver las tarjetas en lista (computador y tableta), como en el celular ---------- */
   html[data-vista="lista"] .grid, html[data-vista="lista"] .grid.tarjetas, html[data-vista="lista"] .vgrid, html[data-vista="lista"] .pv-g { grid-template-columns: minmax(0, 1fr); }
 

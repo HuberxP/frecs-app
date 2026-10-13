@@ -549,6 +549,34 @@ let llamadasSb = 0, sinRed = false;
   if (!dl || !/\.jpg$/.test(dl.suggestedFilename())) errores.push("rotular: el botón de foto no descargó un JPG");
   await P.evaluate(() => ir("rotular")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_rotulaciones.png" });
   q("delete from rotulaciones");
+  // --- Ajustes sin WMS (WMS caído): saqué / guardé producto / deshacer ---
+  {
+    const lt = await P.evaluate(() => { const i = S.inv.find(x => x.fis && x.disp && x.cpe > 1 && x.e >= 2 && /^[A-J]\d+$/.test(x.m)); return { m: i.m, s: i.s }; });
+    const cj = () => Number(q(`select coalesce(sum(cajas),0) from wms_base where modulo='${lt.m}' and sku='${lt.s}'`));
+    const cpe = Number(q(`select max(cajas_por_estiba) from wms_base where modulo='${lt.m}' and sku='${lt.s}'`)), cj0 = cj();
+    await P.evaluate(m => ir("modulo", { mod: m }), lt.m); await P.waitForTimeout(700);
+    await P.click(`[data-sacar="${lt.s}|${lt.m}"]`); await P.waitForSelector("#ajC"); await P.waitForTimeout(500);
+    await P.fill("#ajC", "1"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+    if (cj() !== cj0 - cpe) errores.push(`sin WMS: «Saqué 1 estiba» no descontó (${cj0} → ${cj()}, cpe ${cpe})`);
+    if (!(await P.$(".tag.t-aj"))) errores.push("sin WMS: la tarjeta no muestra lo que se sacó");
+    await P.screenshot({ path: "/tmp/w_aj_sacar.png" });
+    // Guardar en un módulo vacío
+    await P.evaluate(() => ir("modulo", { mod: "Z98" })); await P.waitForTimeout(600);
+    await P.click('[data-poner="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
+    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click(".modal-card .ac-list .ac-item"); await P.waitForTimeout(200);
+    await P.fill("#ajV", "2027-02-01"); await P.click('#ajU [data-u="cj"]'); await P.fill("#ajC", "30"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+    if (q("select sku || '|' || cajas || '|' || estado from wms_base where modulo='Z98'") !== `${lt.s}|30|DISPONIBLE`) errores.push("sin WMS: «Guardé producto» no quedó en el módulo");
+    if (!(await P.$(`#view [data-sacar="${lt.s}|Z98"]`))) errores.push("sin WMS: Por módulo no muestra lo guardado");
+    await P.screenshot({ path: "/tmp/w_aj_poner.png" });
+    // Inicio: la lista con deshacer
+    await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
+    if ((await P.$$("#ajI .aj-f")).length !== 2) { await P.click("#ajI [data-plegar]"); await P.waitForTimeout(200); }
+    if ((await P.$$("#ajI .aj-f")).length !== 2) errores.push("sin WMS: Inicio no lista los 2 ajustes");
+    await P.screenshot({ path: "/tmp/w_aj_inicio.png" });
+    await P.click("#ajI .aj-f:last-child [data-desh]"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1800);
+    if (cj() !== cj0) errores.push(`sin WMS: deshacer no devolvió las cajas (${cj()} de ${cj0})`);
+    q("delete from wms_base where modulo='Z98'"); q("delete from wms_modulos where modulo='Z98'"); q("delete from ajustes_sin_wms");
+  }
   // --- Sugerencias de módulo en Por módulo y Rotular (módulo que no existe: aviso, no error) ---
   await P.evaluate(() => ir("modulo")); await P.waitForTimeout(500);
   await P.fill("#mq", "b1"); await P.waitForTimeout(200);

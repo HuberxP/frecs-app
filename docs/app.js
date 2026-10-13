@@ -1233,6 +1233,7 @@ function invCard(i, o) {
     ${obs}
     ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
     ${i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : ""}
+    ${(() => { const r = typeof revisionDe === "function" ? revisionDe(i.m) : null; return r ? `<div class="act act-mano">✍️ Actualizado a mano: ${h(r.que)} · @${h(r.por)} · ${h(fechaCorta(r.en))}</div>` : ""; })()}
     ${(() => { const acc = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (o.ajustes && typeof botonSacar === "function" ? botonSacar(i) : ""); return acc ? `<div class="inv-acc">${acc}</div>` : ""; })()}
   </article>`;
 }

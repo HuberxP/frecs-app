@@ -581,6 +581,8 @@ let llamadasSb = 0, sinRed = false;
     // Saqué (verificador u otro): sigue existiendo por API
     await P.evaluate(a => api("webAjusteSacar", { modulo: a.m, sku: a.s, cant: "1", unidad: "est" }).then(guardarAjustes), lt);
     if (cj() !== cj0 - cpe) errores.push(`sin WMS: «Saqué 1 estiba» no descontó (${cj0} → ${cj()}, cpe ${cpe})`);
+    await P.evaluate(() => cargarInv(true)); await P.evaluate(m => ir("modulo", { mod: m }), lt.m); await P.waitForTimeout(700);
+    if (!/Actualizado a mano: ➖ Sacaron/.test(await P.textContent("#view").catch(() => ""))) errores.push("tarjeta: no muestra la última actualización a mano");
     // Actualizar: la sección en orden, con semáforo
     if (!(await P.$('#nav a[data-v="actualizar"]'))) errores.push("actualizar: no está en el menú del administrador");
     await P.evaluate(s0 => { ls.set("amSolo", ""); ir("actualizar", { sec: s0 }); }, sec); await P.waitForTimeout(900);

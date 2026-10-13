@@ -1552,6 +1552,7 @@
   .ac-macc { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); } .ac-vacio { margin-top: 8px; }
   html[data-vista="lista"] .ac-lista { grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 1100px) { .ac-lista { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .act-mano { color: #c4b5fd; } html[data-tema="claro"] .act-mano { color: #6d28d9; }
   .inv-acc { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
   .inv-acc .btn.sm { min-height: 32px; padding: 3px 9px; font-size: 12.5px; border-radius: 8px; }
   .aj-btn { border-color: #a78bfa; }

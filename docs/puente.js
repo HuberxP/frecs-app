@@ -597,17 +597,27 @@
     try {
       const t = await (await fetch("index.html", { cache: "no-store" })).text();
       const nueva = huella(t);
-      if (nueva && nueva !== mia && !document.getElementById("verChip")) {
-        const b = document.createElement("button");
-        b.id = "verChip"; b.className = "nuevo-chip ver-chip"; b.type = "button";
-        b.textContent = "🔄 Hay una versión nueva · Actualizar";
-        b.onclick = () => location.reload();
-        document.body.appendChild(b);
-      }
+      if (nueva && nueva !== mia && !hayVersion) { hayVersion = true; recargarSiSePuede(); }
     } catch (e) {} finally { revisando = false; }
   }
+  // Versión nueva: se actualiza sola (sin botón). Nunca con cambios sin subir (cola sin conexión o enviándose);
+  // con la página a la vista, espera a que nadie la esté tocando, escribiendo o con una ventana abierta.
+  let hayVersion = false;
+  function recargarSiSePuede() {
+    if (!hayVersion) return;
+    if ((typeof cola === "function" && cola().length) || (window.S && S.enviando && S.enviando.length)) return;
+    if (!document.hidden) {
+      if (typeof modalAbierto === "function" && modalAbierto()) return;
+      if (typeof usandoPantalla === "function" && usandoPantalla()) return;
+      const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+      if (typeof toast === "function") toast("🔄 Actualizando a la versión nueva…", "", 2000);
+    }
+    hayVersion = false;
+    setTimeout(() => location.reload(), document.hidden ? 0 : 1200);
+  }
+  setInterval(recargarSiSePuede, 3000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) revisarVersion(); });
-  setInterval(() => { if (!document.hidden) revisarVersion(); }, 10 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) revisarVersion(); }, 3 * 60 * 1000);
 
   // ---------- ajustes de la versión web (se llaman antes de arrancar la página) ----------
   window.FRECS_WEB = {

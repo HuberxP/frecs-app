@@ -4370,13 +4370,14 @@ function revisionDe(m) {
 VISTAS.actualizar = async (el, p, vigente) => {
   const [inv, vac] = await Promise.all([cargarInv(), api("webVacios").catch(() => [])]);
   if (!vigente()) return;
-  let sec = (p.sec !== undefined ? p.sec : ls.get("actSec", "")).toUpperCase(), solo = ls.get("actSolo", "");
+  let sec = (p.sec !== undefined ? p.sec : ls.get("amSec", "")).toUpperCase(), solo = ls.get("amSolo", ""), modo = ls.get("amModo", "") === "1";
   // Todos los módulos conocidos: con producto, vacíos (mapa de bodega) y los anotados a mano
   const todos = [...new Set([].concat(inv.map(i => i.m), (vac || []).map(v => v.m), Object.keys(S.ocup || {}), ajustesTodos().map(x => x.m)))].filter(Boolean);
   const secciones = [...new Set(todos.map(seccionDe))].filter(Boolean).sort(ordenMod);
   el.innerHTML = cab("✍️ Actualizar módulos", "Escribe la sección y revisa módulo por módulo: corrige, quita, bloquea, añade producto o marca «✅ Está bien». El semáforo dice cuáles faltan desde la última sincronización.") +
     `<div class="lista-tools"><input type="search" id="acS" placeholder="Sección (ej: B, KA, PREV)" value="${h(sec)}" autocapitalize="characters" autocomplete="off" list="acSL"><datalist id="acSL">${secciones.map(s => `<option value="${h(s)}">`).join("")}</datalist>
-      <div class="seg seg-sm" id="acF"><button data-f="" class="${solo ? "" : "on"}">Todos</button><button data-f="1" class="${solo ? "on" : ""}">🔴 Solo los que faltan</button></div></div>
+      <div class="seg seg-sm" id="acF"><button data-f="" class="${solo ? "" : "on"}">Todos</button><button data-f="1" class="${solo ? "on" : ""}">🔴 Solo los que faltan</button></div>
+      <label class="sw-fila ac-modo" title="Mientras actualizas: lo que falta gira en rojo; al corregir o decir «Está bien» se pone verde"><span><b>Estoy actualizando</b></span><span class="sw"><input type="checkbox" id="acModo" ${modo ? "checked" : ""}><i></i></span></label></div>
     <div id="acP"></div><div id="acL"></div>`;
   const pintar = () => {
     if (!sec) { $("#acP", el).innerHTML = ""; $("#acL", el).innerHTML = `<div class="ac-secs">${secciones.map(s => `<button class="btn sm" data-sec="${h(s)}">${h(s)}</button>`).join("")}</div>`; return; }
@@ -4391,20 +4392,23 @@ VISTAS.actualizar = async (el, p, vigente) => {
       : `<div class="ac-lista">${vis.map(f => {
         const bloq = f.lotes.some(i => !i.disp), skus = [...new Set(f.lotes.map(i => i.s))];
         const prods = skus.map(s => { const l = f.lotes.filter(i => i.s === s), i0 = l.slice().sort((a, b) => a.d - b.d)[0], t = l.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
-          return `<div class="ac-prod"><div><b>${skuTxt(s, i0.p)}</b>${!i0.disp ? ` <span class="pill bad">BLOQ · ${h(i0.est)}</span>` : ""}<div class="small">${qty(t.e, t.c, t.u, i0.emp)} · vence <b>${h(i0.vf)}</b>${i0.cand ? ` · 🔑 ${h(i0.cand)}` : ""}</div></div>
+          // Solo lo que interesa: estibas (si no hay, cajas; si no, unidades) y la fecha
+          const cant = t.e > 0 ? `${fm(t.e)} est` : t.c > 0 ? `${fm(t.c)} ${t.c === 1 ? "caja" : "cajas"}` : `${fm(t.u)} und`;
+          return `<div class="ac-prod"><div><b>${skuTxt(s, i0.p)}</b>${!i0.disp ? ` <span class="pill bad">BLOQ · ${h(i0.est)}</span>` : ""}<div class="ac-cant"><b>${cant}</b> · vence <b>${h(i0.vf)}</b>${i0.cand ? ` <span class="small">· 🔑 ${h(i0.cand)}</span>` : ""}</div></div>
             <div class="ac-acc"><button class="btn sm aj-btn" data-fijar="${h(s)}|${h(f.m)}">✏️ Corregir</button><button class="btn sm aj-btn del" data-borrar="${h(s)}|${h(f.m)}">🗑️ Quitar</button></div></div>`; }).join("");
-        return `<article class="card act-mod ${f.rev ? "ok" : "falta"}" data-mod="${h(f.m)}">
+        return `<article class="card act-mod ${f.rev ? "ok" : "falta"} ${f.lotes.length ? "" : "vacio"} ${modo ? "modo" : ""}" data-mod="${h(f.m)}">
           <div class="ac-cab"><span class="ac-sem" title="${f.rev ? "Revisado" : "Falta revisar"}">${f.rev ? "🟢" : "🔴"}</span>${modChip(f.m)}${bloq ? ` <span class="pill bad">🔒 Bloqueado</span>` : ""}
             <span class="small muted ac-quien">${f.rev ? `${h(f.rev.que)} · @${h(f.rev.por)} ${h(fechaCorta(f.rev.en))}` : "Falta revisar"}</span></div>
           ${f.lotes.length ? prods : `<div class="small muted ac-vacio">📭 Vacío${repDe(f.m).v ? " · reportado vacío" : ""}</div>`}
-          <div class="ac-acc ac-macc">${(S.revisiones || []).some(r => r[0] === f.m) ? `<button class="btn sm" data-revquitar="${h(f.m)}">↩︎ Quitar ✅</button>` : `<button class="btn sm b-verde" data-revok="${h(f.m)}">✅ ${f.lotes.length ? "Está bien" : "Está vacío"}</button>`}
+          <div class="ac-acc ac-macc">${(S.revisiones || []).some(r => r[0] === f.m) ? `<button class="btn sm" data-revquitar="${h(f.m)}">↩︎ Quitar ✅</button>` : `<button class="btn sm ac-okb" data-revok="${h(f.m)}">✅ ${f.lotes.length ? "Está bien" : "Está vacío"}</button>`}
             <button class="btn sm aj-btn" data-poner="${h(f.m)}">📥 Añadir producto</button>${f.lotes.length ? `<button class="btn sm aj-btn del" data-bloquear="${h(f.m)}">🔒 Bloquear</button>` : ""}</div></article>`;
       }).join("")}</div>`;
   };
-  $("#acS", el).oninput = e => { sec = e.target.value.trim().toUpperCase(); ls.set("actSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); };
-  $("#acF", el).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; solo = b.dataset.f; ls.set("actSolo", solo); $$("#acF button", el).forEach(x => x.classList.toggle("on", x === b)); pintar(); };
+  $("#acS", el).oninput = e => { sec = e.target.value.trim().toUpperCase(); ls.set("amSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); };
+  $("#acModo", el).onchange = e => { modo = e.target.checked; ls.set("amModo", modo ? "1" : ""); pintar(); };
+  $("#acF", el).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; solo = b.dataset.f; ls.set("amSolo", solo); $$("#acF button", el).forEach(x => x.classList.toggle("on", x === b)); pintar(); };
   el.onclick = async e => {
-    const s = e.target.closest("[data-sec]"); if (s) { sec = s.dataset.sec; $("#acS", el).value = sec; ls.set("actSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); return; }
+    const s = e.target.closest("[data-sec]"); if (s) { sec = s.dataset.sec; $("#acS", el).value = sec; ls.set("amSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); return; }
     const ok = e.target.closest("[data-revok],[data-revquitar]"); if (!ok) return;
     const m = ok.dataset.revok || ok.dataset.revquitar; ok.disabled = true;
     try { guardarRevisiones(await api("webRevision", m, !!ok.dataset.revok)); toast(ok.dataset.revok ? `${m} revisado ✅` : `${m}: se quitó la marca`, "ok", 2500); pintar(); }
@@ -4413,7 +4417,7 @@ VISTAS.actualizar = async (el, p, vigente) => {
   pintar();
 };
 // Desde Por módulo (módulo vacío): ir a Actualizar con su sección
-document.addEventListener("click", e => { const b = e.target.closest("[data-ir-act]"); if (!b) return; e.preventDefault(); ls.set("actSec", seccionDe(b.dataset.irAct)); ir("actualizar", { sec: seccionDe(b.dataset.irAct) }); });
+document.addEventListener("click", e => { const b = e.target.closest("[data-ir-act]"); if (!b) return; e.preventDefault(); ls.set("amSec", seccionDe(b.dataset.irAct)); ir("actualizar", { sec: seccionDe(b.dataset.irAct) }); });
 
 // =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)

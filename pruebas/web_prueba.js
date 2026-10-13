@@ -583,7 +583,7 @@ let llamadasSb = 0, sinRed = false;
     if (cj() !== cj0 - cpe) errores.push(`sin WMS: «Saqué 1 estiba» no descontó (${cj0} → ${cj()}, cpe ${cpe})`);
     // Actualizar: la sección en orden, con semáforo
     if (!(await P.$('#nav a[data-v="actualizar"]'))) errores.push("actualizar: no está en el menú del administrador");
-    await P.evaluate(s0 => { ls.set("actSolo", ""); ir("actualizar", { sec: s0 }); }, sec); await P.waitForTimeout(900);
+    await P.evaluate(s0 => { ls.set("amSolo", ""); ir("actualizar", { sec: s0 }); }, sec); await P.waitForTimeout(900);
     const modsA = await P.$$eval(".act-mod", cs => cs.map(c => c.dataset.mod));
     const ordenOk = modsA.every((m, k) => !k || modsA[k - 1].localeCompare(m, undefined, { numeric: true }) < 0);
     if (!modsA.length || !ordenOk || modsA.some(m => m.replace(/\d.*$/, "") !== sec)) errores.push("actualizar: la sección no sale en orden: " + modsA.slice(0, 8));
@@ -603,7 +603,13 @@ let llamadasSb = 0, sinRed = false;
       await P.click('#acF [data-f="1"]'); await P.waitForTimeout(300);
       if (await P.$(`.act-mod[data-mod="${rojo}"]`)) errores.push("actualizar: «Solo los que faltan» muestra uno revisado");
       await P.click('#acF [data-f=""]'); await P.waitForTimeout(300);
+      // Switch «Estoy actualizando»: lo que falta gira en rojo, lo revisado en verde
+      await P.click("#acModo"); await P.waitForTimeout(300);
+      if (!(await P.$(".act-mod.modo.falta")) || !(await P.$(`.act-mod.modo.ok[data-mod="${rojo}"]`))) errores.push("actualizar: el switch no pone el modo de actualizar");
+      if (await P.$(".act-mod .ac-prod .small:not(.ac-cant)")) {}
+      if (/Cajas:|Unidades:/.test(await P.textContent("#acL"))) errores.push("actualizar: las tarjetas todavía muestran cajas y unidades");
       await P.screenshot({ path: "/tmp/w_actualizar.png" });
+      await P.click("#acModo"); await P.waitForTimeout(200);
       await P.click(`.act-mod[data-mod="${rojo}"] [data-revquitar]`); await P.waitForTimeout(1200);
       if (!(await P.$(`.act-mod.falta[data-mod="${rojo}"]`))) errores.push("actualizar: quitar ✅ no lo devolvió a rojo");
     } else errores.push("actualizar: no hay módulos en rojo para probar");

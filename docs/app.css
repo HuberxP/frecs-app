@@ -1530,7 +1530,21 @@
   /* ---------- Actualizar módulos ---------- */
   .ac-secs { display: flex; flex-wrap: wrap; gap: 6px; } .ac-prog { margin-bottom: 12px; } .ac-prog .bar { margin-top: 8px; }
   .ac-lista { display: grid; gap: 8px; }
-  .card.act-mod { display: block; padding: 10px 12px; border-left: 5px solid var(--bad); } .card.act-mod.ok { border-left-color: var(--ok); }
+  .card.act-mod { display: block; padding: 10px 12px; border-left: 5px solid var(--bad); position: relative; } .card.act-mod.ok { border-left-color: var(--ok); }
+  .card.act-mod.vacio { background: #e9edf2; color: #1d2733; border-color: #c9d1db; } .card.act-mod.vacio .muted, .card.act-mod.vacio .ac-quien { color: #5b6878; }
+  html[data-tema="claro"] .card.act-mod.vacio { background: #f3f5f8; }
+  .ac-cant { font-size: 15px; margin-top: 2px; } .ac-cant b { font-size: 16px; }
+  .btn.ac-okb { background: transparent; border-color: transparent; box-shadow: none; color: var(--ink); padding-left: 4px; }
+  .card.act-mod.vacio .btn.ac-okb { color: #1d2733; }
+  .ac-modo { display: inline-flex; gap: 10px; align-items: center; margin: 0; }
+  /* Modo «Estoy actualizando»: lo que falta con un borde rojo que gira; lo revisado, verde */
+  .card.act-mod.modo { border: 0; padding: 13px 15px; overflow: hidden; isolation: isolate; }
+  .card.act-mod.modo::before { content: ""; position: absolute; inset: -60%; z-index: -2; background: conic-gradient(from 0deg, #ff3b3b, rgba(255,59,59,.05) 25%, #ff3b3b 50%, rgba(255,59,59,.05) 75%, #ff3b3b); animation: girarBorde 2.2s linear infinite; }
+  .card.act-mod.modo::after { content: ""; position: absolute; inset: 3px; z-index: -1; border-radius: calc(var(--r) - 3px); background: var(--card); }
+  .card.act-mod.modo.vacio::after { background: #e9edf2; }
+  .card.act-mod.modo.ok::before { background: var(--ok); animation: none; }
+  @keyframes girarBorde { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .card.act-mod.modo::before { animation-duration: 6s; } }
   .ac-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ac-sem { font-size: 18px; } .ac-quien { margin-left: auto; }
   .ac-prod { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-top: 1px dashed var(--line2); margin-top: 8px; font-size: 13.5px; }
   .ac-acc { display: flex; flex-wrap: wrap; gap: 5px; } .ac-acc .btn.sm { min-height: 32px; padding: 3px 9px; font-size: 12.5px; }

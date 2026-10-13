@@ -90,6 +90,10 @@
   // ⟳ Sincronizar: lo hace Apps Script (tiene la clave del WMS). Autoriza con la sesión de Supabase.
   async function sincronizar(tk, forzar, ok, fallo) {
     if (!CFG.appsScriptUrl) return fallo(AVISO.webSincronizar);
+    // Solo el rotador (validador) o el administrador sincronizan con el WMS (Apps Script lo vuelve a revisar)
+    await cargarDatos(tk);
+    const rol = datos && datos.usuario && datos.usuario.rol;
+    if (!["validador", "administrador"].includes(rol)) return fallo("Solo el rotador o el administrador sincronizan con el WMS.");
     let r;
     try {
       r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "sincronizar", token: tk, forzar: !!forzar }) });

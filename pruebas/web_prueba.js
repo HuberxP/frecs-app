@@ -157,6 +157,14 @@ let llamadasSb = 0, sinRed = false;
   if (!/exactamente una regla General/.test(canMal)) errores.push("canales inválidos no avisan: " + canMal);
   await P.evaluate(() => api("webCanalesGuardar", [{ canal: "T1", tipo: "General", dias: 91 }, { canal: "T2", tipo: "General", dias: 30 }, { canal: "KA", tipo: "General", dias: 120 }, { canal: "KA", tipo: "Familia", valor: "RETORNABLE", dias: 45 }]));
   if (q("select string_agg(canal||tipo||dias_minimos, ',' order by orden) from canales") !== "T1General91,T2General30,KAGeneral120,KAFamilia45") errores.push("canales mal guardados: " + q("select string_agg(canal||tipo||dias_minimos, ',' order by orden) from canales"));
+  // Nueva regla de canal: ventana con los datos; queda antes de la General de su canal y se guarda
+  await P.evaluate(() => ir("canales")); await P.waitForTimeout(700);
+  await P.click('[data-a="add"]'); await P.waitForSelector("#rcOk"); await P.waitForTimeout(500);
+  await P.click('#rcC [data-c="KA"]'); await P.click('#rcT [data-t="Contiene"]'); await P.fill("#rcV", "PONY"); await P.fill("#rcD", "60"); await P.click("#rcOk"); await P.waitForTimeout(1500);
+  const reglasN = q("select string_agg(canal||tipo||coalesce(valor,'')||dias_minimos, ',' order by orden) from canales");
+  if (reglasN !== "T1General91,T2General30,KAGeneral120,KAFamiliaRETORNABLE45,KAContienePONY60") errores.push("canales: la regla nueva no quedó con las de KA: " + reglasN);
+  await P.screenshot({ path: "/tmp/w_canal_regla.png" });
+  await P.evaluate(() => api("webCanalesGuardar", [{ canal: "T1", tipo: "General", dias: 91 }, { canal: "T2", tipo: "General", dias: 30 }, { canal: "KA", tipo: "General", dias: 120 }, { canal: "KA", tipo: "Familia", valor: "RETORNABLE", dias: 45 }]));
   // Capacidad de bodega desde la pantalla de administración
   await P.evaluate(() => ir("capacidad"));
   await P.waitForSelector(".cap-card", { timeout: 10000 });
@@ -481,6 +489,10 @@ let llamadasSb = 0, sinRed = false;
   await V.waitForSelector("#rvQ", { timeout: 15000 });
   const navV = await V.evaluate(() => $$("#nav a[data-v]").map(a => a.dataset.v).sort().join(","));
   if (navV !== "enconsumo,modulo,pocosvig,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
+  // Sincronizar con el WMS: solo rotador o administrador
+  if (await V.isVisible("#syncBtn")) errores.push("verificador: ve el botón Sincronizar");
+  const syncV = await V.evaluate(() => api("webSincronizar").then(() => "sin error", e => e.message));
+  if (!/Solo el rotador o el administrador/.test(syncV)) errores.push("verificador: puede sincronizar: " + syncV);
   const barV = await V.evaluate(() => $$("#bottombar button").map(b => b.dataset.v).join(","));
   if (barV !== "repvacio,repconflicto,repgen,stock") errores.push("verificador: barra de abajo " + barV);
   await V.evaluate(() => ir("validacion")); await V.waitForTimeout(300);
@@ -594,6 +606,9 @@ let llamadasSb = 0, sinRed = false;
     if (!/^\d+\|1$/.test(q("select cajas || '|' || estibas from wms_base where modulo='Z97'"))) errores.push("sin WMS: el botón flotante no guardó en Z97: " + q("select cajas || '|' || estibas from wms_base where modulo='Z97'"));
     await P.screenshot({ path: "/tmp/w_aj_fab.png" });
     q("delete from wms_base where modulo='Z97'"); q("delete from wms_modulos where modulo='Z97'"); q("delete from ajustes_sin_wms where modulo='Z97'"); await P.evaluate(() => api("webAjustes").then(guardarAjustes));
+    // Módulo vacío: dice por qué y deja añadir
+    await P.evaluate(() => ir("modulo", { mod: "Z96" })); await P.waitForTimeout(600);
+    if (!(await P.$(".mod-vacio [data-poner='Z96']")) || !/No aparece en el WMS/.test(await P.textContent(".mod-vacio"))) errores.push("sin WMS: el módulo vacío no explica ni deja añadir");
     // Por módulo: 📥 Añadir otro producto (sin reemplazar), 🗑️ Quitar uno (rotador) y 🔄 Reemplazar
     {
       const otro = await P.evaluate(s0 => S.cat.find(c => c.sku !== s0 && S.inv.some(i => i.s === c.sku)).sku, lt.s);
@@ -607,6 +622,7 @@ let llamadasSb = 0, sinRed = false;
       // 🗑️ Quitar el segundo
       await P.click(`[data-borrar="${otro}|Z98"]`); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1800);
       if (q(`select coalesce(sum(cajas),0) from wms_base where modulo='Z98' and sku='${otro}'`) !== "0") errores.push("sin WMS: «Quitar» no dejó el producto en 0");
+      await P.evaluate(() => ir("modulo", { mod: "A1" })); await P.waitForTimeout(300); await P.evaluate(() => ir("modulo", { mod: "Z98" })); await P.waitForTimeout(600);
       if (await P.$(`[data-borrar="${otro}|Z98"]`)) errores.push("sin WMS: el producto quitado sigue en Por módulo");
       // 🔄 Reemplazar: queda solo lo nuevo
       await P.click('[data-reemplazar="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
@@ -788,6 +804,7 @@ let llamadasSb = 0, sinRed = false;
     await P.evaluate(() => ir("enconsumo")); await P.waitForTimeout(800);
     const nC = (await P.$$(".mc-card")).length;
     if (nC !== esper.split(",").length) errores.push("consumo canal: la sección no lista las marcas: " + nC);
+    if (!(await P.$("#mcL h3.mc-fam + .grid .mc-card"))) errores.push("consumo canal: no se agrupa por familia");
     await P.screenshot({ path: "/tmp/w_enconsumo.png" });
     await P.click(".mc-card [data-quitar]"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(900);
     if ((await P.$$(".mc-card")).length !== nC - 1) errores.push("consumo canal: quitar no funcionó");

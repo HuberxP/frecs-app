@@ -5299,6 +5299,8 @@ function sbWebPost_(data) {
       const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
       return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: hecho })).setMimeType(ContentService.MimeType.JSON);
     }
+    // Sincronizar con el WMS: solo el rotador (validador) o el administrador
+    if (!ROLES[u.rol] || ROLES[u.rol] < ROLES.validador) throw new Error("Solo el rotador o el administrador sincronizan con el WMS.");
     const s = sincronizarWMSCore(data.forzar === true);
     if (!s.ok) throw new Error(s.error);
     console.log(`Sincronización desde el dashboard nuevo por ${u.nombre}: ${s.fisicas} ubicaciones`);
@@ -5836,7 +5838,7 @@ function webConcNota(tk, id, nota) { return webTurnoAuth_(tk, V_, u => { concNot
 // ESCRITURA: operación
 // ---------------------------------------------------------
 function webSincronizar(tk, forzar) {
-  return webAuth_(tk, L_, u => {
+  return webAuth_(tk, V_, u => {
     const r = sincronizarWMSCore(forzar === true);
     if (!r.ok) throw new Error(r.error);
     console.log(`Sincronización desde el dashboard por ${u.nombre}: ${r.fisicas} ubicaciones`);

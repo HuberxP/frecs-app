@@ -696,7 +696,12 @@ document.addEventListener("input", e => {
   if (u.dataset.unt === "est" && v !== "") { if (!p) { p = document.createElement("small"); p.className = "un-eq"; cont.appendChild(p); } p.textContent = `= ${fm(v)} cj`; }
   else if (p) p.remove();
 });
-function pintarUsuario() { $("#userChip").textContent = "👤 " + (S.usuario ? S.usuario.nombre : "…"); pintarCanal(); }
+function pintarUsuario() {
+  $("#userChip").textContent = "👤 " + (S.usuario ? S.usuario.nombre : "…"); pintarCanal();
+  // Sincronizar con el WMS: solo el rotador o el administrador
+  $("#syncBtn").classList.toggle("hidden", !(S.usuario && puede("validador")));
+  if (typeof pintarRecordatorio === "function") pintarRecordatorio();
+}
 $("#canalChip").onclick = () => { if (S.usuario) modalCanal(); };
 document.addEventListener("click", e => { if (!e.target.closest("[data-usuario]")) return; e.preventDefault(); if (typeof menuAbierto === "function" && menuAbierto()) abrirMenu(false); $("#userChip").click(); });
 $("#userChip").onclick = () => {
@@ -1505,10 +1510,23 @@ VISTAS.modulo = async (el, p, vigente) => {
     if (e.target.closest("[data-todo-canal]")) return ir("modulo", { mod: q, todo: 1 });
     if (e.target.closest("[data-solo-canal]")) return ir("modulo", { mod: q }); };
   const r = $("#mr", el);
-  if (!lis.length) { r.innerHTML = arriba + (todos.length ? vacio(`Nada en ${q} cumple ${CANALES[cn]}.`, "⛔") : vacio(`Módulo ${q} vacío o no existe.`, "📭")); return; }
+  if (!lis.length) { r.innerHTML = arriba + (todos.length ? vacio(`Nada en ${q} cumple ${CANALES[cn]}.`, "⛔") : moduloVacioHtml(q)); return; }
   r.innerHTML = "<div></div>";
   listaInv(r.firstChild, { titulo: `Inventario en ${h(q)}`, arriba, items: lis });
 };
+
+// Módulo sin producto: por qué está vacío (a mano sin WMS, reportado o según el WMS) y botón para añadir
+function moduloVacioHtml(q) {
+  const aj = typeof ajustesDe === "function" ? ajustesDe("", q).filter(x => x.fijar === 0 || x.tipo === "SACAR" || x.reemp) : [];
+  const rp = repDe(q).v;
+  const existe = (S.inv || []).some(i => i.m === q) || !!(S.ocup || {})[q];
+  let motivo;
+  if (aj.length) motivo = `Quedó vacío <b>a mano, sin WMS</b>: ${aj.map(x => `${h(queAj(x).replace(/^\S+ /, "").toLowerCase())} ${x.sku ? h(x.sku) : ""} · @${h(x.por)} ${h(fechaCorta(x.en))}`).join(" · ")}.`;
+  else if (existe) motivo = `Está vacío <b>según el WMS</b> (última sincronización${S.sync && S.sync.bot ? `: ${h(S.sync.bot)}` : ""}).`;
+  else motivo = `No aparece en el WMS: revisa el nombre. Si es un módulo real, igual puedes guardar producto aquí.`;
+  return `<div class="card mod-vacio"><div class="mv-t">📭 <b>${h(q)}</b> sin producto</div><p class="small" style="margin:6px 0 0">${motivo}${rp ? ` <span class="tag t-rv">🟠 Reportado vacío por ${h(rp.por)}</span>` : ""}</p>
+    ${typeof puedeAjustar === "function" && puedeAjustar() ? `<div style="margin-top:10px"><button class="btn primary" data-poner="${h(q)}">📥 Añadir producto a ${h(q)}</button></div>` : ""}</div>`;
+}
 
 // =====================================================================
 // ZONAS, CARPA, BARRILES, RETORNABLES, FECHA
@@ -4018,13 +4036,18 @@ VISTAS.enconsumo = async (el, p, vigente) => {
       return Object.assign(x, { lotes: lotes, hrs: hrs, niv: nivelAct(hrs), tot: lotes.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 }), vf: lotes[0] ? lotes[0].vf : "", d: lotes.length ? Math.min(...lotes.map(i => i.d)) : null, vida: lotes[0] ? lotes[0].vida : "sin" });
     }).sort((a, b) => (b.hrs === null ? -1 : b.hrs) - (a.hrs === null ? -1 : a.hrs));
     $("#mcC", el).textContent = `${lis.length} módulos`;
-    $("#mcL", el).innerHTML = lis.length ? `<div class="grid">${lis.map(x => `<article class="card inv mc-card v-${h(x.vida)}">
+    // Por familia (PET, Lata, Retornable, TW, Barril, otros), como la entrega; dentro, lo que lleva más tiempo sin actualizarse primero
+    const tarjeta = x => `<article class="card inv mc-card v-${h(x.vida)}">
         <div class="row sb"><span class="mod-l">${modChip(x.m)}<span class="pill mc-canal">${h(CANALES[x.canal])}</span>${x.forzado ? `<span class="tag t-forz">⚠️ Forzado</span>` : ""}</span>${puedeMarcar() ? `<button class="btn sm del" data-quitar="${h(x.id)}" title="Quitar de consumo">Quitar</button>` : ""}</div>
         <div class="prod">${skuTxt(x.sku, x.prod)}</div>
         ${x.lotes.length ? `${qty(x.tot.e, x.tot.c, x.tot.u)}<div class="vence">Vence <b>${h(x.vf)}</b>${x.d !== null && x.d !== 9999 ? ` · ${x.d} días` : ""}</div>` : `<div class="muted small">El WMS ya no muestra el producto aquí (se quita en la próxima sincronización).</div>`}
         <div class="mc-act act-${h(x.niv)}">${ACT_EMO[x.niv]} Actualizado en el WMS ${h(haceTxt(x.hrs))}</div>
         <div class="small muted">Marcado por <b>${h(x.por)}</b> · ${h(fechaCorta(x.en))}${x.forzado && x.min !== null ? ` · tenía ${h(x.dias)} d (pide ${h(x.min)})` : ""}</div>
-        <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button>${vistaPermitida("repvacio") ? `<button class="btn sm" data-vacio="${h(x.m)}" title="Reportar ${h(x.m)} como vacío (se quita de consumo)">⬜ Reportar vacío</button>` : ""}</div></article>`).join("")}</div>`
+        <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button>${vistaPermitida("repvacio") ? `<button class="btn sm" data-vacio="${h(x.m)}" title="Reportar ${h(x.m)} como vacío (se quita de consumo)">⬜ Reportar vacío</button>` : ""}</div></article>`;
+    const fams = {};
+    lis.forEach(x => { const f = famDe(x.sku, x.prod); (fams[f] = fams[f] || []).push(x); });
+    const orden = Object.keys(fams).sort((a, b) => rangoPres(a) - rangoPres(b) || a.localeCompare(b));
+    $("#mcL", el).innerHTML = lis.length ? orden.map(f => `<h3 class="mc-fam">${h(NOMBRE_PRES[f] || f)} <span class="sec-n">${fams[f].length}</span></h3><div class="grid">${fams[f].map(tarjeta).join("")}</div>`).join("")
       : vacio(marcasTodas().length ? "Nada coincide." : "No hay módulos marcados en consumo. Se marcan con «🚚 Marcar» en Stock o Por módulo. Al reportar un módulo vacío se quita de aquí.", "🚚");
   };
   $("#mcF", el).onclick = e => { const b = e.target.closest("[data-c]"); if (!b) return; canal = b.dataset.c; ls.set("mcCanal", canal); pintar(); };
@@ -4473,7 +4496,10 @@ VISTAS.canales = async (el, p, vigente) => {
   el.oninput = el.onchange = e => { const tr = e.target.closest("tr[data-k]"); if (tr && e.target.dataset.f) filas[+tr.dataset.k][e.target.dataset.f] = e.target.value; };
   el.onclick = async e => {
     const b = e.target.closest("[data-a]"); if (!b) return;
-    if (b.dataset.a === "add") { filas.push({ canal: "KA", tipo: "Familia", valor: "", dias: "", nota: "" }); pintar(); }
+    if (b.dataset.a === "add") return modalReglaCanal(filas, async nuevas => {
+      const r = await api("webCanalesGuardar", nuevas); filas = r.reglas.map(x => Object.assign({}, x));
+      toast("Regla añadida. El inventario se recalcula con las reglas nuevas.", "ok", 6000); S.inv = null; pintar();
+    });
     else if (b.dataset.a === "del") { filas.splice(+b.dataset.k, 1); pintar(); }
     else if (b.dataset.a === "guardar") {
       try { const r = await api("webCanalesGuardar", filas); filas = r.reglas.map(x => Object.assign({}, x)); toast("Canales guardados. El inventario se recalcula con las reglas nuevas.", "ok", 6000); S.inv = null; pintar(); }
@@ -4482,6 +4508,50 @@ VISTAS.canales = async (el, p, vigente) => {
   };
   pintar();
 };
+
+// Nueva regla de canal: una ventana pide los datos; se pone junto a las demás de su canal y se guarda de una vez
+function modalReglaCanal(filas, alGuardar) {
+  let canal = "KA", tipo = "Familia";
+  const m = abrirModal(`<h3>＋ Nueva regla de canal</h3>
+    <div class="field"><span>Canal</span><div class="seg seg-sm" id="rcC">${["T1", "T2", "KA"].map(c => `<button type="button" data-c="${c}" class="${c === canal ? "on" : ""}">${h(CANALES[c] || c)}</button>`).join("")}</div></div>
+    <div class="field"><span>Tipo</span><div class="seg seg-sm" id="rcT">${[["Familia", "Familia (presentación)"], ["Contiene", "El nombre contiene"], ["General", "General"]].map(([t, l]) => `<button type="button" data-t="${t}" class="${t === tipo ? "on" : ""}">${l}</button>`).join("")}</div></div>
+    <label class="field" id="rcVW"><span id="rcVL">Familia</span><input type="text" id="rcV" list="presLM" autocomplete="off" placeholder="PET, LATA, RETORNABLE, TW, BARRIL"><datalist id="presLM">${PRES_ORDEN.map(x => `<option value="${x}">`).join("")}</datalist></label>
+    <div class="grid2" style="gap:0 14px"><label class="field"><span>Días mínimos</span><input type="text" inputmode="numeric" id="rcD" placeholder="Ej.: 45" autocomplete="off"></label>
+      <label class="field"><span>Nota (opcional)</span><input type="text" id="rcN" autocomplete="off"></label></div>
+    <p class="small muted" id="rcA"></p>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="rcOk">＋ Añadir regla</button></div>`);
+  const ayuda = () => {
+    $("#rcVW", m).classList.toggle("hidden", tipo === "General");
+    $("#rcVL", m).textContent = tipo === "Familia" ? "Familia" : "Palabra del nombre";
+    $("#rcV", m).placeholder = tipo === "Familia" ? "PET, LATA, RETORNABLE, TW, BARRIL" : "Ej.: PONY, MALTA, 330";
+    const ya = filas.find(r => r.canal === canal && norm(r.tipo) === "general");
+    $("#rcA", m).innerHTML = tipo === "General" ? (ya ? `${h(CANALES[canal] || canal)} ya tiene regla General (${h(ya.dias)} días): se cambia por esta.` : "La regla General aplica a todo lo que no tenga otra regla.")
+      : `Se pone con las demás reglas de ${h(CANALES[canal] || canal)}. Si un producto coincide con varias, manda la que esté más arriba.`;
+  };
+  ayuda();
+  m.onclick = async e => {
+    const c = e.target.closest("#rcC [data-c]"); if (c) { canal = c.dataset.c; $$("#rcC button", m).forEach(x => x.classList.toggle("on", x === c)); ayuda(); return; }
+    const t = e.target.closest("#rcT [data-t]"); if (t) { tipo = t.dataset.t; $$("#rcT button", m).forEach(x => x.classList.toggle("on", x === t)); ayuda(); return; }
+    if (!e.target.closest("#rcOk")) return;
+    const valor = $("#rcV", m).value.trim(), dias = $("#rcD", m).value.trim(), nota = $("#rcN", m).value.trim();
+    if (tipo !== "General" && !valor) { toast(tipo === "Familia" ? "Escribe la familia." : "Escribe la palabra.", "warn"); $("#rcV", m).focus(); return; }
+    if (!/^\d{1,4}$/.test(dias)) { toast("Escribe los días mínimos con números.", "warn"); $("#rcD", m).focus(); return; }
+    const nueva = { canal: canal, tipo: tipo, valor: tipo === "General" ? "" : valor, dias: dias, nota: nota };
+    let nuevas = filas.map(r => Object.assign({}, r));
+    if (tipo === "General") {
+      const k = nuevas.findIndex(r => r.canal === canal && norm(r.tipo) === "general");
+      if (k >= 0) nuevas[k] = nueva; else nuevas.push(nueva);
+    } else {
+      // Junto a las demás reglas de su canal (la General aplica solo si ninguna otra coincide)
+      let k = -1; nuevas.forEach((r, i) => { if (r.canal === canal) k = i; });
+      if (k >= 0) nuevas.splice(k + 1, 0, nueva); else nuevas.push(nueva);
+    }
+    const btn = $("#rcOk", m); ocupado(btn, true);
+    try { await alGuardar(nuevas); ocupado(btn, false); cerrarModal(true); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+  setTimeout(() => $("#rcV", m).focus(), 60);
+}
 
 // ---------- Lista de consumo (Pony gasto): agregar, ver, cambiar el módulo, volver a automático y quitar ----------
 // Lista de consumo (solo el administrador): qué productos salen en Pony, con qué nombre, en qué orden y de qué módulo se consumen

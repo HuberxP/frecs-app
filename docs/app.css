@@ -1527,6 +1527,16 @@
   .tag.t-fefo1 { border-color: var(--ok); color: var(--ok); background: rgba(57,255,136,.12); font-weight: 800; }
   .mc-fam { margin: 16px 0 8px; color: var(--cyan); display: flex; align-items: center; gap: 8px; } .mc-fam:first-child { margin-top: 4px; }
   .mod-vacio { border-style: dashed; } .mod-vacio .mv-t { font-size: 16px; }
+  /* ---------- Actualizar módulos ---------- */
+  .ac-secs { display: flex; flex-wrap: wrap; gap: 6px; } .ac-prog { margin-bottom: 12px; } .ac-prog .bar { margin-top: 8px; }
+  .ac-lista { display: grid; gap: 8px; }
+  .card.act-mod { display: block; padding: 10px 12px; border-left: 5px solid var(--bad); } .card.act-mod.ok { border-left-color: var(--ok); }
+  .ac-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ac-sem { font-size: 18px; } .ac-quien { margin-left: auto; }
+  .ac-prod { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-top: 1px dashed var(--line2); margin-top: 8px; font-size: 13.5px; }
+  .ac-acc { display: flex; flex-wrap: wrap; gap: 5px; } .ac-acc .btn.sm { min-height: 32px; padding: 3px 9px; font-size: 12.5px; }
+  .ac-macc { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); } .ac-vacio { margin-top: 8px; }
+  html[data-vista="lista"] .ac-lista { grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1100px) { .ac-lista { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .inv-acc { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
   .inv-acc .btn.sm { min-height: 32px; padding: 3px 9px; font-size: 12.5px; border-radius: 8px; }
   .aj-btn { border-color: #a78bfa; }

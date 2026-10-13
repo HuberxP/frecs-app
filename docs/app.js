@@ -27,6 +27,7 @@ const NAV = [
     { id: "hent", ic: "🗂️", t: "Historial de entregas" },
     { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" } ] },
   { g: "Operación", items: [
+    { id: "actualizar", ic: "✍️", t: "Actualizar módulos", rol: "validador" },
     { id: "stock", ic: "📡", t: "Stock por SKU" },
     { id: "pocosvig", ic: "🔔", t: "Alerta de pocos (vigilados)" },
     { id: "producto", ic: "🔍", t: "Información de producto" },
@@ -303,11 +304,14 @@ const usandoPantalla = () => Date.now() - ultimaInteraccion < 15000;
 // Antes, cuando llegaban datos nuevos del servidor la sección se volvía a dibujar sola.
 // Si en ese instante alguien tocaba, el toque caía en otro botón (p. ej. el 🗑 de otra fila).
 // Ahora: si la persona ya tocó la sección, no se redibuja; sale un aviso "Hay cambios · Ver".
+// Sin letrero: si la persona está usando la pantalla, se espera a que la suelte (15 s sin tocar, sin
+// ventana abierta y sin escribir) y entonces se repinta sola.
+const puedeRepintar = () => !modalAbierto() && !usandoPantalla() && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
 function refrescarVista(pintar) {
   if (!modalAbierto() && ultimaInteraccion <= S.vistaDesde) { const y = window.scrollY; pintar(); if (window.scrollY !== y) window.scrollTo(0, y); return; }
   S.pendRepintar = pintar;
-  $("#nuevoChip").classList.remove("hidden");
 }
+setInterval(() => { if (S.pendRepintar && !document.hidden && puedeRepintar()) aplicarPendiente(); }, 3000);
 function quitarChip() { S.pendRepintar = null; const c = document.getElementById("nuevoChip"); if (c) c.classList.add("hidden"); }
 function aplicarPendiente() {
   $("#nuevoChip").classList.add("hidden");
@@ -914,6 +918,7 @@ function guardarInv(d) {
   if (Array.isArray(d.fotos)) S.fotos = d.fotos;
   if (Array.isArray(d.ajustes)) { S.ajustes = d.ajustes; ls.setJ("ajustes", S.ajustes); }
   if (Array.isArray(d.bloqueos)) { S.bloqueos = d.bloqueos; ls.setJ("bloqueos", S.bloqueos); }
+  if (Array.isArray(d.revisiones)) { S.revisiones = d.revisiones; ls.setJ("revisiones", S.revisiones); }
   ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, fotos: S.fotos || [], guardado: ahoraTxt() });
   // Lo que se acaba de traer es lo último: la marca de cambios se toma de nuevo (no se recarga dos veces)
   if (S.usuario) tomarMarcaCambios();
@@ -1228,7 +1233,7 @@ function invCard(i, o) {
     ${obs}
     ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
     ${i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : ""}
-    ${(() => { const acc = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (typeof botonSacar === "function" ? botonSacar(i) : ""); return acc ? `<div class="inv-acc">${acc}</div>` : ""; })()}
+    ${(() => { const acc = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (o.ajustes && typeof botonSacar === "function" ? botonSacar(i) : ""); return acc ? `<div class="inv-acc">${acc}</div>` : ""; })()}
   </article>`;
 }
 
@@ -1536,7 +1541,7 @@ VISTAS.modulo = async (el, p, vigente) => {
     const o = S.ocup[q];
     arriba = `<div class="card" style="margin-bottom:12px"><b>Ocupación:</b> ${fm(o.usadas)} / ${fm(o.capTot)} estibas (${o.caras} caras × ${o.porCara}) · ${o.libres <= 0 ? `<span class="pill bad">MÓDULO LLENO</span>` : `<span class="pill ok">Faltan ${fm(o.libres)} estibas</span>`}</div>`;
   }
-  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button>${typeof botonPoner === "function" ? botonPoner(q, todos.length > 0) : ""}${typeof botonBloquear === "function" ? botonBloquear(q, todos.length > 0) : ""}</div>`;
+  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button></div>`;
   el.onclick = e => { const b = e.target.closest("[data-rep]"); if (b) return ir(b.dataset.rep, { m: q });
     if (e.target.closest("[data-todo-canal]")) return ir("modulo", { mod: q, todo: 1 });
     if (e.target.closest("[data-solo-canal]")) return ir("modulo", { mod: q }); };
@@ -1556,7 +1561,7 @@ function moduloVacioHtml(q) {
   else if (existe) motivo = `Está vacío <b>según el WMS</b> (última sincronización${S.sync && S.sync.bot ? `: ${h(S.sync.bot)}` : ""}).`;
   else motivo = `No aparece en el WMS: revisa el nombre. Si es un módulo real, igual puedes guardar producto aquí.`;
   return `<div class="card mod-vacio"><div class="mv-t">📭 <b>${h(q)}</b> sin producto</div><p class="small" style="margin:6px 0 0">${motivo}${rp ? ` <span class="tag t-rv">🟠 Reportado vacío por ${h(rp.por)}</span>` : ""}</p>
-    ${typeof puedeAjustar === "function" && puedeAjustar() ? `<div style="margin-top:10px"><button class="btn primary" data-poner="${h(q)}">📥 Añadir producto a ${h(q)}</button></div>` : ""}</div>`;
+    ${puede("validador") ? `<div style="margin-top:10px"><button class="btn sm" data-ir-act="${h(q)}">✍️ Actualizar en «Actualizar módulos»</button></div>` : ""}</div>`;
 }
 
 // =====================================================================
@@ -4344,6 +4349,73 @@ function avisoAjustes(box) {
 }
 
 // =====================================================================
+// ✍️ ACTUALIZAR MÓDULOS (rotador / administrador)
+// Se escribe la sección (B, KA, PREV, M…) y salen sus módulos en orden (B1, B2, B3…), también los vacíos.
+// En cada uno: ✏️ Corregir y 🗑️ Quitar cada producto, 📥 Añadir producto, 🔒 Bloquear y ✅ Está bien.
+// Semáforo: 🟢 ya se revisó desde la última sincronización (alguien lo corrigió, quitó, bloqueó, añadió o
+// marcó «Está bien») · 🔴 falta. Así el rotador ve cuáles le faltan.
+// =====================================================================
+// S.revisiones: [módulo, por, en]
+function guardarRevisiones(l) { S.revisiones = Array.isArray(l) ? l : []; ls.setJ("revisiones", S.revisiones); }
+const seccionDe = m => String(m || "").replace(/\d.*$/, "");
+const ordenMod = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+// Quién y cuándo lo revisó (lo último): marca «Está bien», ajuste o bloqueo
+function revisionDe(m) {
+  const l = [];
+  (S.revisiones || []).filter(r => r[0] === m).forEach(r => l.push({ por: r[1], en: r[2], que: "✅ Está bien" }));
+  ajustesDe("", m).forEach(x => l.push({ por: x.por, en: x.en, que: `${queAj(x)} ${x.sku}` }));
+  bloqueosTodos().filter(x => x.m === m).forEach(x => l.push({ por: x.por, en: x.en, que: `🔒 Bloqueado (${x.motivo})` }));
+  return l.sort((a, b) => (b.en || "").localeCompare(a.en || ""))[0] || null;
+}
+VISTAS.actualizar = async (el, p, vigente) => {
+  const [inv, vac] = await Promise.all([cargarInv(), api("webVacios").catch(() => [])]);
+  if (!vigente()) return;
+  let sec = (p.sec !== undefined ? p.sec : ls.get("actSec", "")).toUpperCase(), solo = ls.get("actSolo", "");
+  // Todos los módulos conocidos: con producto, vacíos (mapa de bodega) y los anotados a mano
+  const todos = [...new Set([].concat(inv.map(i => i.m), (vac || []).map(v => v.m), Object.keys(S.ocup || {}), ajustesTodos().map(x => x.m)))].filter(Boolean);
+  const secciones = [...new Set(todos.map(seccionDe))].filter(Boolean).sort(ordenMod);
+  el.innerHTML = cab("✍️ Actualizar módulos", "Escribe la sección y revisa módulo por módulo: corrige, quita, bloquea, añade producto o marca «✅ Está bien». El semáforo dice cuáles faltan desde la última sincronización.") +
+    `<div class="lista-tools"><input type="search" id="acS" placeholder="Sección (ej: B, KA, PREV)" value="${h(sec)}" autocapitalize="characters" autocomplete="off" list="acSL"><datalist id="acSL">${secciones.map(s => `<option value="${h(s)}">`).join("")}</datalist>
+      <div class="seg seg-sm" id="acF"><button data-f="" class="${solo ? "" : "on"}">Todos</button><button data-f="1" class="${solo ? "on" : ""}">🔴 Solo los que faltan</button></div></div>
+    <div id="acP"></div><div id="acL"></div>`;
+  const pintar = () => {
+    if (!sec) { $("#acP", el).innerHTML = ""; $("#acL", el).innerHTML = `<div class="ac-secs">${secciones.map(s => `<button class="btn sm" data-sec="${h(s)}">${h(s)}</button>`).join("")}</div>`; return; }
+    const conDig = /\d/.test(sec);
+    const mods = todos.filter(m => conDig ? m.startsWith(sec) : seccionDe(m) === sec).sort(ordenMod);
+    const filas = mods.map(m => ({ m: m, lotes: (S.inv || []).filter(i => i.m === m && i.fis), rev: revisionDe(m) }));
+    const hechos = filas.filter(f => f.rev).length;
+    $("#acP", el).innerHTML = mods.length ? `<div class="card ac-prog"><b>${hechos} de ${mods.length}</b> módulos revisados en ${h(sec)} <span class="small muted">· desde la última sincronización</span><div class="bar"><i style="width:${Math.round(hechos / mods.length * 100)}%"></i></div></div>` : "";
+    const vis = solo ? filas.filter(f => !f.rev) : filas;
+    $("#acL", el).innerHTML = !mods.length ? vacio(`No hay módulos en la sección «${h(sec)}».`, "🔎")
+      : !vis.length ? vacio(`Todos los módulos de ${h(sec)} están revisados.`, "✅")
+      : `<div class="ac-lista">${vis.map(f => {
+        const bloq = f.lotes.some(i => !i.disp), skus = [...new Set(f.lotes.map(i => i.s))];
+        const prods = skus.map(s => { const l = f.lotes.filter(i => i.s === s), i0 = l.slice().sort((a, b) => a.d - b.d)[0], t = l.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
+          return `<div class="ac-prod"><div><b>${skuTxt(s, i0.p)}</b>${!i0.disp ? ` <span class="pill bad">BLOQ · ${h(i0.est)}</span>` : ""}<div class="small">${qty(t.e, t.c, t.u, i0.emp)} · vence <b>${h(i0.vf)}</b>${i0.cand ? ` · 🔑 ${h(i0.cand)}` : ""}</div></div>
+            <div class="ac-acc"><button class="btn sm aj-btn" data-fijar="${h(s)}|${h(f.m)}">✏️ Corregir</button><button class="btn sm aj-btn del" data-borrar="${h(s)}|${h(f.m)}">🗑️ Quitar</button></div></div>`; }).join("");
+        return `<article class="card act-mod ${f.rev ? "ok" : "falta"}" data-mod="${h(f.m)}">
+          <div class="ac-cab"><span class="ac-sem" title="${f.rev ? "Revisado" : "Falta revisar"}">${f.rev ? "🟢" : "🔴"}</span>${modChip(f.m)}${bloq ? ` <span class="pill bad">🔒 Bloqueado</span>` : ""}
+            <span class="small muted ac-quien">${f.rev ? `${h(f.rev.que)} · @${h(f.rev.por)} ${h(fechaCorta(f.rev.en))}` : "Falta revisar"}</span></div>
+          ${f.lotes.length ? prods : `<div class="small muted ac-vacio">📭 Vacío${repDe(f.m).v ? " · reportado vacío" : ""}</div>`}
+          <div class="ac-acc ac-macc">${(S.revisiones || []).some(r => r[0] === f.m) ? `<button class="btn sm" data-revquitar="${h(f.m)}">↩︎ Quitar ✅</button>` : `<button class="btn sm b-verde" data-revok="${h(f.m)}">✅ ${f.lotes.length ? "Está bien" : "Está vacío"}</button>`}
+            <button class="btn sm aj-btn" data-poner="${h(f.m)}">📥 Añadir producto</button>${f.lotes.length ? `<button class="btn sm aj-btn del" data-bloquear="${h(f.m)}">🔒 Bloquear</button>` : ""}</div></article>`;
+      }).join("")}</div>`;
+  };
+  $("#acS", el).oninput = e => { sec = e.target.value.trim().toUpperCase(); ls.set("actSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); };
+  $("#acF", el).onclick = e => { const b = e.target.closest("[data-f]"); if (!b) return; solo = b.dataset.f; ls.set("actSolo", solo); $$("#acF button", el).forEach(x => x.classList.toggle("on", x === b)); pintar(); };
+  el.onclick = async e => {
+    const s = e.target.closest("[data-sec]"); if (s) { sec = s.dataset.sec; $("#acS", el).value = sec; ls.set("actSec", sec); S.params = Object.assign({}, S.params, { sec: sec }); pintar(); return; }
+    const ok = e.target.closest("[data-revok],[data-revquitar]"); if (!ok) return;
+    const m = ok.dataset.revok || ok.dataset.revquitar; ok.disabled = true;
+    try { guardarRevisiones(await api("webRevision", m, !!ok.dataset.revok)); toast(ok.dataset.revok ? `${m} revisado ✅` : `${m}: se quitó la marca`, "ok", 2500); pintar(); }
+    catch (er) { ok.disabled = false; toast(er.message, "bad", 6000); }
+  };
+  pintar();
+};
+// Desde Por módulo (módulo vacío): ir a Actualizar con su sección
+document.addEventListener("click", e => { const b = e.target.closest("[data-ir-act]"); if (!b) return; e.preventDefault(); ls.set("actSec", seccionDe(b.dataset.irAct)); ir("actualizar", { sec: seccionDe(b.dataset.irAct) }); });
+
+// =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)
 // =====================================================================
 VISTAS.usuarios = async (el, p, vigente) => {
@@ -4784,6 +4856,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
     S.ajustes = Array.isArray(i.ajustes) ? i.ajustes : []; ls.setJ("ajustes", S.ajustes);
     S.bloqueos = Array.isArray(i.bloqueos) ? i.bloqueos : []; ls.setJ("bloqueos", S.bloqueos);
+    S.revisiones = Array.isArray(i.revisiones) ? i.revisiones : []; ls.setJ("revisiones", S.revisiones);
     avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
@@ -4821,7 +4894,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []); S.revisiones = ls.getJ("revisiones", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

@@ -767,7 +767,13 @@ let llamadasSb = 0, sinRed = false;
     await P.click(`#sr [data-marcar="2222|${modM}"]`); await P.waitForTimeout(400);
     const cumple = await P.$$eval(".mc-can", cs => cs.map(c => c.classList.contains("si")));
     const ci = cumple.indexOf(true), ni = cumple.indexOf(false), C = ["T1", "T2", "KA"];
-    if (ci >= 0) { await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ci]}"]`); await P.waitForTimeout(800); }
+    if (ci >= 0) {
+      await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ci]}"]`); await P.waitForTimeout(800);
+      // «Cerrar» funciona después de marcar (la ventana se vuelve a pintar)
+      await P.waitForTimeout(450); await P.click(".modal-card [data-x]"); await P.waitForTimeout(500);
+      if (await P.$(".modal-card .mc-cans")) errores.push("consumo canal: «Cerrar» no cierra después de marcar");
+      if (ni >= 0) { await P.click(`#sr [data-marcar="2222|${modM}"]`); await P.waitForTimeout(400); }
+    }
     if (ni >= 0) {
       await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ni]}"]`); await P.waitForTimeout(500);
       if (!/No está disponible/.test(await P.textContent(".modal-card").catch(() => ""))) errores.push("consumo canal: no avisa que no cumple");
@@ -785,6 +791,14 @@ let llamadasSb = 0, sinRed = false;
     await P.screenshot({ path: "/tmp/w_enconsumo.png" });
     await P.click(".mc-card [data-quitar]"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(900);
     if ((await P.$$(".mc-card")).length !== nC - 1) errores.push("consumo canal: quitar no funcionó");
+    // ⬜ Reportar vacío desde aquí: se quita de consumo
+    await P.evaluate(m => api("webMarcaPoner", { sku: "2222", producto: "Pony", modulo: m, canal: "KA", forzado: true, dias: "", minimo: "" }).then(guardarMarcas).catch(() => null), modM);
+    await P.evaluate(() => ir("enconsumo")); await P.waitForTimeout(800);
+    await P.click(`.mc-card [data-vacio="${modM}"]`); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1500);
+    if (q(`select count(*) from marcas_consumo where modulo='${modM}' and quitado_en is null`) !== "0" || q(`select count(*) from marcas_consumo where modulo='${modM}' and cierre='VACIO'`) === "0") errores.push("consumo canal: reportar vacío no quitó el módulo de consumo");
+    if (q(`select count(*) from reportes_modulo where modulo='${modM}' and tipo='VACIO' and estado='PENDIENTE'`) !== "1") errores.push("consumo canal: no quedó el reporte de vacío");
+    if ((await P.$$(".mc-card")).length) errores.push("consumo canal: la tarjeta sigue después de reportar vacío");
+    q(`delete from reportes_modulo where modulo='${modM}'`); await P.evaluate(() => api("webReportes").then(r => guardarRep(r.lista)).catch(() => null));
     q("delete from marcas_consumo");
     await P.evaluate(() => api("webMarcas").then(guardarMarcas));
   }

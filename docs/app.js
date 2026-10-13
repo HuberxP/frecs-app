@@ -3558,7 +3558,7 @@ VISTAS.repvacio = async (el, p, vigente) => {
       if (!(await confirmar("Reportar vacíos", `¿Reportar como <b>vacío${lista.length > 1 ? "s" : ""}</b>: ${lista.map(m => `<b>${h(m)}</b>`).join(", ")}?`, "Sí, reportar"))) return;
       const nota = $("#rvN", el).value.trim(), btn = $("#rvG", el); ocupado(btn, true);
       const items = lista.map(m => Object.assign({ tipo: "VACIO", modulo: m, nota: nota }, sistemaDe(mods.find(x => x.m === m).lotes)));
-      try { const r = await api("webReporteCrear", items); guardarRep(r.lista); avisoGuardado(r, "Reportado vacío"); sel.clear(); $("#rvN", el).value = ""; ocupado(btn, false); pintar(); }
+      try { const r = await api("webReporteCrear", items); guardarRep(r.lista); avisoGuardado(r, "Reportado vacío"); if (typeof guardarMarcas === "function") api("webMarcas").then(guardarMarcas).catch(() => null); sel.clear(); $("#rvN", el).value = ""; ocupado(btn, false); pintar(); }
       catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
     }
   };
@@ -3975,11 +3975,13 @@ function modalMarcar(sku, m) {
       <div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`;
   };
   const c = abrirModal(pintar());
+  // Al volver a pintar la ventana, «Cerrar» necesita su acción otra vez
+  const repintarModal = () => { c.innerHTML = pintar(); c.querySelectorAll("[data-x]").forEach(b => b.onclick = () => cerrarModal()); };
   c.onclick = async e => {
     const b = e.target.closest("[data-c],[data-q]"); if (!b || b.disabled) return;
     if (b.dataset.q) {
       b.disabled = true;
-      try { guardarMarcas(await api("webMarcaQuitar", b.dataset.q)); toast("Se quitó de consumo", "ok"); c.innerHTML = pintar(); repintar(); } catch (er) { b.disabled = false; toast(er.message, "bad", 6000); }
+      try { guardarMarcas(await api("webMarcaQuitar", b.dataset.q)); toast("Se quitó de consumo", "ok"); repintarModal(); repintar(); } catch (er) { b.disabled = false; toast(er.message, "bad", 6000); }
       return;
     }
     const canal = b.dataset.c, ok = cumpleCanal(i, canal), mn = (i.min || {})[canal];
@@ -3992,7 +3994,7 @@ function modalMarcar(sku, m) {
     try {
       guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn) }));
       toast(`${m} en consumo para ${CANALES[canal]}${ok ? "" : " (forzado)"}`, ok ? "ok" : "warn", 3500);
-      if (c.isConnected) c.innerHTML = pintar(); repintar();
+      if (c.isConnected) repintarModal(); repintar();
     } catch (er) { if (b.isConnected) b.disabled = false; toast(er.message, "bad", 6000); }
   };
 }
@@ -4003,7 +4005,7 @@ VISTAS.enconsumo = async (el, p, vigente) => {
   const [inv] = await Promise.all([cargarInv(), api("webMarcas").then(guardarMarcas).catch(() => null)]);
   if (!vigente()) return;
   let canal = ls.get("mcCanal", "") , q = "";
-  el.innerHTML = cab("🚚 Módulos en consumo", "De qué módulo se está cargando cada producto y para qué canal. Los marca el verificador, el rotador o el administrador; se quitan a mano o solos cuando el producto sale del módulo. Arriba, los que llevan más tiempo sin actualizarse en el WMS.") +
+  el.innerHTML = cab("🚚 Módulos en consumo", "De qué módulo se está cargando cada producto y para qué canal. Los marca el verificador, el rotador o el administrador; se quitan a mano, al reportar el módulo vacío o solos cuando el producto sale del módulo. Arriba, los que llevan más tiempo sin actualizarse en el WMS.") +
     `<div class="lista-tools"><div class="seg" id="mcF"><button data-c="">Todos</button>${["T1", "T2", "KA"].map(c => `<button data-c="${c}">${h(CANALES[c])}</button>`).join("")}</div>
       <input type="search" id="mcQ" placeholder="Buscar SKU, producto o módulo…" autocomplete="off"><span class="count" id="mcC"></span></div><div id="mcL"></div>`;
   const pintar = () => {
@@ -4022,13 +4024,27 @@ VISTAS.enconsumo = async (el, p, vigente) => {
         ${x.lotes.length ? `${qty(x.tot.e, x.tot.c, x.tot.u)}<div class="vence">Vence <b>${h(x.vf)}</b>${x.d !== null && x.d !== 9999 ? ` · ${x.d} días` : ""}</div>` : `<div class="muted small">El WMS ya no muestra el producto aquí (se quita en la próxima sincronización).</div>`}
         <div class="mc-act act-${h(x.niv)}">${ACT_EMO[x.niv]} Actualizado en el WMS ${h(haceTxt(x.hrs))}</div>
         <div class="small muted">Marcado por <b>${h(x.por)}</b> · ${h(fechaCorta(x.en))}${x.forzado && x.min !== null ? ` · tenía ${h(x.dias)} d (pide ${h(x.min)})` : ""}</div>
-        <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button></div></article>`).join("")}</div>`
-      : vacio(marcasTodas().length ? "Nada coincide." : "No hay módulos marcados en consumo. Se marcan con «🚚 Marcar consumo» en Stock o Por módulo.", "🚚");
+        <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button>${vistaPermitida("repvacio") ? `<button class="btn sm" data-vacio="${h(x.m)}" title="Reportar ${h(x.m)} como vacío (se quita de consumo)">⬜ Reportar vacío</button>` : ""}</div></article>`).join("")}</div>`
+      : vacio(marcasTodas().length ? "Nada coincide." : "No hay módulos marcados en consumo. Se marcan con «🚚 Marcar» en Stock o Por módulo. Al reportar un módulo vacío se quita de aquí.", "🚚");
   };
   $("#mcF", el).onclick = e => { const b = e.target.closest("[data-c]"); if (!b) return; canal = b.dataset.c; ls.set("mcCanal", canal); pintar(); };
   $("#mcQ", el).oninput = e => { q = e.target.value.trim(); pintar(); };
   el.onclick = async e => {
     const s = e.target.closest("[data-sku]"); if (s) return ir("stock", { sku: s.dataset.sku });
+    // ⬜ Reportar vacío desde aquí: el reporte quita el módulo de consumo (todas sus marcas)
+    const v = e.target.closest("[data-vacio]");
+    if (v) {
+      const m = v.dataset.vacio;
+      if (!(await confirmar("Reportar vacío", `¿Reportar <b>${h(m)}</b> como <b>vacío</b>? Se quita de módulos en consumo.`, "Sí, reportar"))) return;
+      v.disabled = true;
+      try {
+        const lotes = inv.filter(i => i.m === m && i.fis);
+        const r = await api("webReporteCrear", [Object.assign({ tipo: "VACIO", modulo: m, nota: "Desde módulos en consumo" }, typeof sistemaDe === "function" ? sistemaDe(lotes) : {})]);
+        guardarRep(r.lista); if (typeof avisoGuardado === "function") avisoGuardado(r, `${m} reportado vacío`); else toast(`${m} reportado vacío`, "ok");
+        guardarMarcas(await api("webMarcas")); pintar();
+      } catch (er) { v.disabled = false; toast(er.message, "bad", 6000); }
+      return;
+    }
     const b = e.target.closest("[data-quitar]"); if (!b) return;
     const x = marcasTodas().find(y => y.id === b.dataset.quitar); if (!x) return;
     if (!(await confirmar("Quitar de consumo", `¿Quitar ${h(x.m)} · ${skuTxt(x.sku, x.prod)} de consumo para ${h(CANALES[x.canal])}?`, "Quitar", true))) return;

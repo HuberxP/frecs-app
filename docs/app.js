@@ -879,6 +879,7 @@ function guardarInv(d) {
   S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
   if (Array.isArray(d.fotos)) S.fotos = d.fotos;
   if (Array.isArray(d.ajustes)) { S.ajustes = d.ajustes; ls.setJ("ajustes", S.ajustes); }
+  if (Array.isArray(d.bloqueos)) { S.bloqueos = d.bloqueos; ls.setJ("bloqueos", S.bloqueos); }
   ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, fotos: S.fotos || [], guardado: ahoraTxt() });
 }
 // Fotos del WMS (la que tomaron al marcar la prioridad), por producto y módulo: la más nueva
@@ -1499,7 +1500,7 @@ VISTAS.modulo = async (el, p, vigente) => {
     const o = S.ocup[q];
     arriba = `<div class="card" style="margin-bottom:12px"><b>Ocupación:</b> ${fm(o.usadas)} / ${fm(o.capTot)} estibas (${o.caras} caras × ${o.porCara}) · ${o.libres <= 0 ? `<span class="pill bad">MÓDULO LLENO</span>` : `<span class="pill ok">Faltan ${fm(o.libres)} estibas</span>`}</div>`;
   }
-  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button>${typeof botonPoner === "function" ? botonPoner(q) : ""}</div>`;
+  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button>${typeof botonPoner === "function" ? botonPoner(q, todos.length > 0) : ""}${typeof botonBloquear === "function" ? botonBloquear(q, todos.length > 0) : ""}</div>`;
   el.onclick = e => { const b = e.target.closest("[data-rep]"); if (b) return ir(b.dataset.rep, { m: q });
     if (e.target.closest("[data-todo-canal]")) return ir("modulo", { mod: q, todo: 1 });
     if (e.target.closest("[data-solo-canal]")) return ir("modulo", { mod: q }); };
@@ -3956,7 +3957,7 @@ function guardarMarcas(lista) { S.marcas = Array.isArray(lista) ? lista : []; ls
 function tagsMarcas(sku, m) {
   return marcasDe(sku, m).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}">⚠️ Forzado ${h(x.canal)}</span>` : ""}`);
 }
-const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}">🚚 ${marcasDe(i.s, i.m).length ? "Consumo" : "Marcar consumo"}</button>` : "";
+const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}" title="Marcar módulo en consumo">🚚 ${marcasDe(i.s, i.m).length ? "Marcado" : "Marcar"}</button>` : "";
 // Ventana: escoger el canal (o quitar el que ya está)
 function modalMarcar(sku, m) {
   const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis);
@@ -4051,8 +4052,8 @@ const ajusteObj = r => ({ id: r[0], tipo: r[1], m: r[2], sku: r[3], prod: r[4], 
 const ajustesTodos = () => (S.ajustes || []).map(ajusteObj);
 const ajustesDe = (sku, m) => ajustesTodos().filter(x => x.m === String(m) && (!sku || x.sku === String(sku)));
 const unTxt = (n, un) => `${fm(n)} ${un === "cj" ? (n === 1 ? "caja" : "cajas") : (n === 1 ? "estiba" : "estibas")}`;
-const cantAj = x => unTxt(x.fijar !== null ? x.fijar : x.cant, x.un);
-const queAj = x => x.fijar !== null ? "✏️ Corrigieron a" : x.tipo === "SACAR" ? "➖ Sacaron" : "📥 Guardaron";
+const cantAj = x => x.fijar === 0 ? `el producto (había ${unTxt(Math.round(x.cant * 10) / 10, x.un)})` : unTxt(x.fijar !== null ? x.fijar : x.cant, x.un);
+const queAj = x => x.fijar === 0 ? "🗑️ Quitaron" : x.fijar !== null ? "✏️ Corrigieron a" : x.tipo === "SACAR" ? "➖ Sacaron" : (x.reemp ? "🔄 Reemplazaron con" : "📥 Guardaron");
 // Puesto FEFO de ese producto en ese módulo (lo disponible en bodega, sin KA / PREV ni módulos reportados vacíos)
 function posFefo(sku, m) {
   const l = (S.inv || []).filter(i => i.s === String(sku) && i.fis && i.disp && !i.esOp && !repVacio(i.m)).sort(ordConsumo);
@@ -4069,9 +4070,12 @@ function tagsAjuste(sku, m) {
   return l.map(x => `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">${x.tipo === "PONER" ? "📥 Guardado sin WMS" : `${queAj(x)} ${h(cantAj(x))}`} · @${h(x.por)}</span>`)
     .concat(p.n ? [p.n === 1 ? `<span class="tag t-fefo1">🥇 1º en FEFO</span>` : `<span class="tag t-aj" title="Primero sale ${h(p.primero.m)} (vence ${h(p.primero.vf)})">#${p.n} de ${p.de} en FEFO · primero ${h(p.primero.m)}</span>`] : []);
 }
-const botonSacar = i => (puedeAjustar() && i.fis ? `<button type="button" class="btn sm aj-btn" data-sacar="${h(i.s)}|${h(i.m)}">➖ Saqué</button>` : "") +
-  (puede("validador") && i.fis ? `<button type="button" class="btn sm aj-btn" data-fijar="${h(i.s)}|${h(i.m)}">✏️ Corregir</button>` : "");
-const botonPoner = m => puedeAjustar() ? `<button class="btn sm aj-btn" data-poner="${h(m)}">📥 Guardé producto aquí</button>` : "";
+// Botones de la tarjeta (cortos): ➖ Saqué (quien ajusta) · ✏️ Corregir y 🗑️ Quitar (rotador / administrador)
+const botonSacar = i => !i.fis ? "" : (puedeAjustar() ? `<button type="button" class="btn sm aj-btn" data-sacar="${h(i.s)}|${h(i.m)}" title="Saqué de este módulo">➖ Saqué</button>` : "") +
+  (puede("validador") ? `<button type="button" class="btn sm aj-btn" data-fijar="${h(i.s)}|${h(i.m)}" title="Corregir la cantidad que hay">✏️ Corregir</button><button type="button" class="btn sm aj-btn del" data-borrar="${h(i.s)}|${h(i.m)}" title="Quitar este producto del módulo">🗑️ Quitar</button>` : "");
+// En Por módulo: añadir otro producto (quien ajusta) o reemplazar lo que hay (rotador / administrador)
+const botonPoner = (m, conProducto) => (puedeAjustar() ? `<button class="btn sm aj-btn" data-poner="${h(m)}">📥 ${conProducto ? "Añadir otro producto" : "Guardé producto aquí"}</button>` : "") +
+  (conProducto && puede("validador") ? `<button class="btn sm aj-btn" data-reemplazar="${h(m)}">🔄 Reemplazar producto</button>` : "");
 // Después de un ajuste: inventario fresco y la pantalla de nuevo
 async function trasAjuste(l, msj, sku, m) {
   guardarAjustes(l);
@@ -4120,7 +4124,8 @@ function modalSacar(sku, m) {
   };
 }
 // 📥 Guardé un producto en un módulo (desde cualquier pantalla: si no se sabe el módulo, se escribe)
-async function modalPoner(m0, sku0) {
+async function modalPoner(m0, sku0, reemp0) {
+  const puedeReemp = puede("validador");
   await Promise.all([cargarCat().catch(() => null), cargarInv().catch(() => null)]);
   let m = m0 ? limpiarMod(m0) : "", prod = null, un = "est";
   if (sku0) { const c0 = (S.cat || []).find(x => x.sku === String(sku0)); if (c0) prod = { sku: c0.sku, prod: c0.prod }; }
@@ -4128,10 +4133,10 @@ async function modalPoner(m0, sku0) {
     if (!m) return `<p class="small muted">Escribe el módulo donde guardaste el producto (aunque esté vacío).</p>`;
     const hay = (S.inv || []).filter(i => i.m === m && i.fis), skus = [...new Set(hay.map(i => i.s))];
     return hay.length ? `<div class="mc-info small">En ${modChip(m)}, según la última sincronización, hay: ${skus.map(s => { const l2 = hay.filter(i => i.s === s); return `<div>${skuTxt(s, l2[0].p)} · ${fm(l2.reduce((a, i) => a + i.e, 0))} est</div>`; }).join("")}</div>
-      <label class="toggle aj-reemp"><input type="checkbox" id="ajR" checked> Reemplaza lo que había (lo de antes ya no está en ${h(m)})</label>`
+      ${puedeReemp ? `<label class="toggle aj-reemp"><input type="checkbox" id="ajR" ${reemp0 ? "checked" : ""}> Reemplaza lo que había (lo de antes ya no está en ${h(m)})</label>` : `<p class="small muted">Se añade junto a lo que ya hay. Quitar o reemplazar lo hace el rotador.</p>`}`
       : `<p class="small muted">${modChip(m)} está vacío según la última sincronización.</p>`;
   };
-  const c = abrirModal(`<h3>📥 Guardé producto</h3>
+  const c = abrirModal(`<h3>${reemp0 ? "🔄 Reemplazar producto" : "📥 Guardé producto"}</h3>
     <label class="field"><span>Módulo</span><input type="search" id="ajM" value="${h(m)}" placeholder="Ej: B12" autocapitalize="characters" autocomplete="off"></label>
     <div id="ajH">${infoMod()}</div>
     <div style="margin-top:10px">${campoAuto("ajP", "Nombre o SKU", prod ? `${prod.sku} · ${prod.prod}` : "")}</div>
@@ -4191,20 +4196,81 @@ function modalFijar(sku, m) {
     catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
   };
 }
+// 🗑️ Quitar el producto del módulo (rotador / administrador): queda en 0; se puede deshacer
+async function quitarProducto(sku, m) {
+  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis); if (!lotes.length) return toast("Ese producto ya no está en el módulo.", "warn");
+  const tot = lotes.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
+  if (!(await confirmar("🗑️ Quitar producto", `¿Quitar <b>${skuTxt(sku, lotes[0].p)}</b> de <b>${h(m)}</b>?<br><span class="small">Tiene ${qty(tot.e, tot.c, tot.u)}. Queda en 0 (se puede deshacer en Inicio). Para poner otro usa «📥 Añadir» o «🔄 Reemplazar».</span>`, "Quitar", true))) return;
+  try { await trasAjuste(await api("webAjusteFijar", { modulo: m, sku: sku, cant: "0", unidad: "cj" }), `${sku} quitado de ${m}`); }
+  catch (er) { toast(er.message, "bad", 7000); }
+}
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-sacar],[data-poner],[data-desh],[data-fijar]"); if (!b || b.closest(".modal-card")) return;
+  const b = e.target.closest("[data-sacar],[data-poner],[data-desh],[data-fijar],[data-borrar],[data-reemplazar]"); if (!b || b.closest(".modal-card")) return;
   e.preventDefault(); e.stopPropagation();
-  if (b.dataset.fijar) { const [s, m] = b.dataset.fijar.split("|"); modalFijar(s, m); }
+  if (b.dataset.borrar) { const [s, m] = b.dataset.borrar.split("|"); quitarProducto(s, m); }
+  else if (b.dataset.reemplazar) modalPoner(b.dataset.reemplazar, "", true);
+  else if (b.dataset.fijar) { const [s, m] = b.dataset.fijar.split("|"); modalFijar(s, m); }
   else if (b.dataset.sacar) { const [s, m] = b.dataset.sacar.split("|"); modalSacar(s, m); }
   else if (b.dataset.poner) modalPoner(b.dataset.poner);
   else deshacerAjuste(b.dataset.desh, b);
 }, true);
-// Aviso en Inicio: lo anotado a mano desde la última sincronización
+// ---------- 🔒 Bloquear un módulo sin WMS (rotador / administrador) ----------
+// S.bloqueos: [id, módulo, sku, motivo, candado, fecha, por, en, nota]
+const bloqueoObj = r => ({ id: r[0], m: r[1], sku: r[2], motivo: r[3], cand: r[4], fecha: r[5], por: r[6], en: r[7], nota: r[8] });
+const bloqueosTodos = () => (S.bloqueos || []).map(bloqueoObj);
+function guardarBloqueos(l) { S.bloqueos = Array.isArray(l) ? l : []; ls.setJ("bloqueos", S.bloqueos); }
+const botonBloquear = (m, conProducto) => conProducto && puede("validador") ? `<button class="btn sm aj-btn del" data-bloquear="${h(m)}">🔒 Bloquear módulo</button>` : "";
+const filaBloqueo = x => `<div class="aj-f"><div><b>🔒 Bloquearon ${modChip(x.m)}</b>${x.sku ? ` · ${h(x.sku)}` : ""} · <b>${h(x.motivo)}</b>${x.cand ? ` · 🔑 ${h(x.cand)}` : ""} · desde ${h(fechaDMY(x.fecha))}${x.nota ? ` · ${h(x.nota)}` : ""}
+    <div class="small muted">@${h(x.por)} · ${h(fechaCorta(x.en))}</div></div>${puede("validador") ? `<button class="btn sm" data-desbloq="${h(x.id)}">🔓 Desbloquear</button>` : ""}</div>`;
+async function modalBloquear(m) {
+  await cargarInv().catch(() => null);
+  const hay = (S.inv || []).filter(i => i.m === m && i.fis), skus = [...new Set(hay.map(i => i.s))];
+  if (!hay.length) return toast(`${m} no tiene producto para bloquear.`, "warn");
+  let mot = "PNC CALIDAD";
+  const hoy = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
+  const c = abrirModal(`<h3>🔒 Bloquear ${modChip(m)}</h3>
+    ${skus.length > 1 ? `<label class="field"><span>¿Qué se bloquea?</span><select id="blS"><option value="">Todo el módulo (${skus.length} productos)</option>${skus.map(s => `<option value="${h(s)}">${h(s)} · ${h(hay.find(i => i.s === s).p)}</option>`).join("")}</select></label>`
+      : `<div class="mc-info small">${skuTxt(skus[0], hay[0].p)}</div>`}
+    <div class="field"><span>Motivo</span><div class="seg seg-sm" id="blM"><button type="button" data-m="PNC CALIDAD" class="on">PNC calidad</button><button type="button" data-m="PRUEBA DE TRANSPORTE">Prueba de transporte</button><button type="button" data-m="OTRO">Otro</button></div></div>
+    <label class="field hidden" id="blOW"><span>¿Cuál?</span><input type="text" id="blO" maxlength="60" placeholder="Ej: golpeado, en revisión"></label>
+    <div class="grid2 rot-campos"><label class="field"><span>Fecha del bloqueo</span><input type="date" id="blF" value="${hoy}"></label>
+      <label class="field"><span>Candados</span><input type="text" id="blC" maxlength="120" placeholder="Ej: E79, E80" autocomplete="off"></label></div>
+    <label class="field"><span>Nota (opcional)</span><input type="text" id="blN" maxlength="300" autocomplete="off"></label>
+    <p class="small muted">Queda bloqueado en todo el aplicativo (no cuenta como disponible ni entra al FEFO). Cuando el WMS vuelva y se sincronice, manda lo del WMS.</p>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn danger" id="blOk">🔒 Bloquear</button></div>`);
+  c.onclick = async e => {
+    const b = e.target.closest("#blM [data-m]"); if (b) { mot = b.dataset.m; $$("#blM button", c).forEach(x => x.classList.toggle("on", x === b)); $("#blOW", c).classList.toggle("hidden", mot !== "OTRO"); if (mot === "OTRO") $("#blO", c).focus(); return; }
+    if (!e.target.closest("#blOk")) return;
+    const f = $("#blF", c).value, o = $("#blO", c).value.trim(), sk = $("#blS", c) ? $("#blS", c).value : "";
+    if (!f) return toast("Escribe la fecha del bloqueo.", "warn");
+    if (mot === "OTRO" && !o) { toast("Escribe el motivo.", "warn"); $("#blO", c).focus(); return; }
+    const btn = $("#blOk", c); ocupado(btn, true);
+    try {
+      guardarBloqueos(await api("webBloquear", { modulo: m, sku: sk, motivo: mot, otro: o, candado: $("#blC", c).value.trim(), fecha: f, nota: $("#blN", c).value.trim() }));
+      ocupado(btn, false); cerrarModal(true);
+      try { await cargarInv(true); } catch (x) {}
+      toast(`${m} bloqueado (${mot === "OTRO" ? o.toUpperCase() : mot})`, "ok", 6000); repintar();
+    } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+}
+async function desbloquear(id, btn) {
+  const x = bloqueosTodos().find(b => b.id === String(id)); if (!x) return;
+  if (!(await confirmar("Desbloquear", `¿Desbloquear ${h(x.m)}${x.sku ? ` (${h(x.sku)})` : ""}? Vuelve a como estaba antes del bloqueo.`, "Desbloquear"))) return;
+  if (btn && btn.isConnected) btn.disabled = true;
+  try { guardarBloqueos(await api("webDesbloquear", id)); try { await cargarInv(true); } catch (e) {} toast(`${x.m} desbloqueado`, "ok"); repintar(); }
+  catch (er) { if (btn && btn.isConnected) btn.disabled = false; toast(er.message, "bad", 6000); }
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-bloquear],[data-desbloq]"); if (!b || b.closest(".modal-card")) return;
+  e.preventDefault(); e.stopPropagation();
+  if (b.dataset.bloquear) modalBloquear(b.dataset.bloquear); else desbloquear(b.dataset.desbloq, b);
+}, true);
+// Aviso en Inicio: lo anotado a mano desde la última sincronización (ajustes y bloqueos)
 function avisoAjustes(box) {
   if (!box) return;
-  const l = ajustesTodos();
-  box.innerHTML = l.length ? `<section class="card aj-aviso plegable ${abierto("inicio", "aj") ? "abierto" : ""}"><div class="pl-cab" data-plegar="inicio|aj" role="button" tabindex="0"><b>✍️ Anotado sin WMS</b> <span class="nav-n">${l.length}</span><span class="small muted">cambios a mano desde la última sincronización · al sincronizar manda el WMS</span><span class="pl-flecha" aria-hidden="true">▾</span></div>
-    <div class="pl-cuerpo">${l.map(x => filaAjuste(x, true)).join("")}</div></section>` : "";
+  const l = ajustesTodos(), bl = bloqueosTodos(), n = l.length + bl.length;
+  box.innerHTML = n ? `<section class="card aj-aviso plegable ${abierto("inicio", "aj") ? "abierto" : ""}"><div class="pl-cab" data-plegar="inicio|aj" role="button" tabindex="0"><b>✍️ Anotado sin WMS</b> <span class="nav-n">${n}</span><span class="small muted">cambios a mano desde la última sincronización · al sincronizar manda el WMS</span><span class="pl-flecha" aria-hidden="true">▾</span></div>
+    <div class="pl-cuerpo">${bl.map(filaBloqueo).join("")}${l.map(x => filaAjuste(x, true)).join("")}</div></section>` : "";
 }
 
 // =====================================================================
@@ -4600,6 +4666,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     S.pocosVig = Array.isArray(i.pocosVig) ? i.pocosVig : []; ls.setJ("pocosVig", S.pocosVig);
     S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
     S.ajustes = Array.isArray(i.ajustes) ? i.ajustes : []; ls.setJ("ajustes", S.ajustes);
+    S.bloqueos = Array.isArray(i.bloqueos) ? i.bloqueos : []; ls.setJ("bloqueos", S.bloqueos);
     avisoTurnosNueva(i.turnosNueva);
     guardarInv(i.inv); S.cat = i.cat; ls.setJ("cat", S.cat); ls.setJ("turno", i.turno);
     ls.setJ("usuario", S.usuario); ls.set("grupoTg", S.grupoTg ? "1" : "");
@@ -4637,7 +4704,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

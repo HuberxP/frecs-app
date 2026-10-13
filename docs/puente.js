@@ -502,6 +502,12 @@
         if (datos) { datos.ajustes = v; guardarLS(); }
         return ok(v);
       }
+      // Bloquear / desbloquear un módulo sin WMS (rotador o administrador)
+      if (fn === "webBloquear" || fn === "webDesbloquear") {
+        const v = await rpc(fn === "webBloquear" ? "bloqueo_poner" : "bloqueo_quitar", fn === "webBloquear" ? { p_token: args[0], p_item: args[1] || {} } : { p_token: args[0], p_id: Number(args[1]) });
+        if (datos) { datos.bloqueos = v; guardarLS(); }
+        return ok(v);
+      }
       // Productos vigilados para la alerta de pocos (solo el administrador)
       if (fn === "webPocosVigilarGuardar") { const v = await rpc("pocos_vigilar_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.pocos_vigilar = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
@@ -539,11 +545,11 @@
         await cargarDatos(args[0], fn === "webInit" || fn === "webInventario");
         if (nuevoExtra || (TURNO_LECTURA.has(fn) && Date.now() - turnosEn > FRESCO_TURNOS_MS)) { await cadena; await cargarTurnos(args[0]); }
         const res = MOTOR.llamar(fn, args);
-        if (fn === "webInventario") { const ri = JSON.parse(res); if (ri.ok) { conFotos(ri.data); ri.data.ajustes = (datos && datos.ajustes) || []; } return JSON.stringify(ri); }
+        if (fn === "webInventario") { const ri = JSON.parse(res); if (ri.ok) { conFotos(ri.data); ri.data.ajustes = (datos && datos.ajustes) || []; ri.data.bloqueos = (datos && datos.bloqueos) || []; } return JSON.stringify(ri); }
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
         if (r.ok && r.data.inv) conFotos(r.data.inv);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; r.data.bloqueos = (datos && datos.bloqueos) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

@@ -1525,7 +1525,8 @@
   /* ---------- Ajustes sin WMS (WMS caído) ---------- */
   .tag.t-aj { border-color: #a78bfa; color: #c4b5fd; background: rgba(167,139,250,.14); font-weight: 700; }
   .tag.t-fefo1 { border-color: var(--ok); color: var(--ok); background: rgba(57,255,136,.12); font-weight: 800; }
-  .inv-acc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
+  .inv-acc { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
+  .inv-acc .btn.sm { min-height: 32px; padding: 3px 9px; font-size: 12.5px; border-radius: 8px; }
   .aj-btn { border-color: #a78bfa; }
   .aj-cant { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; } .aj-cant .field { flex: 1; min-width: 120px; margin: 0; } .aj-cant .seg { margin-bottom: 2px; }
   .aj-lista { margin-top: 12px; display: grid; gap: 6px; }

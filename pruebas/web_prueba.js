@@ -579,7 +579,7 @@ let llamadasSb = 0, sinRed = false;
     // Guardar en un módulo vacío
     await P.evaluate(() => ir("modulo", { mod: "Z98" })); await P.waitForTimeout(600);
     await P.click('[data-poner="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
-    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click(".modal-card .ac-list .ac-item"); await P.waitForTimeout(200);
+    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click("#ajP ~ .ac-list .ac-item"); await P.waitForTimeout(200);
     await P.fill("#ajV", "2027-02-01"); await P.click('#ajU [data-u="cj"]'); await P.fill("#ajC", "30"); await P.click("#ajOk"); await P.waitForTimeout(1800);
     if (q("select sku || '|' || cajas || '|' || estado from wms_base where modulo='Z98'") !== `${lt.s}|30|DISPONIBLE`) errores.push("sin WMS: «Guardé producto» no quedó en el módulo");
     if (!(await P.$(`#view [data-sacar="${lt.s}|Z98"]`))) errores.push("sin WMS: Por módulo no muestra lo guardado");
@@ -589,11 +589,46 @@ let llamadasSb = 0, sinRed = false;
     if (!(await P.isVisible("#ajFab"))) errores.push("sin WMS: no se ve el botón «Guardé producto» arriba");
     await P.click("#ajFab"); await P.waitForSelector("#ajM"); await P.waitForTimeout(500);
     await P.fill("#ajM", "z97"); await P.press("#ajM", "Tab"); await P.waitForTimeout(300);
-    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click(".modal-card .ac-list .ac-item"); await P.waitForTimeout(200);
+    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click("#ajP ~ .ac-list .ac-item"); await P.waitForTimeout(200);
     await P.fill("#ajV", "2027-02-02"); await P.fill("#ajC", "1"); await P.click("#ajOk"); await P.waitForTimeout(1800);
     if (!/^\d+\|1$/.test(q("select cajas || '|' || estibas from wms_base where modulo='Z97'"))) errores.push("sin WMS: el botón flotante no guardó en Z97: " + q("select cajas || '|' || estibas from wms_base where modulo='Z97'"));
     await P.screenshot({ path: "/tmp/w_aj_fab.png" });
     q("delete from wms_base where modulo='Z97'"); q("delete from wms_modulos where modulo='Z97'"); q("delete from ajustes_sin_wms where modulo='Z97'"); await P.evaluate(() => api("webAjustes").then(guardarAjustes));
+    // Por módulo: 📥 Añadir otro producto (sin reemplazar), 🗑️ Quitar uno (rotador) y 🔄 Reemplazar
+    {
+      const otro = await P.evaluate(s0 => S.cat.find(c => c.sku !== s0 && S.inv.some(i => i.s === c.sku)).sku, lt.s);
+      await P.evaluate(() => ir("modulo", { mod: "Z98" })); await P.waitForTimeout(700);
+      if (!(await P.$('[data-poner="Z98"]')) || !(await P.$('[data-reemplazar="Z98"]'))) errores.push("sin WMS: Por módulo no tiene «Añadir otro» y «Reemplazar»");
+      await P.click('[data-poner="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
+      if (await P.isChecked("#ajR")) errores.push("sin WMS: «Añadir otro» viene marcado para reemplazar");
+      await P.fill("#ajP", otro); await P.waitForTimeout(300); await P.click("#ajP ~ .ac-list .ac-item"); await P.waitForTimeout(200);
+      await P.fill("#ajV", "2027-04-01"); await P.fill("#ajC", "2"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+      if (q("select count(*) from wms_base where modulo='Z98' and (cajas > 0 or estibas > 0)") !== "2") errores.push("sin WMS: «Añadir otro» no dejó los 2 productos en Z98");
+      // 🗑️ Quitar el segundo
+      await P.click(`[data-borrar="${otro}|Z98"]`); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1800);
+      if (q(`select coalesce(sum(cajas),0) from wms_base where modulo='Z98' and sku='${otro}'`) !== "0") errores.push("sin WMS: «Quitar» no dejó el producto en 0");
+      if (await P.$(`[data-borrar="${otro}|Z98"]`)) errores.push("sin WMS: el producto quitado sigue en Por módulo");
+      // 🔄 Reemplazar: queda solo lo nuevo
+      await P.click('[data-reemplazar="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
+      if (!(await P.isChecked("#ajR"))) errores.push("sin WMS: «Reemplazar» no viene marcado");
+      await P.fill("#ajP", otro); await P.waitForTimeout(300); await P.click("#ajP ~ .ac-list .ac-item"); await P.waitForTimeout(200);
+      await P.fill("#ajV", "2027-05-01"); await P.fill("#ajC", "1"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+      if (q("select string_agg(sku, ',') from wms_base where modulo='Z98' and (cajas > 0 or estibas > 0)") !== otro) errores.push("sin WMS: «Reemplazar» no dejó solo lo nuevo");
+      await P.screenshot({ path: "/tmp/w_aj_reemp.png" });
+      // 🔒 Bloquear el módulo (prueba de transporte, candado) y desbloquear desde Inicio
+      await P.click('[data-bloquear="Z98"]'); await P.waitForSelector("#blOk"); await P.waitForTimeout(500);
+      await P.click('#blM [data-m="PRUEBA DE TRANSPORTE"]'); await P.fill("#blC", "E77"); await P.click("#blOk"); await P.waitForTimeout(1800);
+      if (q("select string_agg(distinct estado || '/' || candado, ',') from wms_base where modulo='Z98' and (cajas > 0 or estibas > 0)") !== "PRUEBA DE TRANSPORTE/E77") errores.push("sin WMS: bloquear no quedó: " + q("select string_agg(distinct estado || '/' || candado, ',') from wms_base where modulo='Z98' and (cajas > 0 or estibas > 0)"));
+      if (!/BLOQ/.test(await P.textContent("#view"))) errores.push("sin WMS: la tarjeta no sale bloqueada");
+      await P.screenshot({ path: "/tmp/w_aj_bloq.png" });
+      await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
+      if (!(await P.$("#ajI [data-desbloq]"))) { await P.click("#ajI [data-plegar]"); await P.waitForTimeout(200); }
+      await P.click("#ajI [data-desbloq]"); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1500);
+      if (q("select string_agg(distinct estado, ',') from wms_base where modulo='Z98' and (cajas > 0 or estibas > 0)") !== "DISPONIBLE") errores.push("sin WMS: desbloquear no volvió a disponible");
+      // Se deshacen los tres para seguir con la prueba de abajo
+      for (let k = 0; k < 3; k++) await P.evaluate(() => api("webAjusteDeshacer", ajustesTodos()[0].id).then(guardarAjustes));
+      await P.evaluate(() => cargarInv(true));
+    }
     // Inicio: la lista con deshacer
     await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
     if ((await P.$$("#ajI .aj-f")).length !== 2 && await P.$("#ajI [data-plegar]")) { await P.click("#ajI [data-plegar]"); await P.waitForTimeout(200); }

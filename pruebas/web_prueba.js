@@ -816,6 +816,13 @@ let llamadasSb = 0, sinRed = false;
     if (q(`select count(*) from reportes_modulo where modulo='${modM}' and tipo='VACIO' and estado='PENDIENTE'`) !== "1") errores.push("consumo canal: no quedó el reporte de vacío");
     if ((await P.$$(".mc-card")).length) errores.push("consumo canal: la tarjeta sigue después de reportar vacío");
     q(`delete from reportes_modulo where modulo='${modM}'`); await P.evaluate(() => api("webReportes").then(r => guardarRep(r.lista)).catch(() => null));
+    // Actualización sola: otra persona marca un módulo (directo en la base) y aquí aparece sin tocar ↻
+    await P.evaluate(() => ir("enconsumo")); await P.waitForTimeout(900);
+    const n0 = (await P.$$(".mc-card")).length;
+    q(`insert into marcas_consumo (sku, producto, modulo, canal, marcado_por) values ('2222', 'Pony', '${modM}', 'T1', 'Otra persona')`);
+    await P.evaluate(() => { ultimaInteraccion = 0; return revisarCambios(true); }); await P.waitForTimeout(1500);
+    if ((await P.$$(".mc-card")).length !== n0 + 1) errores.push(`actualización sola: no apareció lo que marcó otra persona (${n0} → ${(await P.$$(".mc-card")).length})`);
+    q("delete from marcas_consumo"); await P.evaluate(() => api("webMarcas").then(guardarMarcas));
     q("delete from marcas_consumo");
     await P.evaluate(() => api("webMarcas").then(guardarMarcas));
   }

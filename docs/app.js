@@ -810,6 +810,7 @@ function ir(vista, params, esAtras) {
   if (!esAtras && S.vista && (S.vista !== vista || !mismo(S.params, params || {}))) { S.pila.push({ vista: S.vista, params: S.params }); if (S.pila.length > 30) S.pila.shift(); }
   if (vista === "inicio" && !esAtras) S.pila = [];
   S.vista = vista; S.params = params || {};
+  if (typeof revisarCambios === "function") setTimeout(() => revisarCambios(), 300);
   S.vistaDesde = Date.now(); S.pendRepintar = null; $("#nuevoChip").classList.add("hidden");
   $("#backBtn").classList.toggle("hidden", vista === "inicio" && !S.pila.length);
   ls.set("vista", vista);
@@ -875,6 +876,34 @@ async function refrescarTodo(btn) {
   finally { btn.disabled = false; btn.classList.remove("girando"); }
 }
 
+// ---------- Actualización sola: si alguien cambió algo, se ve sin tocar ↻ ----------
+// Cada 20 s (con la página a la vista), al cambiar de sección y al volver a la página se pregunta una
+// marca liviana a Supabase. Si cambió (sincronización, ajuste o bloqueo sin WMS, marca de consumo, reporte
+// de módulo, módulo de Pony), se trae el inventario de nuevo y la sección se repinta; si la persona está
+// usando la pantalla no se le cambia bajo el dedo: sale «Hay cambios · Ver». (Turnos ya se refrescan solos.)
+let marcaCambios = null, revisandoCambios = false, ultRevision = 0;
+const VISTAS_TURNO = new Set(["validacion", "entrega", "conciliacion", "preconciliacion"]);
+async function tomarMarcaCambios() { try { marcaCambios = await api("webCambios"); } catch (e) {} }
+async function revisarCambios(forzar) {
+  if (revisandoCambios || document.hidden || !S.usuario || S.sinCon || !navigator.onLine) return;
+  if (!forzar && Date.now() - ultRevision < 8000) return;
+  revisandoCambios = true; ultRevision = Date.now();
+  try {
+    const m = await api("webCambios");
+    if (marcaCambios === null) { marcaCambios = m; return; }
+    if (m === marcaCambios) return;
+    marcaCambios = m;
+    await cargarInv(true);
+    await Promise.all([
+      api("webReportes").then(r => { if (r && Array.isArray(r.lista)) guardarRep(r.lista); }).catch(() => null),
+      typeof guardarMarcas === "function" ? api("webMarcas").then(guardarMarcas).catch(() => null) : null]);
+    if (S.usuario) pintarNav();
+    if (!VISTAS_TURNO.has(S.vista)) refrescarVista(() => repintar());
+  } catch (e) {} finally { revisandoCambios = false; }
+}
+setInterval(() => revisarCambios(), 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) revisarCambios(true); });
+
 // ---------- datos base (con copia en el equipo para trabajar sin conexión) ----------
 function pintarSync() {
   const s = S.sync;
@@ -886,6 +915,8 @@ function guardarInv(d) {
   if (Array.isArray(d.ajustes)) { S.ajustes = d.ajustes; ls.setJ("ajustes", S.ajustes); }
   if (Array.isArray(d.bloqueos)) { S.bloqueos = d.bloqueos; ls.setJ("bloqueos", S.bloqueos); }
   ls.setJ("inv", { filas: d.filas, ocupacion: d.ocupacion, sync: d.sync, fotos: S.fotos || [], guardado: ahoraTxt() });
+  // Lo que se acaba de traer es lo último: la marca de cambios se toma de nuevo (no se recarga dos veces)
+  if (S.usuario) tomarMarcaCambios();
 }
 // Fotos del WMS (la que tomaron al marcar la prioridad), por producto y módulo: la más nueva
 function fotoDe(sku, m) { const f = (S.fotos || []).find(x => x[0] === String(sku) && x[1] === String(m)); return f && f[2] && f[2].length ? f[2] : null; }

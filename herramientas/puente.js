@@ -506,6 +506,8 @@
         if (datos) { datos.ajustes = v; guardarLS(); }
         return ok(v);
       }
+      // Marca liviana de cambios (para actualizarse sola sin tocar ↻)
+      if (fn === "webCambios") return ok(String(await rpc("cambios_marca", { p_token: args[0] })));
       // Bloquear / desbloquear un módulo sin WMS (rotador o administrador)
       if (fn === "webBloquear" || fn === "webDesbloquear") {
         const v = await rpc(fn === "webBloquear" ? "bloqueo_poner" : "bloqueo_quitar", fn === "webBloquear" ? { p_token: args[0], p_item: args[1] || {} } : { p_token: args[0], p_id: Number(args[1]) });

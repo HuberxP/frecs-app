@@ -496,7 +496,7 @@
       if (MARCA[fn]) { const [f, p] = MARCA[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p)); if (datos) { datos.marcas = v; guardarLS(); } return ok(v); }
       // Ajustes sin WMS (WMS caído): cambian el inventario en Supabase (la página lo vuelve a traer con webInventario)
       const AJ = { webAjusteSacar: a => ["ajuste_sacar", { p_item: a[1] || {} }], webAjustePoner: a => ["ajuste_poner", { p_item: a[1] || {} }],
-        webAjusteDeshacer: a => ["ajuste_deshacer", { p_id: Number(a[1]) }], webAjustes: a => ["ajustes_listar", {}] };
+        webAjusteDeshacer: a => ["ajuste_deshacer", { p_id: Number(a[1]) }], webAjusteFijar: a => ["ajuste_fijar", { p_item: a[1] || {} }], webAjustes: a => ["ajustes_listar", {}] };
       if (AJ[fn]) {
         const [f, p] = AJ[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p));
         if (datos) { datos.ajustes = v; guardarLS(); }

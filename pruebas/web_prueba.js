@@ -549,6 +549,11 @@ let llamadasSb = 0, sinRed = false;
   if (!dl || !/\.jpg$/.test(dl.suggestedFilename())) errores.push("rotular: el botón de foto no descargó un JPG");
   await P.evaluate(() => ir("rotular")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_rotulaciones.png" });
   q("delete from rotulaciones");
+  // --- Sincronización vieja: punto rojo en «Sincronizar», sin franja ---
+  {
+    const r = await P.evaluate(() => { const t = S.sync.ts; S.sync.ts = Date.now() - 4 * 3600e3; pintarRecordatorio(); const a = $("#syncBtn").classList.contains("atrasada") && !$("#syncRec"); S.sync.ts = t; pintarRecordatorio(); return a && !$("#syncBtn").classList.contains("atrasada"); });
+    if (!r) errores.push("sincronización vieja: no sale el punto rojo (o queda la franja)");
+  }
   // --- Ajustes sin WMS (WMS caído): saqué / guardé producto / deshacer ---
   {
     const lt = await P.evaluate(() => { const i = S.inv.find(x => x.fis && x.disp && x.cpe > 1 && x.e >= 2 && /^[A-J]\d+$/.test(x.m)); return { m: i.m, s: i.s }; });
@@ -560,6 +565,14 @@ let llamadasSb = 0, sinRed = false;
     if (cj() !== cj0 - cpe) errores.push(`sin WMS: «Saqué 1 estiba» no descontó (${cj0} → ${cj()}, cpe ${cpe})`);
     if (!(await P.$(".tag.t-aj"))) errores.push("sin WMS: la tarjeta no muestra lo que se sacó");
     await P.screenshot({ path: "/tmp/w_aj_sacar.png" });
+    // ✏️ Corregir (administrador): la cantidad que hay; luego se ve si es 1º en FEFO
+    await P.click(`[data-fijar="${lt.s}|${lt.m}"]`); await P.waitForSelector("#ajC"); await P.waitForTimeout(500);
+    await P.fill("#ajC", "3"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+    if (cj() !== 3 * cpe) errores.push(`sin WMS: «Corregir» a 3 estibas dejó ${cj()} cajas`);
+    if (!(await P.$('#view .tag.t-fefo1, #view .tag.t-aj[title^="Primero sale"]'))) errores.push("sin WMS: la tarjeta no dice el puesto FEFO");
+    await P.screenshot({ path: "/tmp/w_aj_fijar.png" });
+    await P.evaluate(() => api("webAjusteDeshacer", ajustesTodos().find(x => x.fijar !== null).id)); await P.evaluate(() => cargarInv(true));
+    if (cj() !== cj0 - cpe) errores.push("sin WMS: deshacer la corrección no volvió");
     // Guardar en un módulo vacío
     await P.evaluate(() => ir("modulo", { mod: "Z98" })); await P.waitForTimeout(600);
     await P.click('[data-poner="Z98"]'); await P.waitForSelector("#ajP"); await P.waitForTimeout(500);
@@ -568,9 +581,19 @@ let llamadasSb = 0, sinRed = false;
     if (q("select sku || '|' || cajas || '|' || estado from wms_base where modulo='Z98'") !== `${lt.s}|30|DISPONIBLE`) errores.push("sin WMS: «Guardé producto» no quedó en el módulo");
     if (!(await P.$(`#view [data-sacar="${lt.s}|Z98"]`))) errores.push("sin WMS: Por módulo no muestra lo guardado");
     await P.screenshot({ path: "/tmp/w_aj_poner.png" });
+    // Botón flotante en cualquier pantalla: se escribe el módulo
+    await P.evaluate(() => ir("pocos")); await P.waitForTimeout(700);
+    if (!(await P.isVisible("#ajFab"))) errores.push("sin WMS: no se ve el botón «Guardé producto» arriba");
+    await P.click("#ajFab"); await P.waitForSelector("#ajM"); await P.waitForTimeout(500);
+    await P.fill("#ajM", "z97"); await P.press("#ajM", "Tab"); await P.waitForTimeout(300);
+    await P.fill("#ajP", lt.s); await P.waitForTimeout(300); await P.click(".modal-card .ac-list .ac-item"); await P.waitForTimeout(200);
+    await P.fill("#ajV", "2027-02-02"); await P.fill("#ajC", "1"); await P.click("#ajOk"); await P.waitForTimeout(1800);
+    if (!/^\d+\|1$/.test(q("select cajas || '|' || estibas from wms_base where modulo='Z97'"))) errores.push("sin WMS: el botón flotante no guardó en Z97: " + q("select cajas || '|' || estibas from wms_base where modulo='Z97'"));
+    await P.screenshot({ path: "/tmp/w_aj_fab.png" });
+    q("delete from wms_base where modulo='Z97'"); q("delete from wms_modulos where modulo='Z97'"); q("delete from ajustes_sin_wms where modulo='Z97'"); await P.evaluate(() => api("webAjustes").then(guardarAjustes));
     // Inicio: la lista con deshacer
     await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
-    if ((await P.$$("#ajI .aj-f")).length !== 2) { await P.click("#ajI [data-plegar]"); await P.waitForTimeout(200); }
+    if ((await P.$$("#ajI .aj-f")).length !== 2 && await P.$("#ajI [data-plegar]")) { await P.click("#ajI [data-plegar]"); await P.waitForTimeout(200); }
     if ((await P.$$("#ajI .aj-f")).length !== 2) errores.push("sin WMS: Inicio no lista los 2 ajustes");
     await P.screenshot({ path: "/tmp/w_aj_inicio.png" });
     await P.click("#ajI .aj-f:last-child [data-desh]"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1800);

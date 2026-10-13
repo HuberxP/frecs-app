@@ -723,6 +723,7 @@ $("#userChip").onclick = () => {
 
 // ---------- navegación ----------
 function pintarNav() {
+  if (typeof pintarFabAj === "function") setTimeout(pintarFabAj, 0);
   // Un ítem puede tener su propio rol (más bajo que el de su grupo): el grupo sale si alguno de sus ítems se puede ver.
   // El verificador solo ve sus secciones (VERIF_VISTAS).
   const ver = (g, i) => vistaPermitida(i.id);
@@ -950,14 +951,13 @@ function avisoSync(r, antes, err) {
 // Recordatorio: si la última sincronización tiene más de 3 horas, una franja arriba para sincronizar
 const SYNC_RECORDAR_MIN = 180;
 function pintarRecordatorio() {
-  let b = $("#syncRec");
+  // Sin franja: un punto rojo que parpadea en «Sincronizar» (el tiempo sale al pasar el dedo / mouse)
+  const old = $("#syncRec"); if (old) old.remove();
+  const sb = $("#syncBtn"); if (!sb) return;
   const ts = S.sync && S.sync.ts, min = ts ? Math.floor((Date.now() - ts) / 60000) : null;
-  const sb = $("#syncBtn"), visible = !!sb && getComputedStyle(sb).display !== "none";
-  const mostrar = !!S.usuario && visible && !$("#login:not(.hidden)") && (min === null || min >= SYNC_RECORDAR_MIN);
-  if (!mostrar) { if (b) b.remove(); return; }
-  if (!b) { b = document.createElement("button"); b.id = "syncRec"; b.type = "button"; b.className = "sync-rec"; b.onclick = () => $("#syncBtn").click(); $("main").prepend(b); }
-  const hh = min === null ? "" : `${Math.floor(min / 60)} h ${min % 60} min`;
-  b.innerHTML = `⏰ ${min === null ? "Todavía no se ha sincronizado" : `La última sincronización fue hace <b>${hh}</b>`} · <u>Sincronizar ahora</u>`;
+  const atras = !!S.usuario && (min === null || min >= SYNC_RECORDAR_MIN);
+  sb.classList.toggle("atrasada", atras);
+  sb.title = atras ? (min === null ? "Todavía no se ha sincronizado" : `La última sincronización fue hace ${Math.floor(min / 60)} h ${min % 60} min`) : "Traer inventario del WMS";
 }
 setInterval(pintarRecordatorio, 60000);
 
@@ -4042,34 +4042,48 @@ VISTAS.enconsumo = async (el, p, vigente) => {
 // Lo hacen verificador, OPM, rotador y administrador.
 // =====================================================================
 const puedeAjustar = () => !!S.usuario && ["verificador", "opm", "validador", "administrador"].includes(S.usuario.rol);
-// S.ajustes: [id, tipo, módulo, sku, producto, cant, unidad, vence, reemplazo, por, en]
-const ajusteObj = r => ({ id: r[0], tipo: r[1], m: r[2], sku: r[3], prod: r[4], cant: Number(r[5]), un: r[6], vence: r[7], reemp: !!r[8], por: r[9], en: r[10] });
+// S.ajustes: [id, tipo, módulo, sku, producto, cant, unidad, vence, reemplazo, por, en, fijar_a]
+const ajusteObj = r => ({ id: r[0], tipo: r[1], m: r[2], sku: r[3], prod: r[4], cant: Number(r[5]), un: r[6], vence: r[7], reemp: !!r[8], por: r[9], en: r[10], fijar: r[11] === null || r[11] === undefined ? null : Number(r[11]) });
 const ajustesTodos = () => (S.ajustes || []).map(ajusteObj);
 const ajustesDe = (sku, m) => ajustesTodos().filter(x => x.m === String(m) && (!sku || x.sku === String(sku)));
-const cantAj = x => `${fm(x.cant)} ${x.un === "cj" ? (x.cant === 1 ? "caja" : "cajas") : (x.cant === 1 ? "estiba" : "estibas")}`;
+const unTxt = (n, un) => `${fm(n)} ${un === "cj" ? (n === 1 ? "caja" : "cajas") : (n === 1 ? "estiba" : "estibas")}`;
+const cantAj = x => unTxt(x.fijar !== null ? x.fijar : x.cant, x.un);
+const queAj = x => x.fijar !== null ? "✏️ Corrigieron a" : x.tipo === "SACAR" ? "➖ Sacaron" : "📥 Guardaron";
+// Puesto FEFO de ese producto en ese módulo (lo disponible en bodega, sin KA / PREV ni módulos reportados vacíos)
+function posFefo(sku, m) {
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.fis && i.disp && !i.esOp && !repVacio(i.m)).sort(ordConsumo);
+  const k = l.findIndex(i => i.m === String(m));
+  return { n: k + 1, de: l.length, primero: l[0] || null };
+}
+const fefoTxt = (sku, m) => { const p = posFefo(sku, m); if (!p.n) return ""; return p.n === 1 ? `🥇 ${m} es el 1º en FEFO` : `#${p.n} de ${p.de} en FEFO · primero sale ${p.primero.m} (vence ${p.primero.vf})`; };
 function guardarAjustes(l) { S.ajustes = Array.isArray(l) ? l : []; ls.setJ("ajustes", S.ajustes); }
 // Etiquetas en las tarjetas
 function tagsAjuste(sku, m) {
-  return ajustesDe(sku, m).map(x => x.tipo === "SACAR"
-    ? `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">➖ Sacaron ${h(cantAj(x))} · @${h(x.por)}</span>`
-    : `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">📥 Guardado sin WMS · @${h(x.por)}</span>`);
+  const l = ajustesDe(sku, m);
+  if (!l.length) return [];
+  const p = posFefo(sku, m);
+  return l.map(x => `<span class="tag t-aj" title="Anotado sin WMS · ${h(fechaCorta(x.en))}">${x.tipo === "PONER" ? "📥 Guardado sin WMS" : `${queAj(x)} ${h(cantAj(x))}`} · @${h(x.por)}</span>`)
+    .concat(p.n ? [p.n === 1 ? `<span class="tag t-fefo1">🥇 1º en FEFO</span>` : `<span class="tag t-aj" title="Primero sale ${h(p.primero.m)} (vence ${h(p.primero.vf)})">#${p.n} de ${p.de} en FEFO · primero ${h(p.primero.m)}</span>`] : []);
 }
-const botonSacar = i => puedeAjustar() && i.fis ? `<button type="button" class="btn sm aj-btn" data-sacar="${h(i.s)}|${h(i.m)}">➖ Saqué</button>` : "";
+const botonSacar = i => (puedeAjustar() && i.fis ? `<button type="button" class="btn sm aj-btn" data-sacar="${h(i.s)}|${h(i.m)}">➖ Saqué</button>` : "") +
+  (puede("validador") && i.fis ? `<button type="button" class="btn sm aj-btn" data-fijar="${h(i.s)}|${h(i.m)}">✏️ Corregir</button>` : "");
 const botonPoner = m => puedeAjustar() ? `<button class="btn sm aj-btn" data-poner="${h(m)}">📥 Guardé producto aquí</button>` : "";
 // Después de un ajuste: inventario fresco y la pantalla de nuevo
-async function trasAjuste(l, msj) {
+async function trasAjuste(l, msj, sku, m) {
   guardarAjustes(l);
   try { await cargarInv(true); } catch (e) {}
-  toast(msj, "ok", 3500);
+  // Lo nuevo: si es el primero en FEFO o no
+  if (sku && m) { const t = fefoTxt(sku, m); if (t) msj += " · " + t; }
+  toast(msj, "ok", 9000);
   if (S.usuario) pintarNav();
   repintar();
 }
 // Lista de ajustes (con deshacer)
-const filaAjuste = (x, conMod) => `<div class="aj-f"><div><b>${x.tipo === "SACAR" ? "➖ Sacaron" : "📥 Guardaron"} ${h(cantAj(x))}</b>${conMod ? ` en ${modChip(x.m)}` : ""} · ${skuTxt(x.sku, x.prod)}${x.tipo === "PONER" && x.vence ? ` · vence ${h(fechaDMY(x.vence))}` : ""}${x.reemp ? ` <span class="small muted">(reemplazó lo que había)</span>` : ""}
+const filaAjuste = (x, conMod) => `<div class="aj-f"><div><b>${queAj(x)} ${h(cantAj(x))}</b>${conMod ? ` en ${modChip(x.m)}` : ""} · ${skuTxt(x.sku, x.prod)}${x.tipo === "PONER" && x.vence ? ` · vence ${h(fechaDMY(x.vence))}` : ""}${x.reemp ? ` <span class="small muted">(reemplazó lo que había)</span>` : ""}
     <div class="small muted">@${h(x.por)} · ${h(fechaCorta(x.en))}</div></div>${puedeAjustar() ? `<button class="btn sm" data-desh="${h(x.id)}">↩︎ Deshacer</button>` : ""}</div>`;
 async function deshacerAjuste(id, btn) {
   const x = ajustesTodos().find(a => a.id === String(id)); if (!x) return;
-  if (!(await confirmar("Deshacer", `¿Deshacer «${x.tipo === "SACAR" ? "sacaron" : "guardaron"} ${h(cantAj(x))}» en ${h(x.m)}?`, "Deshacer", true))) return;
+  if (!(await confirmar("Deshacer", `¿Deshacer «${queAj(x).replace(/^\S+ /, "").toLowerCase()} ${h(cantAj(x))}» en ${h(x.m)}?`, "Deshacer", true))) return;
   if (btn && btn.isConnected) btn.disabled = true;
   try { await trasAjuste(await api("webAjusteDeshacer", id), "Ajuste deshecho"); }
   catch (er) { if (btn && btn.isConnected) btn.disabled = false; toast(er.message, "bad", 6000); }
@@ -4097,41 +4111,87 @@ function modalSacar(sku, m) {
     const v = $("#ajC", c).value.trim().replace(",", ".");
     if (!(Number(v) > 0)) { toast("Escribe cuánto sacaste.", "warn"); $("#ajC", c).focus(); return; }
     const btn = $("#ajOk", c); ocupado(btn, true);
-    try { const l = await api("webAjusteSacar", { modulo: m, sku: sku, cant: v, unidad: un }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: se descontaron ${fm(Number(v))} ${un === "cj" ? "cajas" : "estibas"}`); }
+    try { const l = await api("webAjusteSacar", { modulo: m, sku: sku, cant: v, unidad: un }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: se descontaron ${fm(Number(v))} ${un === "cj" ? "cajas" : "estibas"}`, sku, m); }
     catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
   };
 }
-// 📥 Guardé un producto en este módulo
-async function modalPoner(m) {
-  await cargarCat().catch(() => null);
-  const hay = (S.inv || []).filter(i => i.m === m && i.fis);
-  const skus = [...new Set(hay.map(i => i.s))];
-  let prod = null, un = "est";
-  const c = abrirModal(`<h3>📥 Guardé producto en ${modChip(m)}</h3>
-    ${hay.length ? `<div class="mc-info small">Según la última sincronización hay: ${skus.map(s => { const ls2 = hay.filter(i => i.s === s); return `<div>${skuTxt(s, ls2[0].p)} · ${fm(ls2.reduce((a, i) => a + i.e, 0))} est</div>`; }).join("")}</div>` : `<p class="small muted">El módulo está vacío según la última sincronización.</p>`}
-    <div style="margin-top:10px">${campoAuto("ajP", "Nombre o SKU")}</div>
+// 📥 Guardé un producto en un módulo (desde cualquier pantalla: si no se sabe el módulo, se escribe)
+async function modalPoner(m0, sku0) {
+  await Promise.all([cargarCat().catch(() => null), cargarInv().catch(() => null)]);
+  let m = m0 ? limpiarMod(m0) : "", prod = null, un = "est";
+  if (sku0) { const c0 = (S.cat || []).find(x => x.sku === String(sku0)); if (c0) prod = { sku: c0.sku, prod: c0.prod }; }
+  const infoMod = () => {
+    if (!m) return `<p class="small muted">Escribe el módulo donde guardaste el producto (aunque esté vacío).</p>`;
+    const hay = (S.inv || []).filter(i => i.m === m && i.fis), skus = [...new Set(hay.map(i => i.s))];
+    return hay.length ? `<div class="mc-info small">En ${modChip(m)}, según la última sincronización, hay: ${skus.map(s => { const l2 = hay.filter(i => i.s === s); return `<div>${skuTxt(s, l2[0].p)} · ${fm(l2.reduce((a, i) => a + i.e, 0))} est</div>`; }).join("")}</div>
+      <label class="toggle aj-reemp"><input type="checkbox" id="ajR" checked> Reemplaza lo que había (lo de antes ya no está en ${h(m)})</label>`
+      : `<p class="small muted">${modChip(m)} está vacío según la última sincronización.</p>`;
+  };
+  const c = abrirModal(`<h3>📥 Guardé producto</h3>
+    <label class="field"><span>Módulo</span><input type="search" id="ajM" value="${h(m)}" placeholder="Ej: B12" autocapitalize="characters" autocomplete="off"></label>
+    <div id="ajH">${infoMod()}</div>
+    <div style="margin-top:10px">${campoAuto("ajP", "Nombre o SKU", prod ? `${prod.sku} · ${prod.prod}` : "")}</div>
     <div class="grid2 rot-campos"><label class="field"><span>Vencimiento</span><input type="date" id="ajV"></label>
       <div class="aj-cant"><label class="field"><span>Cantidad</span><input type="text" inputmode="decimal" id="ajC" placeholder="0" autocomplete="off"></label>
       <div class="seg seg-sm" id="ajU"><button type="button" data-u="est" class="on">Estibas</button><button type="button" data-u="cj">Cajas</button></div></div></div>
-    ${hay.length ? `<label class="toggle aj-reemp"><input type="checkbox" id="ajR" checked> Reemplaza lo que había (lo de antes ya no está en ${h(m)})</label>` : ""}
+    <p class="small muted">Se ve al momento en todo el aplicativo. Cuando el WMS vuelva y se sincronice, manda lo del WMS.</p>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ajOk">📥 Guardar</button></div>`);
+  const inM = $("#ajM", c);
+  const ponerMod = v => { m = limpiarMod(v || ""); $("#ajH", c).innerHTML = infoMod(); };
+  autoModulo(inM, modulosConProducto(S.inv || []), x => ponerMod(x.m), { primero: false, dejar: true, alEnter: () => ponerMod(inM.value) });
+  inM.addEventListener("change", () => ponerMod(inM.value));
+  inM.addEventListener("blur", () => setTimeout(() => { if (limpiarMod(inM.value) !== m) ponerMod(inM.value); }, 150));
   autoSku($("#ajP", c), x => { prod = x; });
+  if (!m) setTimeout(() => inM.focus(), 80);
   c.onclick = async e => {
     const u = e.target.closest("[data-u]"); if (u) { un = u.dataset.u; $$("#ajU button", c).forEach(b => b.classList.toggle("on", b === u)); return; }
     if (!e.target.closest("#ajOk")) return;
+    if (limpiarMod(inM.value) !== m) ponerMod(inM.value);
     const v = $("#ajC", c).value.trim().replace(",", "."), venc = $("#ajV", c).value, r = $("#ajR", c);
+    if (!m) { toast("Escribe el módulo.", "warn"); inM.focus(); return; }
     if (!prod) { toast("Escoge el producto.", "warn"); $("#ajP", c).focus(); return; }
     if (!venc) { toast("Escribe el vencimiento.", "warn"); return; }
     if (!(Number(v) > 0)) { toast("Escribe la cantidad.", "warn"); $("#ajC", c).focus(); return; }
     const btn = $("#ajOk", c); ocupado(btn, true);
-    try { const l = await api("webAjustePoner", { modulo: m, sku: prod.sku, cant: v, unidad: un, vence: venc, reemplazar: !!(r && r.checked) }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: ${prod.sku} guardado`); }
+    try { const l = await api("webAjustePoner", { modulo: m, sku: prod.sku, cant: v, unidad: un, vence: venc, reemplazar: !!(r && r.checked) }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: ${prod.sku} guardado`, prod.sku, m); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+}
+// Botón arriba (en todas las pantallas) para verificador, OPM, rotador y administrador
+function pintarFabAj() {
+  const b = $("#ajFab"); if (!b) return;
+  if (!b.onclick) b.onclick = () => modalPoner(S.vista === "modulo" ? (S.params || {}).mod || "" : "", S.vista === "stock" ? (S.params || {}).sku || ls.get("ultSku", "") : "");
+  b.classList.toggle("hidden", !puedeAjustar());
+}
+// ✏️ Corregir la cantidad que hay (rotador o administrador)
+function modalFijar(sku, m) {
+  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis);
+  if (!lotes.length) return toast("Ese producto ya no está en el módulo.", "warn");
+  const i = lotes.slice().sort((a, b) => a.d - b.d)[0];
+  const tot = lotes.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
+  const eq = Math.round(lotes.reduce((a, x) => a + (x.cpe > 1 ? x.c / x.cpe : x.e), 0) * 10) / 10;
+  let un = "est";
+  const c = abrirModal(`<h3>✏️ Corregir cantidad en ${modChip(m)}</h3><div class="mc-info"><b>${skuTxt(sku, i.p)}</b><div class="small">El aplicativo dice: ${qty(tot.e, tot.c, tot.u)} · vence <b>${h(i.vf)}</b></div></div>
+    <p class="small muted">Escribe lo que hay de verdad en el módulo. Si es menos se descuenta (primero lo que vence antes); si es más se suma al lote que vence primero.</p>
+    <div class="aj-cant"><label class="field"><span>¿Cuánto hay?</span><input type="text" inputmode="decimal" id="ajC" value="${h(String(eq))}" autocomplete="off"></label>
+      <div class="seg seg-sm" id="ajU"><button type="button" data-u="est" class="on">Estibas</button><button type="button" data-u="cj">Cajas</button></div></div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="ajOk">✏️ Guardar</button></div>`);
+  setTimeout(() => { const x = $("#ajC", c); if (x) { x.focus(); x.select(); } }, 80);
+  c.onclick = async e => {
+    const u = e.target.closest("[data-u]"); if (u) { un = u.dataset.u; $$("#ajU button", c).forEach(b => b.classList.toggle("on", b === u)); $("#ajC", c).value = String(un === "cj" ? tot.c : eq); return; }
+    if (!e.target.closest("#ajOk")) return;
+    const v = $("#ajC", c).value.trim().replace(",", ".");
+    if (v === "" || !(Number(v) >= 0)) { toast("Escribe la cantidad con números.", "warn"); $("#ajC", c).focus(); return; }
+    const btn = $("#ajOk", c); ocupado(btn, true);
+    try { const l = await api("webAjusteFijar", { modulo: m, sku: sku, cant: v, unidad: un }); ocupado(btn, false); cerrarModal(true); await trasAjuste(l, `${m}: ahora ${unTxt(Number(v), un)}`, sku, m); }
     catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
   };
 }
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-sacar],[data-poner],[data-desh]"); if (!b || b.closest(".modal-card")) return;
+  const b = e.target.closest("[data-sacar],[data-poner],[data-desh],[data-fijar]"); if (!b || b.closest(".modal-card")) return;
   e.preventDefault(); e.stopPropagation();
-  if (b.dataset.sacar) { const [s, m] = b.dataset.sacar.split("|"); modalSacar(s, m); }
+  if (b.dataset.fijar) { const [s, m] = b.dataset.fijar.split("|"); modalFijar(s, m); }
+  else if (b.dataset.sacar) { const [s, m] = b.dataset.sacar.split("|"); modalSacar(s, m); }
   else if (b.dataset.poner) modalPoner(b.dataset.poner);
   else deshacerAjuste(b.dataset.desh, b);
 }, true);

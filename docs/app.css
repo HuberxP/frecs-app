@@ -1308,6 +1308,9 @@
   .sync-res .ficha { text-align: left; }
   .sync-res.ok h3 { color: var(--ok); } .sync-res.rev h3 { color: var(--warn); } .sync-res.mal h3 { color: var(--bad); }
   .sync-res .modal-actions { justify-content: center; } .sync-res .modal-actions .btn { min-width: 140px; }
+  #syncBtn { position: relative; }
+  #syncBtn.atrasada::after { content: ""; position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #ff3b3b; border: 2px solid var(--bg, #04070f); box-shadow: 0 0 8px rgba(255,59,59,.9); animation: puntoRojo 1s ease-in-out infinite; }
+  @keyframes puntoRojo { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .25; transform: scale(.75); } }
   .sync-rec { display: block; width: calc(100% - 24px); max-width: 1200px; margin: 10px auto 0; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--warn); background: rgba(255,176,32,.12); color: var(--ink); font-size: 13.5px; text-align: center; cursor: pointer; }
   .sync-rec u { color: var(--warn); font-weight: 750; }
   html[data-tema="claro"] .sync-rec { background: #fff4e0; }
@@ -1519,6 +1522,7 @@
 
   /* ---------- Ajustes sin WMS (WMS caído) ---------- */
   .tag.t-aj { border-color: #a78bfa; color: #c4b5fd; background: rgba(167,139,250,.14); font-weight: 700; }
+  .tag.t-fefo1 { border-color: var(--ok); color: var(--ok); background: rgba(57,255,136,.12); font-weight: 800; }
   .inv-acc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .inv-acc .mc-btn { margin-top: 0; }
   .aj-btn { border-color: #a78bfa; }
   .aj-cant { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; } .aj-cant .field { flex: 1; min-width: 120px; margin: 0; } .aj-cant .seg { margin-bottom: 2px; }
@@ -1526,6 +1530,9 @@
   .aj-f { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); font-size: 13.5px; }
   .aj-aviso { border-color: #a78bfa; margin-bottom: 14px; } .aj-aviso .pl-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .aj-aviso .pl-cuerpo { display: grid; gap: 6px; margin-top: 8px; }
   .aj-reemp { margin-top: 10px; display: flex; gap: 8px; align-items: center; font-size: 14px; }
+  .aj-fab { flex: none; border-color: #a78bfa; color: var(--ink); font-weight: 800; white-space: nowrap; }
+  .aj-fab.hidden { display: none; }
+  @media (max-width: 899px) { .aj-fab .txt { display: none; } .aj-fab { padding: 0 10px; } }
   html[data-tema="claro"] .tag.t-aj { color: #6d28d9; background: #f1ebff; } html[data-tema="claro"] .aj-f { background: #fff; }
 
   /* ---------- Ver las tarjetas en lista (computador y tableta), como en el celular ---------- */

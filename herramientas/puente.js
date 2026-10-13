@@ -511,6 +511,16 @@
         return ok(p);
       }
       const nuevoExtra = pideExtras(args);
+      // Módulo a consumir (rotador o administrador): el motor lo valida y Supabase guarda solo esa elección
+      // (la lista de consumo en sí sigue siendo del administrador)
+      if (fn === "webConsumoElegir") {
+        await cadena; await cargarDatos(args[0]);
+        const r = JSON.parse(MOTOR.llamar(fn, args));
+        if (!r.ok) return JSON.stringify(r);
+        await rpc("consumo_elegir", { p_token: args[0], p_sku: String(args[1] || ""), p_modulo: String(args[2] || "") });
+        await cargarDatos(args[0], true);
+        return ok(true);
+      }
       if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await despuesDeEscribir(fn, args, await escribirEnOrden(fn, args, ok, fallo));
       if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos") {
         await cargarDatos(args[0]);

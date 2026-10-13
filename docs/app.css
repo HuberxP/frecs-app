@@ -60,6 +60,8 @@
   .nav h4 { margin: 16px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
   .nav h4.turnos { color: var(--warn); }
   .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; color: var(--ink); text-decoration: none; min-height: 40px; font-size: 14.5px; }
+  .header-user-oculto, .top .user-chip { display: none !important; }
+  .nav a.nav-user { border: 1px solid var(--line2); background: var(--card2); margin-bottom: 8px; }
   .nav a:hover { background: rgba(255,255,255,.05); }
   .nav a.on { background: var(--brand-soft); color: var(--brand); font-weight: 650; box-shadow: inset 3px 0 0 var(--brand); }
   .nav a .ic { width: 22px; text-align: center; }

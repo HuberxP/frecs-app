@@ -698,6 +698,7 @@ document.addEventListener("input", e => {
 });
 function pintarUsuario() { $("#userChip").textContent = "👤 " + (S.usuario ? S.usuario.nombre : "…"); pintarCanal(); }
 $("#canalChip").onclick = () => { if (S.usuario) modalCanal(); };
+document.addEventListener("click", e => { if (!e.target.closest("[data-usuario]")) return; e.preventDefault(); if (typeof menuAbierto === "function" && menuAbierto()) abrirMenu(false); $("#userChip").click(); });
 $("#userChip").onclick = () => {
   if (!S.usuario) return;
   const u = S.usuario;
@@ -736,7 +737,9 @@ function pintarNav() {
     const abierto = esVerif() || items.some(i => i.id === S.vista) || ab[g.g] === true;
     return `<div class="nav-g ${g.cls || ""} ${abierto ? "abierto" : ""}"><button type="button" class="nav-gt" data-navg="${h(g.g)}" aria-expanded="${abierto}"><span>${h(g.g)}</span>${items.some(i => i.id === "repgen") ? cnt(nPend) : items.some(i => i.id === "pocos") ? cnt(nPocos, "Productos vigilados en un solo módulo, o agotados") : ""}<span class="nav-fl" aria-hidden="true">▾</span></button><div class="nav-gi">${items.map(link).join("")}</div></div>`;
   };
-  $("#nav").innerHTML = NAV.map(g => [g, g.items.filter(i => ver(g, i))]).filter(([g, it]) => it.length).map(([g, it]) => g.g ? grupo(g, it) : it.map(link).join("")).join("") +
+  // El usuario va de primero en el menú (arriba ocupaba espacio y descuadraba la barra)
+  const usu = S.usuario ? `<a href="#" class="nav-user" data-usuario><span class="ic">👤</span><span class="nav-t"><b>${h(S.usuario.nombre)}</b> <span class="small muted">· ${h(rolTxt(S.usuario.rol))}</span></span></a>` : "";
+  $("#nav").innerHTML = usu + NAV.map(g => [g, g.items.filter(i => ver(g, i))]).filter(([g, it]) => it.length).map(([g, it]) => g.g ? grupo(g, it) : it.map(link).join("")).join("") +
     grupo({ g: "Pantalla" }, []).replace(`<div class="nav-gi"></div>`, `<div class="nav-gi"><a href="#" data-tema-tog><span class="ic">🎨</span>Cambiar colores (oscuro / claro)</a><a href="#" data-vista-tog class="solo-escritorio"><span class="ic">▤</span><span class="txt">${document.documentElement.dataset.vista === "lista" ? "Ver tarjetas una al lado de otra" : "Ver tarjetas en lista"}</span></a></div>`);
   pintarBarraAbajo();
   $$("#bottombar button").forEach(b => b.classList.toggle("on", b.dataset.v === S.vista));
@@ -3222,8 +3225,9 @@ function pintarPre(el) {
 VISTAS.consumo = async (el, p, vigente) => {
   const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
   if (!vigente()) return;
-  // Pony solo muestra: la lista, el nombre, el orden y el módulo se cambian en Administración › Lista de consumo
-  const esc = false;
+  // La lista, el nombre y el orden se cambian en Administración › Lista de consumo; el módulo a consumir
+  // lo escogen aquí a mano el rotador y el administrador («Elegir» / «volver a automático»)
+  const esc = puede("validador");
   // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
       ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
@@ -3243,7 +3247,7 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
   const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
   const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
-    <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. ${esc ? "Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. " : "El módulo lo escoge el administrador. "}KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
+    <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. ${esc ? "Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. " : "El módulo lo escoge el rotador o el administrador. "}KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
     <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label></div>
     <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>

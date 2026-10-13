@@ -5847,7 +5847,7 @@ function webConsumoAgregar(tk, sku) { return webAuth_(tk, A_, () => { const r = 
 function webConsumoEliminar(tk, sku) { return webAuth_(tk, A_, () => { if (!eliminarConsumoCore_(sku)) throw new Error(`El SKU ${sku} no estaba en la lista.`); return true; }); }
 function webConsumoNombre(tk, sku, nombre) { return webAuth_(tk, A_, () => renombrarConsumoCore_(sku, nombre)); }
 function webConsumoOrden(tk, skus) { return webAuth_(tk, A_, () => ordenarConsumoCore_(skus)); }
-function webConsumoElegir(tk, sku, modulo) { return webAuth_(tk, A_, u => elegirModuloConsumoCore_(sku, modulo, u.nombre)); }
+function webConsumoElegir(tk, sku, modulo) { return webAuth_(tk, V_, u => elegirModuloConsumoCore_(sku, modulo, u.nombre)); }
 function webLimboAgregar(tk, obj) {
   return webAuth_(tk, V_, () => {
     obj = obj || {};

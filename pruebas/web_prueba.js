@@ -549,6 +549,9 @@ let llamadasSb = 0, sinRed = false;
   if (!dl || !/\.jpg$/.test(dl.suggestedFilename())) errores.push("rotular: el botón de foto no descargó un JPG");
   await P.evaluate(() => ir("rotular")); await P.waitForTimeout(700); await P.screenshot({ path: "/tmp/w_rotulaciones.png" });
   q("delete from rotulaciones");
+  // --- El usuario va de primero en el menú (no arriba) ---
+  if (await P.isVisible("#userChip") || !(await P.$("#nav > a.nav-user[data-usuario]:first-child"))) errores.push("usuario: no está de primero en el menú o sigue arriba");
+  await P.click("#nav a.nav-user"); await P.waitForSelector("#lgOut"); await P.evaluate(() => cerrarModal(true));
   // --- Sincronización vieja: punto rojo en «Sincronizar», sin franja ---
   {
     const r = await P.evaluate(() => { const t = S.sync.ts; S.sync.ts = Date.now() - 4 * 3600e3; pintarRecordatorio(); const a = $("#syncBtn").classList.contains("atrasada") && !$("#syncRec"); S.sync.ts = t; pintarRecordatorio(); return a && !$("#syncBtn").classList.contains("atrasada"); });
@@ -764,6 +767,14 @@ let llamadasSb = 0, sinRed = false;
   // --- Consumo: solo el administrador la cambia ---
   const rCons = await vAna.page.evaluate(() => api("webConsumoAgregar", "2222").then(() => "ok", e => e.message));
   if (!/permiso/i.test(rCons)) errores.push("consumo: un validador todavía cambia la lista: " + rCons);
+  // …pero el rotador sí escoge a mano el módulo a consumir
+  {
+    const sC = q("select c.sku || '|' || min(w.modulo) from consumo c join wms_base w on w.sku = c.sku and w.estado = 'DISPONIBLE' and w.cajas > 0 and w.modulo !~ '^(KA|PREV)' group by c.sku order by c.sku limit 1").split("|");
+    const rEl = await vAna.page.evaluate(a => api("webConsumoElegir", a[0], a[1]).then(() => "ok", e => e.message), sC);
+    if (rEl !== "ok" || q(`select modulo_elegido || '|' || elegido_por from consumo where sku='${sC[0]}'`) !== `${sC[1]}|Ana María`) errores.push("consumo: el rotador no pudo escoger el módulo a mano: " + rEl + " · " + q(`select modulo_elegido || '|' || elegido_por from consumo where sku='${sC[0]}'`));
+    await vAna.page.evaluate(a => api("webConsumoElegir", a[0], ""), sC);
+    if (q(`select coalesce(modulo_elegido,'auto') from consumo where sku='${sC[0]}'`) !== "auto") errores.push("consumo: el rotador no pudo volver a automático");
+  }
   // --- Lista de consumo en Administración: nombre y orden; Pony solo muestra ---
   await P.evaluate(() => ir("consumolista")); await P.waitForTimeout(900);
   const ordenA = await P.$$eval(".cl-f", fs => fs.map(f => f.dataset.sku));
@@ -776,7 +787,8 @@ let llamadasSb = 0, sinRed = false;
     await P.screenshot({ path: "/tmp/w_consumolista2.png" });
     await P.evaluate(() => ir("consumo")); await P.waitForTimeout(900);
     const pony = await P.evaluate(() => ({ editar: !!$("[data-lista]"), elegir: !!$("[data-el]"), auto: !!$("[data-auto]"), primero: ($(".cs-lista .cs-row .cs-p") || {}).textContent || "", nombre: $("#view").textContent.includes("Nombre de prueba Pony") }));
-    if (pony.editar || pony.elegir || pony.auto) errores.push("Pony: todavía tiene botones para cambiar la lista: " + JSON.stringify(pony));
+    if (pony.editar) errores.push("Pony: todavía tiene botones para cambiar la lista: " + JSON.stringify(pony));
+    if (!pony.elegir) errores.push("Pony: el administrador / rotador no puede «Elegir» el módulo a mano: " + JSON.stringify(pony));
     if (!pony.primero.includes(ordenA[1]) || !pony.nombre) errores.push("Pony: no sale en el orden o con el nombre del administrador: " + JSON.stringify(pony));
     await P.evaluate(() => ir("consumolista")); await P.waitForTimeout(700);
     await P.fill(`[data-nom="${ordenA[0]}"]`, ""); await P.press(`[data-nom="${ordenA[0]}"]`, "Enter"); await P.waitForTimeout(900);

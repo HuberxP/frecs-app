@@ -955,8 +955,9 @@ async function cargarCat(forzar) {
 }
 
 $("#syncBtn").onclick = async () => {
+  if (typeof avisarAntesDeSincronizar === "function" && !(await avisarAntesDeSincronizar())) return;
   const b = $("#syncBtn"); b.disabled = true; const t = b.innerHTML; b.innerHTML = `<span class="spin" style="width:16px;height:16px;border-width:2px"></span>`;
-  const antes = { filas: (S.inv || []).filter(i => i.fis).length, mods: new Set((S.inv || []).filter(i => i.fis).map(i => i.m)).size };
+  const antes = { filas: (S.inv || []).filter(i => i.fis).length, mods: new Set((S.inv || []).filter(i => i.fis).map(i => i.m)).size, mano: (S.ajustes || []).length + (S.bloqueos || []).length };
   try {
     const r = await api("webSincronizar");
     guardarInv(r.inv); repintar(); avisoSync(r, antes);
@@ -982,6 +983,7 @@ function avisoSync(r, antes, err) {
   const movViejo = /🔴/.test(mov);
   // Productos vigilados en un solo módulo, o agotados (alerta de pocos)
   const pocos = typeof pocosAlerta === "function" ? pocosAlerta() : [];
+  S.reapl = null;
   if (S.usuario) pintarNav();
   abrirModal(`<div class="sync-res ${alerta ? "rev" : "ok"}"><div class="sync-ic">${alerta ? "⚠️" : "✅"}</div><h3>${alerta ? "Se actualizó, pero revisa" : "Base actualizada"}</h3>
     <div class="ficha"><span>Ubicaciones con producto</span><b>${fm(filas)}${antes && antes.filas ? ` <span class="small muted">(antes ${fm(antes.filas)})</span>` : ""}</b>
@@ -991,7 +993,8 @@ function avisoSync(r, antes, err) {
     ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
     ${r && r.fotos && r.fotos.conFoto ? `<div class="note" style="margin-top:12px">📷 ${r.fotos.conFoto} foto${r.fotos.conFoto > 1 ? "s" : ""} nueva${r.fotos.conFoto > 1 ? "s" : ""} de productos con prioridad.</div>` : ""}
     ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `${x.mods.length === 1 ? x.mods[0].m : x.mods.length + " módulos"} · ${fm(x.tot.e)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
-    <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
+    ${antes && antes.mano && puede("validador") ? `<div class="note" style="margin-top:12px">✍️ Lo anotado a mano (${antes.mano}) quedó guardado. Si el WMS todavía no lo tiene, vuelve a aplicarlo.</div>` : ""}
+    <div class="modal-actions">${antes && antes.mano && puede("validador") ? `<button class="btn" data-reaplicar>♻️ Volver a aplicar</button>` : ""}<button class="btn primary" data-x>Aceptar</button></div></div>`);
 }
 // Recordatorio: si la última sincronización tiene más de 3 horas, una franja arriba para sincronizar
 const SYNC_RECORDAR_MIN = 180;
@@ -1306,10 +1309,11 @@ function resumenTurno(box) {
 VISTAS.inicio = async (el, p, vigente) => {
   el.innerHTML = cab(`Hola, ${h(S.usuario ? S.usuario.nombre.split(" ")[0] : "")}`, "Resumen de la bodega y del turno") +
     `<div class="quick">${campoAuto("qq", "SKU, producto o módulo (ej: 3659, pony go, B12)")}</div>
-     <div id="ajI"></div><div id="pvI"></div><div id="tb"></div><div id="rsT"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
+     <div id="reI"></div><div id="ajI"></div><div id="pvI"></div><div id="tb"></div><div id="rsT"></div><div id="kp">${loader()}</div><h2>Validación del turno</h2><div id="vs">${loader()}</div>`;
   resumenTurno($("#rsT", el));
   avisoPocos($("#pvI", el));
   if (typeof avisoAjustes === "function") avisoAjustes($("#ajI", el));
+  if (typeof avisoReaplicar === "function") avisoReaplicar($("#reI", el));
   autoSku($("#qq", el), c => ir("stock", { sku: c.sku }));
   $("#qq", el).addEventListener("keydown", e => {
     if (e.key !== "Enter" || e.defaultPrevented) return;
@@ -4379,7 +4383,8 @@ VISTAS.actualizar = async (el, p, vigente) => {
     `<div class="lista-tools"><input type="search" id="acS" placeholder="Sección (ej: B, KA, PREV)" value="${h(sec)}" autocapitalize="characters" autocomplete="off" list="acSL"><datalist id="acSL">${secciones.map(s => `<option value="${h(s)}">`).join("")}</datalist>
       <div class="seg seg-sm" id="acF"><button data-f="" class="${solo ? "" : "on"}">Todos</button><button data-f="1" class="${solo ? "on" : ""}">🔴 Solo los que faltan</button></div>
       <label class="sw-fila ac-modo" title="Mientras actualizas: lo que falta gira en rojo; al corregir o decir «Está bien» se pone verde"><span><b>Estoy actualizando</b></span><span class="sw"><input type="checkbox" id="acModo" ${modo ? "checked" : ""}><i></i></span></label></div>
-    <div id="acP"></div><div id="acL"></div>`;
+    <div id="reA"></div><div id="acP"></div><div id="acL"></div>`;
+  avisoReaplicar($("#reA", el));
   const pintar = () => {
     if (!sec) { $("#acP", el).innerHTML = ""; $("#acL", el).innerHTML = `<div class="ac-secs">${secciones.map(s => `<button class="btn sm" data-sec="${h(s)}">${h(s)}</button>`).join("")}</div>`; return; }
     const conDig = /\d/.test(sec);
@@ -4419,6 +4424,105 @@ VISTAS.actualizar = async (el, p, vigente) => {
 };
 // Desde Por módulo (módulo vacío): ir a Actualizar con su sección
 document.addEventListener("click", e => { const b = e.target.closest("[data-ir-act]"); if (!b) return; e.preventDefault(); ls.set("amSec", seccionDe(b.dataset.irAct)); ir("actualizar", { sec: seccionDe(b.dataset.irAct) }); });
+
+// =====================================================================
+// ♻️ VOLVER A APLICAR LO ANOTADO A MANO (rotador / administrador)
+// Si se sincronizó y el WMS todavía no tenía lo que se anotó a mano, eso deja de contar pero queda
+// guardado. Aquí se ve la lista (lo que el WMS ya tiene sale desmarcado) y se vuelve a aplicar sobre
+// los datos nuevos, en el mismo orden y a nombre de quien lo anotó. Lo que no se escoge se descarta.
+// =====================================================================
+// r = { base, ajustes: [id, tipo, módulo, sku, producto, cant, unidad, vence, reemplazo, fijar_a, por, en, ahora, ya],
+//       bloqueos: [id, módulo, sku, motivo, candado, fecha, nota, por, en, ya], revisiones: [módulo, por, en] }
+S.reapl = null;
+const reaplN = r => r ? r.ajustes.length + r.bloqueos.length + r.revisiones.length : 0;
+async function cargarReapl(forzar) {
+  if (!puede("validador")) return null;
+  if (S.reapl && !forzar && Date.now() - S.reapl.t < 60000) return S.reapl.r;
+  const r = await api("webReaplicarLista");
+  S.reapl = { r: r, t: Date.now() };
+  return r;
+}
+async function avisoReaplicar(box) {
+  if (!box || !puede("validador")) return;
+  let r; try { r = await cargarReapl(); } catch (e) { return; }
+  if (!box.isConnected) return;
+  const n = r ? r.ajustes.length + r.bloqueos.length : 0;
+  box.innerHTML = reaplN(r) ? `<section class="card re-aviso"><div><b>♻️ Lo anotado a mano antes de sincronizar</b> <span class="nav-n">${n || r.revisiones.length}</span>
+      <div class="small muted">${n ? `${n} cambio${n > 1 ? "s" : ""} a mano` : ""}${n && r.revisiones.length ? " y " : ""}${r.revisiones.length ? `${r.revisiones.length} módulo${r.revisiones.length > 1 ? "s" : ""} revisado${r.revisiones.length > 1 ? "s" : ""}` : ""} de la sincronización del ${h(fechaCorta(r.base))}. Se sincronizó y ahora manda el WMS: si el WMS todavía no los tiene, vuelve a aplicarlos.</div></div>
+      <button class="btn primary sm" data-reaplicar>♻️ Revisar y volver a aplicar</button></section>` : "";
+}
+function filaReapl(x, k) {
+  let t;
+  if (k === "b") t = `🔒 Bloquear ${modChip(x[1])}${x[2] ? ` · <span class="sku">${h(x[2])}</span>` : ""} · <b>${h(x[3])}</b>${x[4] ? ` · 🔑 ${h(x[4])}` : ""} · ${h(fechaDMY(x[5]))}`;
+  else {
+    const f = x[9] === null || x[9] === undefined ? null : Number(x[9]), un = x[6], ahora = Math.round(Number(x[12]) * 10) / 10;
+    const ah = `<span class="small muted">(el WMS dice ${unTxt(ahora, un)})</span>`;
+    t = f === 0 ? `🗑️ Quitar de ${modChip(x[2])} · ${skuTxt(x[3], x[4])} ${ah}`
+      : f !== null ? `✏️ Dejar ${modChip(x[2])} en <b>${unTxt(f, un)}</b> · ${skuTxt(x[3], x[4])} ${ah}`
+      : x[1] === "PONER" ? `${x[8] ? "🔄 Reemplazar con" : "📥 Guardar"} <b>${unTxt(Number(x[5]), un)}</b> en ${modChip(x[2])} · ${skuTxt(x[3], x[4])} · vence ${h(fechaDMY(x[7]))}`
+      : `➖ Sacar <b>${unTxt(Number(x[5]), un)}</b> de ${modChip(x[2])} · ${skuTxt(x[3], x[4])} ${ah}`;
+  }
+  const ya = k === "b" ? x[9] : x[13], por = k === "b" ? x[7] : x[10], en = k === "b" ? x[8] : x[11];
+  return `<label class="re-f ${ya ? "ya" : ""}"><input type="checkbox" data-re="${k}" value="${h(x[0])}" ${ya ? "" : "checked"}>
+    <span>${t}${ya ? ` <span class="tag t-cumple">✔ El WMS ya lo tiene</span>` : ""}<span class="small muted re-por">@${h(por)} · ${h(fechaCorta(en))}</span></span></label>`;
+}
+async function modalReaplicar() {
+  let r;
+  try { r = await cargarReapl(true); } catch (e) { toast(e.message, "bad", 6000); return; }
+  if (!reaplN(r)) { toast("No queda nada anotado a mano por volver a aplicar", "ok"); avisoReaplicar($("#reI")); avisoReaplicar($("#reA")); return; }
+  // Todo en el orden en que se anotó
+  const l = r.ajustes.map(x => ({ k: "a", x: x, en: x[11] })).concat(r.bloqueos.map(x => ({ k: "b", x: x, en: x[8] }))).sort((a, b) => a.en.localeCompare(b.en));
+  const c = abrirModal(`<h3>♻️ Volver a aplicar lo anotado a mano</h3>
+    <p class="small muted">Lo anotado sobre la sincronización del ${h(fechaCorta(r.base))}. Se vuelve a aplicar sobre lo que trajo el WMS ahora, en el mismo orden y a nombre de quien lo anotó.
+      <b>Desmarca lo que ya pasaron al WMS</b> (lo que el WMS ya muestra sale desmarcado). Lo que no marques se descarta y no vuelve a salir.</p>
+    <div id="reW">${l.length ? `<div class="re-tools"><button class="btn sm" data-todo="1">Marcar todo</button><button class="btn sm" data-todo="">Nada</button></div>
+    <div class="re-lista">${l.map(o => filaReapl(o.x, o.k)).join("")}</div>` : ""}
+    ${r.revisiones.length ? `<label class="re-f re-rev"><input type="checkbox" id="reRev" checked><span>✅ Volver a marcar como revisados <b>${r.revisiones.length}</b> módulo${r.revisiones.length > 1 ? "s" : ""} <span class="small muted re-por">${r.revisiones.slice(0, 12).map(v => h(v[0])).join(", ")}${r.revisiones.length > 12 ? "…" : ""}</span></span></label>` : ""}</div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn danger" id="reNo">Descartar todo</button><button class="btn primary" id="reOk">♻️ Volver a aplicar</button></div>`, { wide: true });
+  const cuenta = () => { const n = $$("[data-re]:checked", c).length + ($("#reRev", c) && $("#reRev", c).checked ? 1 : 0); $("#reOk", c).disabled = !n; $("#reOk", c).textContent = `♻️ Volver a aplicar${n ? ` (${$$("[data-re]:checked", c).length})` : ""}`; };
+  // «Quitar» y luego «Guardar» el mismo producto en el mismo módulo van juntos (marcar uno marca el otro)
+  const par = {};
+  r.ajustes.forEach(x => { if (Number(x[9]) === 0 && x[9] !== null) { const p = r.ajustes.find(y => y[1] === "PONER" && y[9] === null && y[2] === x[2] && y[3] === x[3] && y[11] > x[11]); if (p) { par[x[0]] = p[0]; par[p[0]] = x[0]; } } });
+  $("#reW", c).onchange = e => {
+    const i = e.target; if (i.dataset && i.dataset.re === "a" && par[i.value]) { const o = $(`[data-re="a"][value="${par[i.value]}"]`, c); if (o) o.checked = i.checked; }
+    cuenta();
+  };
+  $$("[data-todo]", c).forEach(b => b.onclick = () => { $$("[data-re]", c).forEach(i => i.checked = !!b.dataset.todo); cuenta(); });
+  cuenta();
+  const enviar = async (btn, todo) => {
+    const sel = todo ? { ajustes: [], bloqueos: [], revisiones: false } : {
+      ajustes: $$('[data-re="a"]:checked', c).map(i => i.value), bloqueos: $$('[data-re="b"]:checked', c).map(i => i.value),
+      revisiones: !!($("#reRev", c) && $("#reRev", c).checked) };
+    ocupado(btn, true, todo ? "Descartando…" : "Aplicando…");
+    try {
+      const v = await api("webReaplicar", sel);
+      guardarAjustes(v.ajustes_l); guardarBloqueos(v.bloqueos_l); guardarRevisiones(v.revisiones_l); S.reapl = null;
+      try { await cargarInv(true); } catch (e) {}
+      ocupado(btn, false); cerrarModal(true);
+      if (S.usuario) pintarNav();
+      repintar();
+      if (todo) { toast("Se descartó lo anotado a mano: manda el WMS", "ok", 5000); return; }
+      const partes = [v.aplicados ? `${v.aplicados} cambio${v.aplicados > 1 ? "s" : ""}` : "", v.bloqueos ? `${v.bloqueos} bloqueo${v.bloqueos > 1 ? "s" : ""}` : "", v.revisiones ? `${v.revisiones} módulo${v.revisiones > 1 ? "s" : ""} revisado${v.revisiones > 1 ? "s" : ""}` : ""].filter(Boolean);
+      abrirModal(`<div class="sync-res ${v.errores.length ? "rev" : "ok"}"><div class="sync-ic">${v.errores.length ? "⚠️" : "♻️"}</div><h3>${partes.length ? "Se volvió a aplicar" : "No se aplicó nada"}</h3>
+        ${partes.length ? `<p>${partes.join(" · ")}</p>` : ""}${v.ya ? `<p class="small muted">${v.ya} ya estaba${v.ya > 1 ? "n" : ""} así en el WMS (no se tocó).</p>` : ""}
+        ${v.errores.length ? `<div class="note warn" style="text-align:left"><b>No se pudo${v.errores.length > 1 ? ` (${v.errores.length})` : ""}:</b>${v.errores.map(e => `<div class="small">${modChip(e[0])} ${e[1] ? `<span class="sku">${h(e[1])}</span> ` : ""}${h(e[2])}: ${h(e[3])}</div>`).join("")}<div class="small muted" style="margin-top:6px">Hazlo a mano en ✍️ Actualizar módulos.</div></div>` : ""}
+        <div class="modal-actions"><button class="btn primary" data-x>Aceptar</button></div></div>`);
+    } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+  $("#reOk", c).onclick = () => enviar($("#reOk", c), false);
+  $("#reNo", c).onclick = async () => {
+    if (!(await confirmar("Descartar todo", "Se queda lo que trajo el WMS y lo anotado a mano no vuelve a salir. ¿Seguro?", "Descartar todo", true))) { modalReaplicar(); return; }
+    enviar(null, true);
+  };
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-reaplicar]"); if (!b) return; e.preventDefault(); if (modalAbierto()) cerrarModal(true); modalReaplicar(); });
+// Antes de sincronizar: si hay cambios a mano, avisar que el WMS los reemplaza
+async function avisarAntesDeSincronizar() {
+  const n = ajustesTodos().length + bloqueosTodos().length;
+  if (!n) return true;
+  return confirmar("Hay cambios a mano", `Hay <b>${n}</b> cambio${n > 1 ? "s" : ""} anotado${n > 1 ? "s" : ""} a mano (✍️ Anotado sin WMS). Al sincronizar manda el WMS: si todavía no los pasaron al WMS, dejarán de verse.<br><br>
+    Quedan guardados y luego se pueden volver a aplicar con <b>♻️ Volver a aplicar</b> (en Inicio). ¿Sincronizar de todas formas?`, "Sí, sincronizar", true);
+}
 
 // =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)

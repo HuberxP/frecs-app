@@ -103,6 +103,8 @@
     if (!j.ok) return fallo(j.error || "No se pudo sincronizar.", j.sesion ? { sesion: true } : null);
     await cargarDatos(tk, true);
     const inv = conFotos(JSON.parse(MOTOR.llamar("webInventario", [tk])).data);
+    // Lo anotado a mano de la sincronización nueva (lo de antes deja de contar)
+    if (inv) { inv.ajustes = (datos && datos.ajustes) || []; inv.bloqueos = (datos && datos.bloqueos) || []; inv.revisiones = (datos && datos.revisiones) || []; }
     if (j.supabase && j.supabase.error) return fallo("El WMS se guardó en las hojas, pero no llegó a Supabase: " + j.supabase.error);
     return ok({ filas: j.filas, modulos: j.modulos, inv: inv, fotos: (j.supabase && j.supabase.fotos) || null });
   }
@@ -508,6 +510,13 @@
       }
       // ✅ Módulo revisado en «Actualizar módulos» (rotador o administrador)
       if (fn === "webRevision") { const v = await rpc("revision_marcar", { p_token: args[0], p_modulo: String(args[1] || ""), p_ok: args[2] !== false }); if (datos) { datos.revisiones = v; guardarLS(); } return ok(v); }
+      // ♻️ Volver a aplicar lo anotado a mano antes de sincronizar (rotador o administrador)
+      if (fn === "webReaplicarLista") return ok(await rpc("reaplicar_lista", { p_token: args[0] }));
+      if (fn === "webReaplicar") {
+        const v = await rpc("reaplicar", { p_token: args[0], p_sel: args[1] || {} });
+        if (datos) { datos.ajustes = v.ajustes_l; datos.bloqueos = v.bloqueos_l; datos.revisiones = v.revisiones_l; guardarLS(); }
+        return ok(v);
+      }
       // Marca liviana de cambios (para actualizarse sola sin tocar ↻)
       if (fn === "webCambios") return ok(String(await rpc("cambios_marca", { p_token: args[0] })));
       // Bloquear / desbloquear un módulo sin WMS (rotador o administrador)

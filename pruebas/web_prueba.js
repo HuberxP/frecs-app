@@ -675,6 +675,42 @@ let llamadasSb = 0, sinRed = false;
     const idSac = await P.evaluate(m => ajustesTodos().find(x => x.m === m && x.tipo === "SACAR").id, lt.m);
     await P.click(`#ajI [data-desh="${idSac}"]`); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(1800);
     if (cj() !== cj0) errores.push(`sin WMS: deshacer no devolvió las cajas (${cj()} de ${cj0})`);
+    // ♻️ Sincronizar sin querer y volver a aplicar lo anotado a mano
+    {
+      q(`drop table if exists _bkw; create table _bkw as select id, estibas, cajas, unidades from wms_base where modulo='${lt.m}'`);
+      await P.evaluate(a => api("webAjusteFijar", { modulo: a.m, sku: a.s, cant: "3", unidad: "est" }).then(guardarAjustes), lt);
+      if (cj() !== 3 * cpe) errores.push("reaplicar: la corrección de prueba no quedó");
+      await P.evaluate(() => cargarInv(true));
+      const nAj = await P.evaluate(() => ajustesTodos().length);
+      // Antes de sincronizar avisa (y Cancelar no sincroniza)
+      const nPed = pedidos.length;
+      await P.click("#syncBtn"); await P.waitForTimeout(700);
+      if (!/Hay cambios a mano/.test(await P.textContent("#modalCard").catch(() => "")) || !(await P.isVisible("#cfOk"))) errores.push("reaplicar: sincronizar con cambios a mano no avisa antes");
+      await P.click("#modalCard [data-x]"); await P.waitForTimeout(400);
+      if (pedidos.length !== nPed) errores.push("reaplicar: Cancelar sincronizó igual");
+      // El WMS no sabe nada: vuelve a lo de antes (lo simula la base) y se sincroniza de todas formas
+      q(`update wms_base w set estibas = b.estibas, cajas = b.cajas, unidades = b.unidades from _bkw b where w.id = b.id; update wms_base set cajas = 0, estibas = 0, unidades = 0 where modulo = 'Z98'; update sync_estado set ultima_sync = now() where id = 1; drop table _bkw;`);
+      await P.click("#syncBtn"); await P.waitForSelector("#cfOk"); await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(2000);
+      if (pedidos.length === nPed) errores.push("reaplicar: confirmar no sincronizó");
+      if (await P.evaluate(() => ajustesTodos().length)) errores.push("reaplicar: después de sincronizar siguen contando los ajustes");
+      if (!(await P.$("#modalCard [data-reaplicar]"))) errores.push("reaplicar: el resultado de sincronizar no ofrece volver a aplicar");
+      await P.evaluate(() => cerrarModal(true));
+      await P.evaluate(() => ir("inicio")); await P.waitForTimeout(1200);
+      if (!(await P.$("#reI [data-reaplicar]"))) errores.push("reaplicar: Inicio no muestra «♻️ Lo anotado a mano antes de sincronizar»");
+      await P.screenshot({ path: "/tmp/w_reapl_inicio.png" });
+      await P.click("#reI [data-reaplicar]"); await P.waitForSelector("#reOk"); await P.waitForTimeout(500);
+      const filas = await P.$$eval(".re-lista .re-f", fs => fs.map(f => f.querySelector("input").checked));
+      if (filas.length !== nAj || !filas.every(Boolean)) errores.push(`reaplicar: la lista no trae lo anotado marcado (${filas} de ${nAj})`);
+      await P.screenshot({ path: "/tmp/w_reapl.png" });
+      await P.click("#reOk"); await P.waitForTimeout(2500);
+      if (!/Se volvió a aplicar/.test(await P.textContent("#modalCard").catch(() => ""))) errores.push("reaplicar: no dice que se volvió a aplicar: " + await P.textContent("#modalCard").catch(() => ""));
+      if (cj() !== 3 * cpe || q("select cajas from wms_base where modulo='Z98' and cajas > 0") !== "30") errores.push(`reaplicar: no volvió a dejar lo anotado (${cj()} cajas; Z98 ${q("select string_agg(cajas::text, ',') from wms_base where modulo='Z98'")})`);
+      if ((await P.evaluate(() => ajustesTodos().length)) !== nAj) errores.push("reaplicar: lo aplicado no cuenta en la sincronización nueva");
+      await P.evaluate(() => cerrarModal(true)); await P.evaluate(() => ir("inicio")); await P.waitForTimeout(1200);
+      if (await P.$("#reI [data-reaplicar]")) errores.push("reaplicar: después de aplicar sigue saliendo el aviso");
+      for (const id of await P.evaluate(m => ajustesTodos().filter(x => x.m === m).map(x => x.id), lt.m)) await P.evaluate(id2 => api("webAjusteDeshacer", id2).then(guardarAjustes), id);
+      if (cj() !== cj0) errores.push(`reaplicar: deshacer lo reaplicado no volvió (${cj()} de ${cj0})`);
+    }
     q("delete from wms_base where modulo='Z98'"); q("delete from wms_modulos where modulo='Z98'"); q("delete from ajustes_sin_wms"); q("delete from bloqueos_sin_wms"); q("delete from revisiones_modulo");
     await P.evaluate(() => Promise.all([api("webAjustes").then(guardarAjustes), cargarInv(true)]));
   }

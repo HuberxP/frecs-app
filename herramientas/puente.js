@@ -119,6 +119,8 @@
     } catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
     let j = null;
     try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+    // Apps Script con el código de antes no conoce esta acción: se dice qué falta
+    if (!j.ok && /Acción no válida/i.test(j.error || "")) return fallo("Apps Script todavía tiene la versión anterior. Reemplaza el código con el zip nuevo y publica una versión nueva (Implementar → Gestionar implementaciones → editar → Versión nueva).");
     if (!j.ok) return fallo(j.error || "No se pudo cambiar.", j.sesion ? { sesion: true } : null);
     if (datos) { datos.sync_auto = j.estado || {}; guardarLS(); }
     return ok(j.estado || {});

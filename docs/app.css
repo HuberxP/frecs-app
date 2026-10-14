@@ -293,6 +293,9 @@
   .ag-row input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--brand); }
   .ag-row.dis { opacity: .5; }
   .ag-list { max-height: 48vh; overflow-y: auto; margin: 4px -4px 0; }
+  .ag-conc + .ag-conc { margin-top: 10px; }
+  .ag-row.ag-ct { position: sticky; top: 0; z-index: 1; background: var(--bg2); border-radius: 8px; border-bottom-color: var(--line2); }
+  html[data-tema="claro"] .ag-row.ag-ct { background: #f4f6fb; }
   .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 10px; }
   .tab { border: 0; background: none; padding: 10px 14px; font-weight: 650; color: var(--muted); border-bottom: 3px solid transparent; min-height: 44px; }
   .tab.on { color: var(--brand); border-bottom-color: var(--brand); }
@@ -1565,6 +1568,11 @@
   .aj-fab.hidden { display: none; }
   @media (max-width: 899px) { .aj-fab .txt { display: none; } .aj-fab { padding: 0 10px; } }
   html[data-tema="claro"] .tag.t-aj { color: #6d28d9; background: #f1ebff; } html[data-tema="claro"] .aj-f { background: #fff; }
+  /* 🏷️ Lista de tapacódigos (Administración) */
+  .tl-lista { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .tl-f { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); font-size: 13.5px; }
+  html[data-tema="claro"] .tl-f { background: #fff; }
+  .ei-tpc { margin: 6px 2px 0; } .ei-tpc:empty { display: none; }
   /* ♻️ Volver a aplicar lo anotado a mano */
   .re-aviso { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-color: #f59e0b; margin-bottom: 14px; }
   .re-aviso > div { flex: 1; min-width: 220px; } .re-aviso .small { margin-top: 4px; }

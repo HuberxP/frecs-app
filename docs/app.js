@@ -71,6 +71,7 @@ const NAV = [
     { id: "canales", ic: "🚦", t: "Canales (días mínimos)" },
     { id: "capacidad", ic: "🧱", t: "Capacidad de bodega" },
     { id: "consumolista", ic: "🥤", t: "Lista de consumo" },
+    { id: "tpclista", ic: "🏷️", t: "Tapacódigos (lista)" },
     { id: "vistasrol", ic: "🔐", t: "Secciones por rol" } ] }
 ];
 const TITULOS = {}; NAV.forEach(g => g.items.forEach(i => TITULOS[i.id] = Object.assign({ rol: g.rol }, i)));
@@ -496,8 +497,8 @@ function coincide(texto, toks) {
   }
   return nivel;
 }
-function buscarCat(q, max) {
-  const cat = S.cat || [];
+function buscarCat(q, max, filtro) {
+  const cat = filtro ? (S.cat || []).filter(filtro) : (S.cat || []);
   const toks = norm(q).split(/\s+/).filter(x => x);
   if (!toks.length) return [];
   const exactos = [], parecidos = [];
@@ -527,7 +528,9 @@ function autoSku(input, onPick, opts) {
   let items = [], sel = -1;
   const pintar = () => {
     const q = input.value.trim();
-    items = q ? buscarCat(q, opts.max || 12) : [];
+    const filtro = typeof opts.filtro === "function" ? opts.filtro() : null;   // (puede cambiar: p. ej. al pasar a TPC)
+    // Con filtro (lista corta) sale toda la lista al tocar el cuadro vacío
+    items = q ? buscarCat(q, opts.max || 12, filtro) : (filtro ? (S.cat || []).filter(filtro).sort((a, b) => a.prod.localeCompare(b.prod, "es", { numeric: true })).slice(0, 40) : []);
     sel = -1;
     if (!items.length) { box.classList.add("hidden"); return; }
     box.innerHTML = items.map((c, k) => `<div class="ac-item" data-k="${k}">${skuTxt(c.sku, c.prod)}<div class="sub">${h(c.pres || "")}${c.aprox ? " · parecido" : ""}</div></div>`).join("");
@@ -537,7 +540,7 @@ function autoSku(input, onPick, opts) {
   const elegir = k => { const c = items[k]; if (!c) return; box.classList.add("hidden"); if (opts.limpiar) input.value = ""; else input.value = opts.soloSku ? c.sku : `${c.sku} · ${c.prod}`; input.blur(); onPick(c); };
   input.addEventListener("input", pintar);
   input.addEventListener("input", () => subirAlEscribir(input), { once: true });
-  input.addEventListener("focus", () => { if (input.value.trim()) pintar(); });
+  input.addEventListener("focus", () => { if (input.value.trim() || (typeof opts.filtro === "function" && opts.filtro())) pintar(); });
   input.addEventListener("keydown", e => {
     if (box.classList.contains("hidden")) return;
     if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, items.length - 1); }
@@ -549,8 +552,10 @@ function autoSku(input, onPick, opts) {
   });
   box.addEventListener("mousedown", e => { const it = e.target.closest("[data-k]"); if (it) { e.preventDefault(); elegir(+it.dataset.k); } });
   input.addEventListener("blur", () => setTimeout(() => box.classList.add("hidden"), 150));
-  return { cerrar: () => box.classList.add("hidden") };
+  return { cerrar: () => box.classList.add("hidden"), pintar: pintar };
 }
+// Tapacódigos: solo los productos de la lista (Administración → Tapacódigos); lista vacía = todos
+const tpcFiltro = () => (S.tpcLista || []).length ? (c => S.tpcLista.includes(c.sku)) : null;
 // Cuadro de búsqueda con el botón pequeño al final (a la derecha). La ✕ del cuadro limpia también el resultado.
 const barraBusqueda = (id, ph, val, btn, etiqueta) => `<div class="buscador">${etiqueta ? `<span class="bq-l">${h(etiqueta)}</span>` : ""}<div class="bq-fila"><input type="search" id="${id}" placeholder="${h(ph || "SKU o nombre del producto…")}" value="${h(val || "")}" autocomplete="off">${btn ? `<button class="btn sm primary bq-btn" id="${id}B" type="button" title="${h(btn)}"><span class="ic">🔎</span><span class="txt">${h(btn)}</span></button>` : ""}</div></div>`;
 // Al vaciar el cuadro (✕ o borrando) se avisa para dejar la página en blanco
@@ -2566,12 +2571,14 @@ async function modalAgregar() {
   const sel = new Map();
   const c = abrirModal(`<div class="m-tit"><h3>Agregar productos</h3>${horaEd("agH", "", "Hora en que se contó")}</div>
     <div class="buscador"><div class="bq-fila"><input type="search" id="agQ" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div>
+    <label class="check"><input type="checkbox" id="agCo"><span>Mostrar los de la <b>conciliación</b> (de este turno o del anterior)</span></label>
+    <div class="ag-list hidden" id="agCL"></div>
     <label class="check"><input type="checkbox" id="agP"><span>Mostrar los <b>pocos</b> (debajo de su mínimo)</span></label>
     <div class="ag-list hidden" id="agPL"></div>
     <div id="agS"></div>
     <div class="modal-actions"><span class="muted small" id="agC">Ninguno</span><button class="btn" data-x>Cancelar</button><button class="btn primary" id="agOk" disabled>Agregar</button></div>`, { wide: true });
   const enTurno = new Set(S.val.productos.map(p => p.sku));
-  let pocos = null;
+  let pocos = null, concs = null;
   const cuenta = () => { $("#agC", c).textContent = sel.size ? `${sel.size} producto${sel.size > 1 ? "s" : ""}` : "Ninguno"; $("#agOk", c).disabled = !sel.size; };
   // Cada producto escogido: Bodega, PK y KA (vacío = no se contó ahí) y si la cantidad está por confirmar
   const pintarSel = () => {
@@ -2581,13 +2588,17 @@ async function modalAgregar() {
       <div class="check solo-cuadro"><input type="checkbox" data-pc="${h(x.sku)}" ${x.porConfirmar ? "checked" : ""} aria-label="Por confirmar"><span>No sé la cantidad real: <b>por confirmar</b></span></div></div>`).join("");
     cuenta();
   };
-  const agregar = (sku, prod) => {
+  // cant = conteos de la conciliación (en cajas) para empezar; se pueden corregir antes de agregar
+  const agregar = (sku, prod, cant, sinFoco) => {
     // Si ya está en el turno se abre de una vez su cantidad (para sumar o corregir)
     if (enTurno.has(sku)) { const p = S.val.productos.find(x => x.sku === sku); if (!sel.size && p) { cerrarModal(true); toast("Ya está en el turno: suma o corrige su cantidad.", "", 3000); modalInicial(p, true); } else toast("Ese producto ya está en el turno.", "warn"); return; }
-    if (!sel.has(sku)) sel.set(sku, { sku: sku, producto: prod, bodega: "", pk: "", ka: "", reempaque: "", porConfirmar: false });
+    if (!sel.has(sku)) sel.set(sku, Object.assign({ sku: sku, producto: prod, bodega: "", pk: "", ka: "", reempaque: "", porConfirmar: false }, cant || {}));
     pintarSel();
-    const i = $("#b" + sku, c); if (i) i.focus();
+    const i = $("#b" + sku, c); if (i && !sinFoco) i.focus();
   };
+  const concDe = sku => { for (const cc of concs || []) { const x = cc.items.find(y => y.sku === sku); if (x) return x; } return null; };
+  const cantConc = x => x ? { bodega: x.bodega, ka: x.ka, pk: x.pk } : null;
+  const marcarListas = () => $$("#agCL input[data-sku], #agPL input[data-sku]", c).forEach(i => { if (!i.disabled && !i.dataset.todos) i.checked = sel.has(i.dataset.sku); });
   autoSku($("#agQ", c), p => agregar(p.sku, p.prod), { limpiar: true });
   c.addEventListener("input", e => {
     const ir = e.target.closest(".f-reemp input");
@@ -2601,10 +2612,32 @@ async function modalAgregar() {
   });
   c.addEventListener("change", e => {
     const pc = e.target.closest("[data-pc]"); if (pc) { sel.get(pc.dataset.pc).porConfirmar = pc.checked; return; }
-    const cb = e.target.closest("#agPL input[type=checkbox]");
-    if (cb) { if (cb.checked) agregar(cb.dataset.sku, cb.dataset.prod); else { sel.delete(cb.dataset.sku); pintarSel(); } }
+    // Todos los de una conciliación
+    const td = e.target.closest("#agCL input[data-todos]");
+    if (td) {
+      const cc = (concs || []).find(x => x.id === td.dataset.todos);
+      if (cc) cc.items.filter(x => !x.enTurno && !enTurno.has(x.sku)).forEach(x => { if (td.checked) { if (!sel.has(x.sku)) agregar(x.sku, x.producto, cantConc(x), true); } else sel.delete(x.sku); });
+      pintarSel(); marcarListas(); return;
+    }
+    const cb = e.target.closest("#agPL input[type=checkbox], #agCL input[data-sku]");
+    if (cb) { if (cb.checked) agregar(cb.dataset.sku, cb.dataset.prod, cb.closest("#agCL") ? cantConc(concDe(cb.dataset.sku)) : null); else { sel.delete(cb.dataset.sku); pintarSel(); } marcarListas(); }
   });
-  c.addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; sel.delete(q.dataset.q); const cb = $(`#agPL input[data-sku="${q.dataset.q}"]`, c); if (cb) cb.checked = false; pintarSel(); });
+  c.addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; sel.delete(q.dataset.q); pintarSel(); marcarListas(); });
+  $("#agCo", c).onchange = async () => {
+    const L = $("#agCL", c);
+    L.classList.toggle("hidden", !$("#agCo", c).checked);
+    if (!$("#agCo", c).checked) return;
+    if (!concs) {
+      L.innerHTML = loader("Cargando conciliación…");
+      try { concs = await api("webValConc", S.valTurno || ""); } catch (er) { L.innerHTML = errBox(er); return; }
+    }
+    const cz = x => [["Bodega", x.bodega], ["KA", x.ka], ["PK", x.pk]].filter(z => z[1] !== "" && z[1] !== null && z[1] !== undefined).map(z => `${z[0]} ${fm(z[1])}`).join(" · ");
+    L.innerHTML = concs.length ? concs.map(cc => { const libres = cc.items.filter(x => !x.enTurno && !enTurno.has(x.sku)).length;
+      return `<div class="ag-conc"><label class="ag-row ag-ct"><input type="checkbox" data-todos="${h(cc.id)}" ${libres ? "" : "disabled"}><div><b>${h(cc.texto)}</b><div class="sub">${cc.items.length} producto${cc.items.length > 1 ? "s" : ""}${libres ? ` · marcar todos los que faltan (${libres})` : " · ya están todos en el turno"}</div></div></label>
+        ${cc.items.map(x => { const ya = x.enTurno || enTurno.has(x.sku); return `<label class="ag-row ${ya ? "dis" : ""}"><input type="checkbox" data-sku="${h(x.sku)}" data-prod="${h(x.producto)}" ${sel.has(x.sku) ? "checked" : ""} ${ya ? "disabled" : ""}>
+          <div>${skuTxt(x.sku, x.producto)}<div class="sub">${cz(x) ? `Conciliación: ${cz(x)} cajas` : "Sin conteo en la conciliación"}${ya ? " · <b>ya está</b>" : ""}</div></div></label>`; }).join("")}</div>`; }).join("")
+      : `<p class="muted small">No hay conciliación de este turno ni del turno anterior con productos.</p>`;
+  };
   $("#agP", c).onchange = async () => {
     const L = $("#agPL", c);
     L.classList.toggle("hidden", !$("#agP", c).checked);
@@ -2847,7 +2880,7 @@ function modalEntItem(s, item, elegir, otra) {
   if (!cant.length || otra) cant.push({ n: "", un: cfg.un, m: "" });
   const c = abrirModal(`<h3 id="eiT">${item ? "Editar" : "Agregar"} · ${cfg.t}</h3>
     ${elegir && !item ? `<div class="seg seg-sm" id="eiS">${Object.keys(SECC).map(k => `<button data-s="${k}" class="${k === s ? "on" : ""}">${h(SECC[k].t.replace(/ \(.*\)$/, ""))}</button>`).join("")}</div>` : ""}
-    ${item ? `<div class="m-prod">${skuTxt(item.sku, item.producto)}</div>` : `<div class="buscador"><div class="bq-fila"><input type="search" id="eiP" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div>`}
+    ${item ? `<div class="m-prod">${skuTxt(item.sku, item.producto)}</div>` : `<div class="buscador"><div class="bq-fila"><input type="search" id="eiP" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div><div class="small muted ei-tpc" id="eiTpc"></div>`}
     <div class="field"><span id="eiL">Cantidades ${cfg.mod ? "(cada una con su módulo)" : ""}</span><div id="eiC"></div></div>
     <button class="btn sm" id="eiMas" style="margin-top:6px">＋ Otra cantidad</button>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="eiOk">Guardar</button></div>`, { wide: true });
@@ -2859,10 +2892,20 @@ function modalEntItem(s, item, elegir, otra) {
       <button class="btn sm icon" data-q="${k}" title="Quitar">✕</button></div>`).join("");
   };
   pintarCant();
+  // TPC: solo los productos de la lista de tapacódigos (Administración); si está vacía, todos
+  const filtroSec = () => s === "TPC" ? tpcFiltro() : null;
+  const pintarTpc = () => {
+    const t = $("#eiTpc", c); if (!t) return;
+    const n = (S.tpcLista || []).length;
+    t.innerHTML = s === "TPC" && n ? `🏷️ Solo salen los <b>${n}</b> producto${n > 1 ? "s" : ""} de la lista de tapacódigos.` : "";
+    const f = filtroSec();
+    if (f && prodSel && !f(prodSel)) { prodSel = null; $("#eiP", c).value = ""; }
+  };
+  pintarTpc();
   if (otra) setTimeout(() => { const ns = $$("#eiC input[data-f=n]", c); if (ns.length) ns[ns.length - 1].focus(); }, 80);
   if ($("#eiS", c)) $("#eiS", c).onclick = e => {
     const b = e.target.closest("[data-s]"); if (!b) return;
-    s = b.dataset.s; S.entSec = s; cfg = SECC[s];
+    s = b.dataset.s; S.entSec = s; cfg = SECC[s]; pintarTpc();
     $$("#eiS button", c).forEach(x => x.classList.toggle("on", x === b));
     $("#eiT", c).textContent = `Agregar · ${cfg.t}`; $("#eiL", c).textContent = `Cantidades ${cfg.mod ? "(cada una con su módulo)" : ""}`;
     cant = cant.map(x => Object.assign({}, x, { un: x.n === "" ? cfg.un : x.un }));
@@ -2874,7 +2917,7 @@ function modalEntItem(s, item, elegir, otra) {
       const ya = ((S.ent && S.ent.secciones[s]) || []).find(x => x.sku === p.sku);
       if (ya) { cerrarModal(true); toast(`Ya está en ${SECC[s].t}: edita sus cantidades.`, "", 3000); modalEntItem(s, ya); return; }
       prodSel = p; const n = $("#eiC input[data-f=n]", c); if (n) n.focus();
-    });
+    }, { filtro: filtroSec, max: 20 });
     alLimpiar($("#eiP", c), () => { prodSel = null; });
   }
   $("#eiC", c).addEventListener("input", e => { const r = e.target.closest("[data-k]"); if (!r) return; cant[+r.dataset.k][e.target.dataset.f] = e.target.value; });
@@ -2882,8 +2925,9 @@ function modalEntItem(s, item, elegir, otra) {
   $("#eiC", c).addEventListener("click", e => { const q = e.target.closest("[data-q]"); if (!q) return; cant.splice(+q.dataset.q, 1); if (!cant.length) cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); });
   $("#eiMas", c).onclick = () => { cant.push({ n: "", un: cfg.un, m: "" }); pintarCant(); };
   $("#eiOk", c).onclick = () => {
-    if (!prodSel) { const v = $("#eiP", c).value.trim(); const m = v.match(/^(\d+)/); const f = m ? (S.cat || []).find(x => x.sku === m[1]) : (v ? buscarCat(v, 1)[0] : null); if (f) prodSel = f; }
+    if (!prodSel) { const v = $("#eiP", c).value.trim(); const m = v.match(/^(\d+)/); const f = m ? (S.cat || []).find(x => x.sku === m[1]) : (v ? buscarCat(v, 1, filtroSec())[0] : null); if (f) prodSel = f; }
     if (!prodSel) { toast("Escoge el producto de la lista.", "bad"); return; }
+    if (!item && filtroSec() && !filtroSec()(prodSel)) { toast(`${prodSel.sku} no está en la lista de tapacódigos (Administración → Tapacódigos).`, "bad", 6000); return; }
     const limpias = cant.map(x => ({ n: String(x.n).replace(",", "."), un: x.un, m: (x.m || "").trim().toUpperCase() })).filter(x => x.n !== "" || x.m);
     if (limpias.some(x => isNaN(Number(x.n)) || Number(x.n) < 0)) { toast("Revisa las cantidades.", "bad"); return; }
     cerrarModal(true);
@@ -3584,44 +3628,49 @@ function avisoGuardado(r, que) {
   if (n && r.telegram === false && S.grupoTg) toast("El reporte quedó guardado, pero no se pudo avisar al grupo de Telegram.", "warn", 6000);
 }
 
-// ---------- Reportar vacío ----------
+// ---------- Reportar vacío (un módulo a la vez: se escoge y se confirma) ----------
+// Al tocar el módulo sale una tarjeta con lo que dice el aplicativo y «¿Seguro?»; con Aceptar queda reportado.
+function confirmarVacio(x, mods, alListo) {
+  const l = x.lotes.slice().sort((a, b) => (b.disp ? 1 : 0) - (a.disp ? 1 : 0) || tV(a.v) - tV(b.v));
+  const c = abrirModal(`<h3>⬜ ¿Reportar ${modChip(x.m)} como vacío?</h3>
+    <p class="small muted">A los rotadores les llega un aviso para ponerlo en cero en el WMS. Mientras tanto sale con la etiqueta «Reportado como vacío» y el FEFO lo salta.</p>
+    <div class="rep-dice"><div class="small muted">El aplicativo dice que tiene:</div>
+      <div class="mini-list">${l.map(y => `<div class="mini v-${h(y.vida)}">${skuTxt(y.s, y.p)} · ${qty(y.e, y.c, y.u)} · vence ${h(y.vf)}${y.disp ? "" : " · BLOQUEADO"}</div>`).join("")}</div></div>
+    <label class="field" style="margin-top:12px"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: quedó una estiba rota"></label>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn b-verde" id="rvOk">Aceptar, está vacío</button></div>`);
+  $("#rvN", c).onkeydown = e => { if (e.key === "Enter") $("#rvOk", c).click(); };
+  $("#rvOk", c).onclick = async () => {
+    const btn = $("#rvOk", c); ocupado(btn, true, "Reportando…");
+    try {
+      const r = await api("webReporteCrear", [Object.assign({ tipo: "VACIO", modulo: x.m, nota: $("#rvN", c).value.trim() }, sistemaDe(x.lotes))]);
+      guardarRep(r.lista); ocupado(btn, false); cerrarModal(true); avisoGuardado(r, "Reportado vacío");
+      if (typeof guardarMarcas === "function") api("webMarcas").then(guardarMarcas).catch(() => null);
+      if (alListo) alListo();
+    } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
+  };
+}
 VISTAS.repvacio = async (el, p, vigente) => {
   const inv = await cargarInv();
   if (!vigente()) return;
-  const mods = modulosConProducto(inv), sel = new Set();
-  if (p.m && mods.some(x => x.m === p.m) && !repVacio(p.m)) sel.add(p.m);
-  el.innerHTML = cab("⬜ Reportar módulo vacío", "Escribe el módulo que encontraste vacío (o búscalo en la lista), márcalo y guarda. A los rotadores les llega un aviso para ponerlo en cero en el WMS. Mientras tanto el módulo sale con la etiqueta «Reportado como vacío» y el FEFO lo salta.") +
-    `<div class="rep-busca"><input type="search" id="rvQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div>
-    <div class="rep-elegidos" id="rvS"></div><div id="rvL"></div>
-    <div class="rep-pie card hidden" id="rvP"><label class="field"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: quedó una estiba rota"></label>
-      <div class="fin-acc"><span></span><button type="button" class="btn b-verde" id="rvG" disabled>💾 Guardar</button></div></div>`;
+  const mods = modulosConProducto(inv), nada = new Set();
+  el.innerHTML = cab("⬜ Reportar módulo vacío", "Escribe el módulo que encontraste vacío (o búscalo en la lista) y tócalo: sale una tarjeta para confirmar y, al aceptar, queda reportado. Un módulo a la vez. A los rotadores les llega un aviso para ponerlo en cero en el WMS.") +
+    `<div class="rep-busca"><input type="search" id="rvQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div><div id="rvL"></div>`;
   const ya = m => repVacio(m) ? `Ya reportado vacío por ${repDe(m).v.por}` : null;
-  const pintar = () => {
-    const q = qMod($("#rvQ", el).value);
-    $("#rvS", el).innerHTML = sel.size ? `<span class="small muted">Marcados como vacíos:</span> ${[...sel].map(m => `<span class="chip rep-chip">${h(m)}<button type="button" class="cs-x" data-x="${h(m)}" aria-label="Quitar ${h(m)}">✕</button></span>`).join("")}` : "";
-    $("#rvL", el).innerHTML = listaModulos(mods, q, sel, { ya }) || vacio(q ? `Ningún módulo con producto coincide con «${h($("#rvQ", el).value.trim())}». Si el aplicativo ya lo muestra vacío, no hace falta reportarlo.` : "No hay módulos con producto.", "🔎");
-    const b = $("#rvG", el); b.disabled = !sel.size; b.textContent = sel.size ? `💾 Guardar (${sel.size})` : "💾 Guardar";
-    // La nota y Guardar aparecen solo cuando hay módulos marcados (en el celular ocupan mucho)
-    $("#rvP", el).classList.toggle("hidden", !sel.size);
-  };
   const q0 = $("#rvQ", el);
+  const pintar = () => {
+    const q = qMod(q0.value);
+    $("#rvL", el).innerHTML = listaModulos(mods, q, nada, { ya }) || vacio(q ? `Ningún módulo con producto coincide con «${h(q0.value.trim())}». Si el aplicativo ya lo muestra vacío, no hace falta reportarlo.` : "No hay módulos con producto.", "🔎");
+  };
+  const elegir = x => { if (!x || ya(x.m)) return; confirmarVacio(x, mods, () => { q0.value = ""; pintar(); }); };
   q0.addEventListener("input", pintar);
-  autoModulo(q0, mods, x => { sel.add(x.m); pintar(); }, { ya });
-  el.onclick = async e => {
-    const x = e.target.closest("[data-x]"); if (x) { sel.delete(x.dataset.x); pintar(); return; }
+  autoModulo(q0, mods, elegir, { ya, dejar: false });
+  el.onclick = e => {
     const b = e.target.closest(".rep-mod[data-m]");
-    if (b && !b.disabled) { const m = b.dataset.m; if (sel.has(m)) sel.delete(m); else sel.add(m); if (q0.value) { q0.value = ""; } pintar(); return; }
-    if (e.target.closest("#rvG")) {
-      if (!sel.size) return;
-      const lista = [...sel];
-      if (!(await confirmar("Reportar vacíos", `¿Reportar como <b>vacío${lista.length > 1 ? "s" : ""}</b>: ${lista.map(m => `<b>${h(m)}</b>`).join(", ")}?`, "Sí, reportar"))) return;
-      const nota = $("#rvN", el).value.trim(), btn = $("#rvG", el); ocupado(btn, true);
-      const items = lista.map(m => Object.assign({ tipo: "VACIO", modulo: m, nota: nota }, sistemaDe(mods.find(x => x.m === m).lotes)));
-      try { const r = await api("webReporteCrear", items); guardarRep(r.lista); avisoGuardado(r, "Reportado vacío"); if (typeof guardarMarcas === "function") api("webMarcas").then(guardarMarcas).catch(() => null); sel.clear(); $("#rvN", el).value = ""; ocupado(btn, false); pintar(); }
-      catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
-    }
+    if (b && !b.disabled) elegir(mods.find(x => x.m === b.dataset.m));
   };
   pintar();
+  // Desde otra pantalla con el módulo ya escogido (p. ej. Por módulo): la tarjeta sale de una vez
+  if (p.m) { const x = mods.find(y => y.m === p.m); if (x && !ya(x.m)) elegir(x); }
 };
 
 // ---------- Reportar conflicto (el módulo tiene otro producto) ----------
@@ -4905,6 +4954,37 @@ VISTAS.pocosvig = async (el, p, vigente) => {
   pintar();
 };
 
+// ---------- Tapacódigos: productos que se pueden escoger en la sección TPC de la entrega ----------
+// Si la lista está vacía, en TPC salen todos los productos (como antes)
+VISTAS.tpclista = async (el, p, vigente) => {
+  await cargarCat();
+  if (!vigente()) return;
+  const prodDe = sku => ((S.cat || []).find(c => c.sku === sku) || {}).prod || "";
+  const pintar = () => {
+    const l = (S.tpcLista || []).slice().sort((a, b) => prodDe(a).localeCompare(prodDe(b), "es", { numeric: true }) || a.localeCompare(b));
+    $("#tlC", el).textContent = l.length ? `${l.length} producto${l.length > 1 ? "s" : ""} en la lista` : "La lista está vacía: en TPC salen todos los productos";
+    $("#tlL", el).innerHTML = l.length ? `<div class="tl-lista">${l.map(s => `<div class="tl-f"><span>${skuTxt(s, prodDe(s) || "(no está en la hoja Sku)")}</span><button class="btn sm icon del" data-quitar="${h(s)}" title="Quitar de la lista" aria-label="Quitar ${h(s)}">✕</button></div>`).join("")}</div>`
+      : vacio("Todavía no hay productos. Agrega los que pueden llevar tapacódigos.", "🏷️");
+  };
+  const guardarLista = async (lista, msj) => {
+    try { S.tpcLista = await api("webTpcListaGuardar", lista); ls.setJ("tpcLista", S.tpcLista); toast(msj, "ok"); pintar(); }
+    catch (e) { toast(e.message, "bad", 6000); }
+  };
+  el.innerHTML = cab("🏷️ Tapacódigos (lista)", "Los productos que se pueden escoger al llenar la sección TPC de la entrega de turno. Así, al agregar, la lista solo muestra estos y no todo el catálogo. Si la lista queda vacía, salen todos.") +
+    `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">＋ Agregar a la lista</h3><div style="max-width:520px">${campoAuto("tlA", "Nombre o SKU (ej: 22613)")}</div></div>
+    <div class="lista-tools"><span class="count" id="tlC"></span></div><div id="tlL"></div>`;
+  autoSku($("#tlA", el), c => {
+    if ((S.tpcLista || []).includes(c.sku)) return toast(`${c.sku} ya está en la lista`, "warn");
+    guardarLista((S.tpcLista || []).concat(c.sku), `Agregado ${c.sku} · ${c.prod}`);
+  }, { limpiar: true });
+  el.onclick = async e => {
+    const q = e.target.closest("[data-quitar]"); if (!q) return;
+    if (!(await confirmar("Quitar de la lista", `¿Quitar <b>${h(q.dataset.quitar)}</b> ${h(prodDe(q.dataset.quitar))} de los tapacódigos? Ya no saldrá al llenar TPC.`, "Quitar", true))) return;
+    guardarLista((S.tpcLista || []).filter(x => x !== q.dataset.quitar), "Quitado de la lista");
+  };
+  pintar();
+};
+
 // ---------- Secciones por rol: qué pantallas ve cada rol ----------
 VISTAS.vistasrol = async (el) => {
   let cfg = JSON.parse(JSON.stringify(S.vistasRol || {}));
@@ -4962,6 +5042,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     const cambioVistas = JSON.stringify(S.vistasRol || {}) !== JSON.stringify(i.vistasRol || {});
     S.vistasRol = i.vistasRol || {}; ls.setJ("vistasRol", S.vistasRol);
     S.pocosVig = Array.isArray(i.pocosVig) ? i.pocosVig : []; ls.setJ("pocosVig", S.pocosVig);
+    S.tpcLista = Array.isArray(i.tpcLista) ? i.tpcLista : []; ls.setJ("tpcLista", S.tpcLista);
     S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
     S.ajustes = Array.isArray(i.ajustes) ? i.ajustes : []; ls.setJ("ajustes", S.ajustes);
     S.bloqueos = Array.isArray(i.bloqueos) ? i.bloqueos : []; ls.setJ("bloqueos", S.bloqueos);
@@ -5003,7 +5084,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
   // y la información fresca llega por detrás.
   const u = ls.getJ("usuario", null), inv = ls.getJ("inv", null);
   if (u && inv) {
-    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []); S.revisiones = ls.getJ("revisiones", []);
+    S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.tpcLista = ls.getJ("tpcLista", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []); S.revisiones = ls.getJ("revisiones", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
     ir(ls.get("vista", "inicio"));

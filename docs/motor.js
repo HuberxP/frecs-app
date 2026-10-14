@@ -3549,6 +3549,27 @@ function valSugerenciasCore_(turnoId) {
   return lis.map(it => ({ sku: it.s, producto: it.p, estibas: Math.round(it.eq * 10) / 10, minimo: it.minimo, cajas: it.totC || it.totU, cpe: it.cpe, prio: it.prio, enTurno: enTurno.has(it.s) }));
 }
 
+// Productos de la conciliación de este turno y de la del turno anterior, para agregarlos a la validación
+// (con los conteos de la conciliación en cajas, que se pueden corregir antes de agregar)
+// [{ id, texto, cual: "este" | "anterior", items: [{ sku, producto, bodega, ka, pk, total, enTurno }] }]
+function valConcCore_(turnoId) {
+  prepararTurnos_();
+  const t = turnoId ? turnoParaEditar_(turnoId) : turnoAbierto_();
+  if (!t) return [];
+  const cx = valCtx_(turnoId || "");
+  const enTurno = new Set(valProdFilas_(cx).filter(r => txt_(r[0]) === t.id).map(r => txt_(r[1])));
+  const concs = listarConc_().filter(c => c.estado !== "ELIMINADA").sort((a, b) => a.inicio < b.inicio ? 1 : -1);
+  // La de este turno: mismo número y mismo día (o la abierta de ese número); la del anterior: la más reciente de ese número
+  const este = concs.find(c => Number(c.numero) === Number(t.numero) && (c.fecha === t.fecha || c.estado === "ABIERTA" || c.turnoId === t.id));
+  const nAnt = turnoAnterior_(t.numero);
+  const ant = concs.find(c => Number(c.numero) === nAnt && c !== este);
+  return [[este, "este"], [ant, "anterior"]].filter(x => x[0]).map(([c, cual]) => ({
+    id: c.id, cual: cual,
+    texto: `${cual === "este" ? "Este turno" : "Turno anterior"} · Conciliación turno ${c.numero} · ${formatearFecha(c.fecha)}${c.estado === "ABIERTA" ? " (abierta)" : ""}`,
+    items: concItems_(c.id).map(x => ({ sku: x.sku, producto: x.producto, bodega: x.bodega, ka: x.ka, pk: x.pk, total: x.total, enTurno: enTurno.has(x.sku) }))
+  })).filter(x => x.items.length);
+}
+
 // ---------------------------------------------------------
 // ESCRITURA (turnoId vacío = turno abierto; con id = turno del historial)
 // ---------------------------------------------------------
@@ -5915,6 +5936,7 @@ function webTurnoCerrar(tk, opts) {
 // turnoId vacío = turno abierto; con id = turno del historial (se edita y queda "Editado por")
 function webVal(tk, turnoId) { return webAuth_(tk, L_, () => valEstadoCore_(turnoId || "")); }
 function webValSugerencias(tk, turnoId) { return webAuth_(tk, L_, () => valSugerenciasCore_(turnoId || "")); }
+function webValConc(tk, turnoId) { return webAuth_(tk, L_, () => valConcCore_(turnoId || "")); }
 function webValAgregar(tk, items, turnoId) { return webTurnoAuth_(tk, V_, u => ({ resultado: valAgregarProductosCore_(items, u.nombre, turnoId || ""), estado: valEstadoCore_(turnoId || "") })); }
 function webValInicial(tk, sku, inicial, contadoEn, turnoId) { return webTurnoAuth_(tk, V_, u => { valActualizarInicialCore_(sku, inicial, contadoEn, u.nombre, turnoId || ""); return { estado: valEstadoCore_(turnoId || "") }; }); }
 function webValQuitar(tk, sku, turnoId) { return webTurnoAuth_(tk, V_, u => { valQuitarProductoCore_(sku, turnoId || "", u.nombre); return { estado: valEstadoCore_(turnoId || "") }; }); }
@@ -6518,7 +6540,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webConsumoNombre, webConsumoOrden, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webEnvasadoProducto, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEditar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMarcaPoner, webMarcaQuitar, webMarcas, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPocosVigilarGuardar, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin, webVistasRolGuardar};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webConsumoNombre, webConsumoOrden, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webEnvasadoProducto, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEditar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMarcaPoner, webMarcaQuitar, webMarcas, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPocosVigilarGuardar, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValConc, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin, webVistasRolGuardar};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

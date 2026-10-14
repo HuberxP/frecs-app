@@ -66,7 +66,7 @@
     }
     return cargandoT;
   }
-  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial", "webFinal"]);
+  const TURNO_LECTURA = new Set(["webTurno", "webVal", "webValSugerencias", "webValConc", "webEnt", "webConc", "webHistorial", "webFinal"]);
   // Si la llamada nombra un turno o conciliación que no está cargado, se agrega a los que se piden
   function pideExtras(args) {
     let nuevo = false;
@@ -78,7 +78,7 @@
   // Consultas que la versión nueva ya resuelve
   const LECTURA = new Set(["webInit", "webInventario", "webCatalogo", "webCanales", "webResumen", "webPocos", "webHuecos", "webVacios",
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webEnvasadoProducto", "webConsumo",
-    "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webEnt", "webConc", "webHistorial", "webFinal"]);
+    "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webValConc", "webEnt", "webConc", "webHistorial", "webFinal"]);
   const AVISO = {
     webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
     webSetup: "Los usuarios se crean desde Administración → Usuarios.",
@@ -526,6 +526,7 @@
         return ok(v);
       }
       // Productos vigilados para la alerta de pocos (solo el administrador)
+      if (fn === "webTpcListaGuardar") { const v = await rpc("tpc_productos_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.tpc_productos = v; guardarLS(); } return ok(v); }
       if (fn === "webPocosVigilarGuardar") { const v = await rpc("pocos_vigilar_guardar", { p_token: args[0], p_skus: args[1] || [] }); if (datos) { datos.pocos_vigilar = v; guardarLS(); } return ok(v); }
       // Preferencias de cada persona (p. ej. ver las sugerencias del WMS)
       if (fn === "webPref") {
@@ -566,7 +567,7 @@
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
         if (r.ok && r.data.inv) conFotos(r.data.inv);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; r.data.bloqueos = (datos && datos.bloqueos) || []; r.data.revisiones = (datos && datos.revisiones) || []; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.tpcLista = (datos && datos.tpc_productos) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; r.data.bloqueos = (datos && datos.bloqueos) || []; r.data.revisiones = (datos && datos.revisiones) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

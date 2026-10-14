@@ -343,6 +343,28 @@ let llamadasSb = 0, sinRed = false;
   const cn = await P.evaluate(() => api("webConcAbrir", { numero: 3, pocos: false, entrega: false, pre: [] }));
   const cAb2 = q("select id from conciliaciones where estado='ABIERTA'");
   if (!cAb2 || cAb2 !== cn.resultado.id) errores.push("abrir conciliación falló");
+  // Validación: agregar productos de la conciliación de este turno (o del anterior), con sus conteos
+  {
+    const skVc = q(`select sku from sku where sku ~ '^[0-9]+$' and sku not in (select sku from val_productos where turno_id='${T2}') order by sku limit 1`);
+    await P.evaluate(s2 => api("webConcAgregar", [{ sku: s2 }]), skVc);
+    await P.evaluate(s2 => api("webConcGuardar", s2, { bodega: "", ka: 7, pk: 3, fact: "", bloqueo: false }), skVc);
+    const vc = await P.evaluate(() => api("webValConc"));
+    const it = vc.length && vc[0].items.find(x => x.sku === skVc);
+    if (!it || vc[0].cual !== "este" || it.total !== 10) errores.push("validación: webValConc no trae la conciliación de este turno: " + JSON.stringify(vc).slice(0, 300));
+    await P.evaluate(() => ir("validacion")); await P.waitForTimeout(900);
+    await P.click('[data-a="agregar"]'); await P.waitForSelector("#agCo"); await P.waitForTimeout(400);
+    await P.check("#agCo"); await P.waitForSelector(`#agCL input[data-sku="${skVc}"]`, { timeout: 8000 }).catch(() => {});
+    if (!(await P.$(`#agCL input[data-sku="${skVc}"]`))) errores.push("validación: la lista de la conciliación no sale al agregar");
+    else {
+      await P.check(`#agCL input[data-sku="${skVc}"]`); await P.waitForTimeout(300);
+      await P.screenshot({ path: "/tmp/w_val_conc.png" });
+      await P.waitForTimeout(300); await P.click("#agOk"); await P.waitForTimeout(1800);
+      const ini = q(`select inicial || '|' || coalesce(ka::text,'') || '|' || coalesce(pk::text,'') from val_productos where turno_id='${T2}' and sku='${skVc}'`);
+      if (ini !== "10|7|3") errores.push("validación: agregar desde la conciliación no dejó sus conteos: " + ini);
+    }
+    await P.evaluate(() => { if (modalAbierto()) cerrarModal(true); });
+    await P.evaluate(s2 => api("webConcQuitar", s2), skVc);
+  }
   // Historial: resumen, abrir un turno cerrado viejo, editarlo, eliminar y restaurar
   const hl = await P.evaluate(() => api("webHistorial", { tipo: "VALIDACION" }));
   const hT = hl.find(x => x.id === T);
@@ -500,9 +522,12 @@ let llamadasSb = 0, sinRed = false;
   const modV = q("select modulo from wms_base where coalesce(estibas,0)+coalesce(cajas,0)+coalesce(unidades,0) > 0 and modulo ~ '^[A-J][0-9]+$' order by modulo limit 1");
   await V.fill("#rvQ", modV); await V.waitForTimeout(200);
   if (!(await V.$(".rep-busca .ac-mod"))) errores.push("reportar vacío: el buscador no sugiere módulos");
-  await V.press("#rvQ", "Enter"); await V.waitForTimeout(200);
+  await V.press("#rvQ", "Enter"); await V.waitForTimeout(300);
+  // Un módulo a la vez: sale la tarjeta «¿Reportar … como vacío?» y con Aceptar queda reportado
+  if (!/Reportar/.test(await V.textContent("#modalCard").catch(() => "")) || !(await V.$("#rvOk"))) errores.push("reportar vacío: no sale la tarjeta para confirmar");
+  if (q(`select count(*) from reportes_modulo where modulo='${modV}'`) !== "0") errores.push("reportar vacío: reportó antes de aceptar");
   await V.screenshot({ path: "/tmp/m_w_repvacio.png" });
-  await V.click("#rvG"); await V.waitForSelector("#cfOk"); await V.waitForTimeout(500); await V.click("#cfOk");
+  await V.waitForTimeout(400); await V.click("#rvOk");
   await V.waitForFunction(() => /Reportado vacío|No se|rror/.test($("#toasts").innerText), null, { timeout: 15000 }).catch(() => {});
   if (q(`select tipo || '|' || reportado_por || '|' || estado from reportes_modulo where modulo='${modV}'`) !== "VACIO|Vero|PENDIENTE") errores.push("reporte de vacío no llegó: " + q("select to_jsonb(r) from reportes_modulo r") + " · " + (await V.$eval("#toasts", e => e.innerText)) + " · " + modV);
   await V.evaluate(m => ir("repconflicto", { m: m }), modV); await V.waitForTimeout(500);
@@ -831,6 +856,25 @@ let llamadasSb = 0, sinRed = false;
   if (!(await P.$(".pv-vig"))) errores.push("pocos: la vista Pocos no muestra los vigilados");
   if (!(await P.evaluate(() => ["verificador", "opm", "lector", "validador"].every(r => vistaPermitida("pocosvig", r))))) errores.push("vigilados: no los ven todos los roles");
   await P.evaluate(() => api("webPocosVigilarGuardar", []));
+  // --- Tapacódigos: lista en Administración; al llenar TPC solo salen esos ---
+  {
+    await P.evaluate(() => ir("tpclista")); await P.waitForTimeout(700);
+    await P.fill("#tlA", "2222"); await P.waitForTimeout(300); await P.click("#tlA ~ .ac-list .ac-item"); await P.waitForTimeout(1200);
+    if (q("select valor from frecs_config where clave='tpc_productos'") !== '["2222"]') errores.push("tapacódigos: la lista no se guardó: " + q("select valor from frecs_config where clave='tpc_productos'"));
+    if (!(await P.$('#tlL [data-quitar="2222"]'))) errores.push("tapacódigos: el panel no muestra el producto agregado");
+    await P.screenshot({ path: "/tmp/w_tpclista.png" });
+    await P.evaluate(() => modalEntItem("TPC", null, true)); await P.waitForSelector("#eiP"); await P.waitForTimeout(300);
+    await P.focus("#eiP"); await P.waitForTimeout(250);
+    const sug = await P.$$eval("#eiP ~ .ac-list .ac-item .sku", x => x.map(e => e.textContent));
+    if (sug.join() !== "2222") errores.push("TPC: al tocar el cuadro no salen solo los de la lista: " + sug);
+    await P.fill("#eiP", "3617"); await P.waitForTimeout(250);
+    if ((await P.$$("#eiP ~ .ac-list:not(.hidden) .ac-item")).length) errores.push("TPC: sale un producto que no está en la lista");
+    if (!/lista de tapacódigos/.test(await P.textContent("#eiTpc").catch(() => ""))) errores.push("TPC: no dice que solo salen los de la lista");
+    await P.click('#eiS [data-s="KA"]'); await P.waitForTimeout(200); await P.fill("#eiP", "3617"); await P.waitForTimeout(300);
+    if (!(await P.$$("#eiP ~ .ac-list:not(.hidden) .ac-item")).length) errores.push("KA: el filtro de tapacódigos quedó puesto en otra sección: " + JSON.stringify(await P.evaluate(() => [S.entSec, $("#eiP").value, $("#eiTpc").textContent, (S.cat || []).some(c => c.sku === "3617")])));
+    await P.evaluate(() => cerrarModal(true));
+    await P.evaluate(() => api("webTpcListaGuardar", []).then(l => { S.tpcLista = l; }));
+  }
   // --- Rotador (antes validador) ---
   const rot = await P.evaluate(() => ({ t: rolTxt("validador"), m: conRotador("se necesita rol validador") }));
   if (rot.t !== "rotador" || rot.m !== "se necesita rol rotador") errores.push("rotador: el nombre no cambió: " + JSON.stringify(rot));

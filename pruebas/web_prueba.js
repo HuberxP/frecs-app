@@ -119,6 +119,25 @@ let llamadasSb = 0, sinRed = false;
   else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
   await sy.page.screenshot({ path: "/tmp/w_sync.png" });
   await sy.page.evaluate(() => { if (modalAbierto()) cerrarModal(true); });
+  // --- Sincronización automática: switch en el perfil del administrador (la hace Apps Script) ---
+  {
+    const prox = new Date(Date.now() + 3.3 * 3600e3).toISOString();
+    respSync = { ok: true, estado: { on: true, por: "Huber", prox: prox, ult: "", ok: true, msg: "" } };
+    const nPed = pedidos.length;
+    await sy.page.evaluate(() => $("#userChip").click()); await sy.page.waitForSelector("#pfSAc");
+    if (!/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no arranca en Manual");
+    await sy.page.waitForTimeout(500); await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1200);
+    const pd = pedidos.slice(nPed).pop();
+    if (!pd || pd.accion !== "sync_auto" || pd.on !== true || !pd.token) errores.push("sync automática: el pedido a Apps Script está mal: " + JSON.stringify(pd));
+    if (!/Automático/.test(await sy.page.textContent("#pfSA")) || !/Próxima/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no muestra Automático y la próxima: " + await sy.page.textContent("#pfSA"));
+    await sy.page.screenshot({ path: "/tmp/w_sync_auto.png" });
+    respSync = { ok: true, estado: { on: false } };
+    await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1000);
+    if (pedidos.slice(nPed).pop().on !== false || !/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no se pudo volver a Manual");
+    await sy.page.evaluate(() => cerrarModal(true));
+    // El rotador no ve el switch
+    if (await sy.page.evaluate(() => { const r = S.usuario.rol; S.usuario.rol = "validador"; $("#userChip").click(); const x = !!$("#pfSA"); cerrarModal(true); S.usuario.rol = r; return x; })) errores.push("sync automática: el rotador ve el switch");
+  }
   // --- Fase 4a: escrituras (con el mismo contexto que tiene Apps Script configurado) ---
   pedidos.length = 0; respSync = { ok: true, hojas: [] };
   const P = sy.page, q = sql => psql(sql, "postgres");

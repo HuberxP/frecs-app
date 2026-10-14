@@ -719,12 +719,14 @@ $("#userChip").onclick = () => {
   const c = abrirModal(`<h3>👤 ${h(u.nombre)}</h3>
     <div class="ficha"><span>Rol</span><b>${h(rolTxt(u.rol))}</b>${u.correo ? `<span>Correo</span><b>${h(u.correo)}</b>` : `<span>Correo</span><b class="muted">No disponible (cuenta Gmail)</b>`}</div>
     ${S.sync ? `<div class="ficha sync-f"><span>🔄 Última sincronización con el WMS</span><b>${h(S.sync.bot)}</b><span>📦 Último movimiento en el WMS</span><b>${h(S.sync.wms)}</b></div>` : ""}
+    ${u.rol === "administrador" ? `<div id="pfSA"></div>` : ""}
     ${esVerif() ? "" : `<label class="sw-fila"><span><b>Sugerencias del WMS</b><br><span class="small muted">En validaciones: cuántas cajas tiene el WMS y el aviso cuando tiene menos</span></span><span class="sw"><input type="checkbox" id="pfW" ${verWms() ? "checked" : ""}><i></i></span></label>`}
     <details class="card" style="margin-top:14px"><summary>Cambiar mi PIN</summary>
       <label class="field"><span>PIN actual</span><input type="password" inputmode="numeric" id="cpA" maxlength="8"></label>
       <label class="field"><span>PIN nuevo (4 a 8 números)</span><input type="password" inputmode="numeric" id="cpN" maxlength="8"></label>
       <button class="btn" id="cpB" style="margin-top:10px">Guardar PIN</button></details>
     <div class="modal-actions"><button class="btn danger" id="lgOut">Cerrar sesión</button><button class="btn" data-x>Cerrar</button></div>`);
+  if ($("#pfSA", c)) pintarSyncAuto($("#pfSA", c));
   const sw = $("#pfW", c);
   if (sw) sw.onchange = async () => {
     const v = sw.checked; sw.disabled = true;
@@ -735,6 +737,27 @@ $("#userChip").onclick = () => {
   $("#cpB", c).onclick = async () => { try { await api("webCambiarPin", $("#cpA", c).value.trim(), $("#cpN", c).value.trim()); toast("PIN actualizado", "ok"); cerrarModal(true); } catch (e) { toast(e.message, "bad", 6000); } };
   $("#lgOut", c).onclick = async () => { try { await api("webLogout"); } catch (e) {} cerrarModal(true); S.usuario = null; pintarCanal(); mostrarLogin(); };
 };
+
+// Sincronización automática con el WMS (solo el administrador): Automático / Manual
+// Apps Script la hace cada 3 a 4 horas, a una hora distinta cada vez; la manual sigue funcionando igual.
+const horaSA = iso => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; const hoy = new Date(), man = new Date(Date.now() + 864e5);
+  const dia = d.toDateString() === hoy.toDateString() ? "hoy" : d.toDateString() === man.toDateString() ? "mañana" : d.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit" });
+  return `${dia} ${d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}`; };
+function pintarSyncAuto(box) {
+  const e = S.syncAuto || {};
+  box.innerHTML = `<label class="sw-fila sa-fila"><span><b>🔄 Sincronizar con el WMS: ${e.on ? "Automático" : "Manual"}</b><br><span class="small muted">${e.on
+      ? `Cada 3 a 4 horas, a una hora distinta cada vez.${e.prox ? ` Próxima: <b>${h(horaSA(e.prox))}</b>.` : ""}`
+      : "Solo cuando alguien toca ⟳ Sincronizar o usa /sincronizar."}</span>
+    ${e.ult ? `<br><span class="small ${e.ok ? "muted" : "sa-mal"}">Última automática: ${h(horaSA(e.ult))} · ${e.ok ? "✅" : "❌"} ${h(e.msg || "")}</span>` : ""}</span>
+    <span class="sw"><input type="checkbox" id="pfSAc" ${e.on ? "checked" : ""}><i></i></span></label>`;
+  const ch = $("#pfSAc", box);
+  ch.onchange = async () => {
+    const v = ch.checked; ch.disabled = true;
+    try { S.syncAuto = await api("webSyncAuto", v); toast(v ? `Sincronización automática prendida${S.syncAuto.prox ? ` · próxima ${horaSA(S.syncAuto.prox)}` : ""}` : "Sincronización manual", "ok", 4000); }
+    catch (er) { ch.checked = !v; toast(er.message, "bad", 7000); }
+    if (box.isConnected) pintarSyncAuto(box);
+  };
+}
 
 // ---------- navegación ----------
 function pintarNav() {
@@ -5049,6 +5072,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     S.vistasRol = i.vistasRol || {}; ls.setJ("vistasRol", S.vistasRol);
     S.pocosVig = Array.isArray(i.pocosVig) ? i.pocosVig : []; ls.setJ("pocosVig", S.pocosVig);
     S.tpcLista = Array.isArray(i.tpcLista) ? i.tpcLista : []; ls.setJ("tpcLista", S.tpcLista);
+    S.syncAuto = i.syncAuto && typeof i.syncAuto === "object" ? i.syncAuto : {};
     S.marcas = Array.isArray(i.marcas) ? i.marcas : []; ls.setJ("marcas", S.marcas);
     S.ajustes = Array.isArray(i.ajustes) ? i.ajustes : []; ls.setJ("ajustes", S.ajustes);
     S.bloqueos = Array.isArray(i.bloqueos) ? i.bloqueos : []; ls.setJ("bloqueos", S.bloqueos);

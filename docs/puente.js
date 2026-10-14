@@ -108,6 +108,21 @@
     if (j.supabase && j.supabase.error) return fallo("El WMS se guardó en las hojas, pero no llegó a Supabase: " + j.supabase.error);
     return ok({ filas: j.filas, modulos: j.modulos, inv: inv, fotos: (j.supabase && j.supabase.fotos) || null });
   }
+  // Sincronización automática con el WMS (solo el administrador; la hace Apps Script). on: true / false, o sin on para ver cómo está
+  async function syncAuto(tk, on, ok, fallo) {
+    if (!CFG.appsScriptUrl) return fallo("La sincronización automática necesita Apps Script configurado.");
+    await cargarDatos(tk);
+    if (!(datos && datos.usuario && datos.usuario.rol === "administrador")) return fallo("Solo el administrador cambia la sincronización automática.");
+    let r;
+    try {
+      r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ accion: "sync_auto", token: tk }, typeof on === "boolean" ? { on: on } : {})) });
+    } catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
+    let j = null;
+    try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+    if (!j.ok) return fallo(j.error || "No se pudo cambiar.", j.sesion ? { sesion: true } : null);
+    if (datos) { datos.sync_auto = j.estado || {}; guardarLS(); }
+    return ok(j.estado || {});
+  }
   // Fotos del WMS de los lotes con prioridad: [sku, módulo, [urls]] (de la más nueva a la más vieja)
   function conFotos(inv) { if (inv) inv.fotos = (datos && datos.fotos) || []; return inv; }
 
@@ -485,6 +500,7 @@
       if (fn === "webVerificarPin") { const r = await rpc("verificar_pin", { p_token: args[0], p_pin: String(args[1] || "") }); return r && r.ok ? ok(true) : fallo((r && r.error) || "PIN incorrecto."); }
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
+      if (fn === "webSyncAuto") return await syncAuto(args[0], args[1], ok, fallo);
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
       if (["webReportes", "webReporteCrear", "webReporteCerrar"].includes(fn)) return await reportes(fn, args, ok);
       // Rotulación de módulos (funciones de Supabase)
@@ -567,7 +583,7 @@
         if (fn !== "webInit") return res;
         const r = JSON.parse(res);
         if (r.ok && r.data.inv) conFotos(r.data.inv);
-        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.tpcLista = (datos && datos.tpc_productos) || []; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; r.data.bloqueos = (datos && datos.bloqueos) || []; r.data.revisiones = (datos && datos.revisiones) || []; }   // (Telegram lo envía la función del bot o Apps Script)
+        if (r.ok) { r.data.grupoTelegram = !!(URL_BOT || CFG.appsScriptUrl); r.data.vistasRol = (datos && datos.vistas_rol) || {}; r.data.pocosVig = (datos && datos.pocos_vigilar) || []; r.data.tpcLista = (datos && datos.tpc_productos) || []; r.data.syncAuto = (datos && datos.sync_auto) || {}; r.data.marcas = (datos && datos.marcas) || []; r.data.ajustes = (datos && datos.ajustes) || []; r.data.bloqueos = (datos && datos.bloqueos) || []; r.data.revisiones = (datos && datos.revisiones) || []; }   // (Telegram lo envía la función del bot o Apps Script)
         return JSON.stringify(r);
       }
       return fallo(AVISO[fn] || NO_AUN);

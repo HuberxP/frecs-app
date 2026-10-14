@@ -1568,6 +1568,7 @@
   .aj-fab.hidden { display: none; }
   @media (max-width: 899px) { .aj-fab .txt { display: none; } .aj-fab { padding: 0 10px; } }
   html[data-tema="claro"] .tag.t-aj { color: #6d28d9; background: #f1ebff; } html[data-tema="claro"] .aj-f { background: #fff; }
+  .sa-fila { margin-top: 12px; } .sa-mal { color: var(--bad); }
   /* 🏷️ Lista de tapacódigos (Administración) */
   .tl-lista { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
   .tl-f { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); font-size: 13.5px; }

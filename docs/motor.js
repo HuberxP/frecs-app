@@ -701,8 +701,21 @@ function urlModulosWMS_(start, length) {
     `&paging=${encodeURIComponent(JSON.stringify({ start: start, length: length }))}`;
 }
 
+// Sesión del WMS: el token se guarda (propiedad WMS_TOKEN) y se usa mientras sirva, como en el celular.
+// Solo se vuelve a iniciar sesión cuando venció (fecha «exp» del token) o el WMS lo rechaza (401 / 403).
+function tokenWMS_() { return String(PropertiesService.getScriptProperties().getProperty("WMS_TOKEN") || ""); }
+function borrarTokenWMS_() { PropertiesService.getScriptProperties().deleteProperty("WMS_TOKEN"); }
+// Vencido según el propio token (JWT: campo exp en segundos); si no se puede leer, se da por bueno hasta que el WMS diga lo contrario
+function tokenVencidoWMS_(tk) {
+  try {
+    const parte = String(tk).split(".")[1]; if (!parte) return false;
+    const b64 = parte.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parte.length + 3) % 4);
+    const exp = Number(JSON.parse(Utilities.newBlob(Utilities.base64Decode(b64)).getDataAsString()).exp || 0);
+    return exp > 0 && Date.now() > exp * 1000 - 5 * 60000;
+  } catch (e) { return false; }
+}
 function getFakeHeaders() {
-  const tk = CacheService.getScriptCache().get("wms_jwt_token");
+  const tk = tokenWMS_();
   return {
     "Authorization": tk ? "Bearer " + tk : "",
     "X-CD-Id": WMS_CONFIG.cdId,
@@ -724,13 +737,15 @@ function obtenerTokenWMS() {
   let d = null;
   try { d = JSON.parse(r.getContentText()); } catch (e) { d = null; }
   if (d && d.token) {
-    CacheService.getScriptCache().put("wms_jwt_token", d.token, 7200);
+    PropertiesService.getScriptProperties().setProperty("WMS_TOKEN", d.token);
+    console.log("WMS: se inició sesión (token nuevo)");
     return d.token;
   }
   return null;
 }
 
 function getWMS_(url) {
+  if (tokenWMS_() && tokenVencidoWMS_(tokenWMS_())) borrarTokenWMS_();
   let h = getFakeHeaders();
   if (!h.Authorization) {
     obtenerTokenWMS();
@@ -738,8 +753,8 @@ function getWMS_(url) {
     if (!h.Authorization) return { ok: false, error: "Error de credenciales del WMS." };
   }
   let r = UrlFetchApp.fetch(url, { method: "get", headers: h, muteHttpExceptions: true });
-  if (r.getResponseCode() === 401) {
-    CacheService.getScriptCache().remove("wms_jwt_token");
+  if (r.getResponseCode() === 401 || r.getResponseCode() === 403) {
+    borrarTokenWMS_();
     obtenerTokenWMS();
     h = getFakeHeaders();
     r = UrlFetchApp.fetch(url, { method: "get", headers: h, muteHttpExceptions: true });
@@ -5313,7 +5328,7 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (!["sincronizar", "maestros", "pdf_telegram", "turnos", "sincronizar_bot", "maestros_bot"].includes(data.accion)) throw new Error("Acción no válida.");
+    if (!["sincronizar", "maestros", "pdf_telegram", "turnos", "sincronizar_bot", "maestros_bot", "sync_auto"].includes(data.accion)) throw new Error("Acción no válida.");
     // Pedidos del bot en Supabase (función frecs-bot): se autorizan con el secreto compartido
     if (data.accion === "sincronizar_bot" || data.accion === "maestros_bot") {
       const sec = prop_("BOT_SECRET", "");
@@ -5321,6 +5336,7 @@ function sbWebPost_(data) {
       if (data.accion === "maestros_bot") return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []) })).setMimeType(ContentService.MimeType.JSON);
       const s2 = sincronizarWMSCore(data.forzar === true);
       if (!s2.ok) throw new Error(s2.error);
+      syncAutoTrasManual_();
       return ContentService.createTextOutput(JSON.stringify({ ok: true, filas: s2.fisicas, modulos: s2.modulos, supabase: s2.supabase })).setMimeType(ContentService.MimeType.JSON);
     }
     let u;
@@ -5331,6 +5347,12 @@ function sbWebPost_(data) {
       const r2 = turnosEnSupabase_() ? sbBajarTurnos_((data.turnos || []).map(String), (data.concs || []).map(String)) : { omitido: "modo prueba" };
       return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: r2 })).setMimeType(ContentService.MimeType.JSON);
     }
+    // Sincronización automática: el administrador la prende o la apaga (sin «on» solo devuelve cómo está)
+    if (data.accion === "sync_auto") {
+      if (u.rol !== "administrador") throw new Error("Solo el administrador cambia la sincronización automática.");
+      const e = typeof data.on === "boolean" ? syncAutoPoner_(data.on, u.nombre) : syncAutoPublicar_();
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, estado: e })).setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accion === "pdf_telegram") return ContentService.createTextOutput(JSON.stringify(sbPdfTelegram_(data, u))).setMimeType(ContentService.MimeType.JSON);
     if (data.accion === "maestros") {
       const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
@@ -5340,6 +5362,7 @@ function sbWebPost_(data) {
     if (!ROLES[u.rol] || ROLES[u.rol] < ROLES.validador) throw new Error("Solo el rotador o el administrador sincronizan con el WMS.");
     const s = sincronizarWMSCore(data.forzar === true);
     if (!s.ok) throw new Error(s.error);
+    syncAutoTrasManual_();
     console.log(`Sincronización desde el dashboard nuevo por ${u.nombre}: ${s.fisicas} ubicaciones`);
     r = { ok: true, filas: s.fisicas, modulos: s.modulos, supabase: s.supabase };
   } catch (e) {
@@ -6199,6 +6222,119 @@ function usrCambiarPinCore_(nombre, pinActual, pinNuevo) {
     usrInvalidar_();
     return true;
   });
+}
+
+;
+// ===== 32_Sync_Auto.gs =====
+// =========================================================
+// 32 · SINCRONIZACIÓN AUTOMÁTICA CON EL WMS (switch del administrador)
+// ---------------------------------------------------------
+// Para quedar con los datos más recientes si el WMS se cae. El administrador la prende o la
+// apaga en su perfil de la página (Automático / Manual). Prendida:
+//   · cada sincronización deja agendada la siguiente entre 3 h y 4 h después, a un minuto
+//     al azar (3 h 12 min, luego 3 h 47 min…): nunca la misma hora ni el mismo intervalo;
+//   · es la sincronización normal (hojas + Supabase), con sus mismas protecciones: si el WMS no
+//     responde o trae muchas menos ubicaciones, no se reemplaza nada;
+//   · manda lo que trae el WMS (lo anotado a mano queda guardado y se puede volver a aplicar);
+//   · una sincronización manual (⟳ o /sincronizar) corre la siguiente automática;
+//   · si falla, avisa al grupo de Telegram una vez (y otra cuando vuelva a funcionar).
+// Un vigía cada hora revisa que la siguiente siga agendada (por si un disparador se pierde).
+// El estado queda en Supabase (frecs_config «sync_auto») para que la página lo muestre.
+// =========================================================
+const SYNC_AUTO_MIN = 180, SYNC_AUTO_MAX = 240;   // minutos entre una y otra (al azar en ese rango)
+const SYNC_AUTO_FN = "syncAutoEjecutar", SYNC_AUTO_VIGIA = "syncAutoVigia";
+
+function syncAutoProps_() { return PropertiesService.getScriptProperties(); }
+function syncAutoEstado_() {
+  const p = syncAutoProps_(), n = k => Number(p.getProperty(k) || 0), iso = t => t ? new Date(t).toISOString() : "";
+  return {
+    on: p.getProperty("SYNC_AUTO") === "1", por: p.getProperty("SYNC_AUTO_POR") || "", en: iso(n("SYNC_AUTO_EN")),
+    prox: p.getProperty("SYNC_AUTO") === "1" ? iso(n("SYNC_PROX")) : "", ult: iso(n("SYNC_ULT")),
+    ok: p.getProperty("SYNC_ULT_OK") === "1", msg: p.getProperty("SYNC_ULT_MSG") || ""
+  };
+}
+// La siguiente: entre 3 y 4 horas, con minutos y segundos al azar
+function syncAutoSiguiente_(desde) {
+  const min = SYNC_AUTO_MIN + Math.random() * (SYNC_AUTO_MAX - SYNC_AUTO_MIN);
+  return (desde || Date.now()) + Math.round(min * 60000 + Math.random() * 59000);
+}
+// Borra los disparadores de la automática (solo el indicado, o los dos)
+function syncAutoBorrar_(fn) {
+  ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (fn ? h === fn : (h === SYNC_AUTO_FN || h === SYNC_AUTO_VIGIA)) ScriptApp.deleteTrigger(t); });
+}
+// Agenda la siguiente (un disparador de una sola vez a esa hora exacta)
+function syncAutoAgendar_(prox) {
+  syncAutoProps_().setProperty("SYNC_PROX", String(prox));
+  syncAutoBorrar_(SYNC_AUTO_FN);
+  ScriptApp.newTrigger(SYNC_AUTO_FN).timeBased().after(Math.max(60000, prox - Date.now())).create();
+}
+// Deja el estado en Supabase (la página lo lee de ahí). No frena nada si falla.
+function syncAutoPublicar_() {
+  const e = syncAutoEstado_();
+  try { if (sbActivo_()) sbRpc_("sb_sync_auto", { p_valor: e }); } catch (er) { console.log("sync_auto: no se pudo guardar el estado en Supabase: " + er.message); }
+  return e;
+}
+
+// Prender / apagar (solo el administrador, desde la página)
+function syncAutoPoner_(on, usuario) {
+  const p = syncAutoProps_();
+  p.setProperty("SYNC_AUTO", on ? "1" : "");
+  p.setProperty("SYNC_AUTO_POR", String(usuario || ""));
+  p.setProperty("SYNC_AUTO_EN", String(Date.now()));
+  syncAutoBorrar_();
+  if (on) {
+    syncAutoAgendar_(syncAutoSiguiente_());
+    ScriptApp.newTrigger(SYNC_AUTO_VIGIA).timeBased().everyHours(1).create();
+  } else p.deleteProperty("SYNC_PROX");
+  return syncAutoPublicar_();
+}
+
+// La sincronización automática (la llama su disparador; el vigía si quedó atrasada)
+function syncAutoEjecutar() {
+  const p = syncAutoProps_();
+  if (p.getProperty("SYNC_AUTO") !== "1") { syncAutoBorrar_(); return; }
+  const prox = Number(p.getProperty("SYNC_PROX") || 0);
+  // Llegó antes de tiempo (p. ej. una manual la corrió): se vuelve a agendar para su hora
+  if (prox && Date.now() < prox - 5 * 60000) { syncAutoAgendar_(prox); return; }
+  let ok = false, msg = "";
+  try {
+    const r = sincronizarWMSCore(false);
+    ok = !!r.ok;
+    msg = r.ok ? `${r.fisicas} ubicaciones${r.supabase && r.supabase.error ? " · no llegó a Supabase: " + r.supabase.error : ""}` : String(r.error || "No se pudo sincronizar.");
+    if (r.ok && r.supabase && r.supabase.error) ok = false;
+  } catch (e) { msg = String(e && e.message || e); }
+  const antesOk = p.getProperty("SYNC_ULT_OK") !== "0";
+  p.setProperty("SYNC_ULT", String(Date.now()));
+  p.setProperty("SYNC_ULT_OK", ok ? "1" : "0");
+  p.setProperty("SYNC_ULT_MSG", msg.substring(0, 300));
+  syncAutoAgendar_(syncAutoSiguiente_());
+  console.log(`Sincronización automática: ${ok ? "OK" : "FALLÓ"} · ${msg}`);
+  // Aviso al grupo solo cuando cambia (falló / volvió a funcionar), para no repetirlo cada vez
+  if (ok !== antesOk && GRUPO_CALIDAD_ID) {
+    try {
+      enviarMensaje(GRUPO_CALIDAD_ID, ok ? "✅ *Sincronización automática*: el WMS volvió a responder y la base quedó al día."
+        : `⚠️ *Sincronización automática*: no se pudo traer el WMS.\n${escapeMd(msg)}\n\nLa base sigue con la última sincronización buena. Se vuelve a intentar sola en 3 a 4 horas.`);
+    } catch (e) {}
+  }
+  syncAutoPublicar_();
+}
+
+// Vigía (cada hora): si la siguiente quedó atrasada más de 20 minutos, la corre; si se perdió su disparador, lo vuelve a poner
+function syncAutoVigia() {
+  const p = syncAutoProps_();
+  if (p.getProperty("SYNC_AUTO") !== "1") { syncAutoBorrar_(); return; }
+  const prox = Number(p.getProperty("SYNC_PROX") || 0);
+  if (!prox || Date.now() > prox + 20 * 60000) return syncAutoEjecutar();
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === SYNC_AUTO_FN)) syncAutoAgendar_(prox);
+}
+
+// Después de una sincronización manual: la automática cuenta desde ahí (no repite al rato)
+function syncAutoTrasManual_() {
+  try {
+    if (syncAutoProps_().getProperty("SYNC_AUTO") !== "1") return;
+    syncAutoAgendar_(syncAutoSiguiente_());
+    syncAutoPublicar_();
+  } catch (e) { console.log("sync_auto tras manual: " + e.message); }
 }
 
 ;

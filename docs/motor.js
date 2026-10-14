@@ -3566,7 +3566,9 @@ function valConcCore_(turnoId) {
   return [[este, "este"], [ant, "anterior"]].filter(x => x[0]).map(([c, cual]) => ({
     id: c.id, cual: cual,
     texto: `${cual === "este" ? "Este turno" : "Turno anterior"} · Conciliación turno ${c.numero} · ${formatearFecha(c.fecha)}${c.estado === "ABIERTA" ? " (abierta)" : ""}`,
-    items: concItems_(c.id).map(x => ({ sku: x.sku, producto: x.producto, bodega: x.bodega, ka: x.ka, pk: x.pk, total: x.total, enTurno: enTurno.has(x.sku) }))
+    // En validación el reempaque va dentro de lo contado: cada área con su reempaque, y aparte cuánto es reempaque
+    items: concItems_(c.id).map(x => ({ sku: x.sku, producto: x.producto, bodega: conReemp_(x, "bodega"), ka: conReemp_(x, "ka"), pk: conReemp_(x, "pk"),
+      reempaque: x.reempZonas ? x.reempaque : "", total: x.total, enTurno: enTurno.has(x.sku) }))
   })).filter(x => x.items.length);
 }
 
@@ -4405,7 +4407,7 @@ function obtenerEntregaBot() {
 // =========================================================
 const CONC_T = {
   conc: { libro: "CONC", nombre: "Conciliaciones", cab: ["ID", "Turno_ID", "Turno", "Fecha", "Estado", "Inicio", "Abierto_por", "Cierre", "Cerrado_por", "Nota", "Editado_por", "Eliminado_por"], texto: [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
-  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota", "Reempaque"], texto: [1, 2, 3, 9, 10, 11, 12] },
+  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota", "Reempaque", "Reemp_Bodega", "Reemp_KA", "Reemp_PK"], texto: [1, 2, 3, 9, 10, 11, 12] },
   pre: { libro: "CONC", nombre: "Preconciliacion", cab: ["ID", "Fecha", "Turno", "SKU", "Producto", "Motivo", "Usuario", "Estado", "Conc_ID"], texto: [1, 2, 4, 5, 6, 7, 8, 9] }
 };
 
@@ -4428,10 +4430,14 @@ function marcarConcEditada_(c, usuario) { if (c && c.estado === "CERRADA") tEscr
 const numVacio_ = v => (v === "" || v === null || v === undefined || String(v).trim() === "") ? "" : numero_(v);
 
 function concItems_(concId) {
-  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]), reempaque: numVacio_(r[12]) }))
+  return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]), reempaque: numVacio_(r[12]),
+      reemp_bodega: numVacio_(r[13]), reemp_ka: numVacio_(r[14]), reemp_pk: numVacio_(r[15]) }))
     .filter(x => x.concId === concId)
     .map(x => {
-      x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0);
+      // Reempaque por área: se cuenta aparte de lo original y SÍ se suma al total
+      x.reempZonas = x.reemp_bodega !== "" || x.reemp_ka !== "" || x.reemp_pk !== "";
+      if (x.reempZonas) x.reempaque = (x.reemp_bodega || 0) + (x.reemp_ka || 0) + (x.reemp_pk || 0);
+      x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0) + (x.reempZonas ? x.reempaque : 0);
       x.check = x.fact === "" ? null : x.total >= x.fact;
       x.nivel = nivelConc_(x.total, x.fact);
       x.diferencia = x.fact === "" ? null : x.total - x.fact;
@@ -4450,6 +4456,9 @@ function nivelConc_(total, fact) {
   if (fact > 0 && total > fact * 1.5) return "sobra";
   return "ok";
 }
+
+// Lo contado en un área más su reempaque ("" si no se contó nada ahí)
+function conReemp_(x, z) { const a = x[z], b = x["reemp_" + z]; return a === "" && (b === "" || b === undefined) ? "" : (a || 0) + (b || 0); }
 
 function turnoAnterior_(n) { return { 1: 3, 2: 1, 3: 2 }[Number(n)] || 2; }
 
@@ -4474,7 +4483,7 @@ function concConteosTurno_(numero, fecha) {
   const l = listarConc_().filter(c => c.estado !== "ELIMINADA" && Number(c.numero) === Number(numero) && (c.fecha === fecha || c.estado === "ABIERTA")).sort((a, b) => a.inicio < b.inicio ? 1 : -1);
   if (!l.length) return null;
   let mapa = {};
-  concItems_(l[0].id).forEach(x => { mapa[x.sku] = { producto: x.producto, bodega: x.bodega, ka: x.ka, pk: x.pk }; });
+  concItems_(l[0].id).forEach(x => { mapa[x.sku] = { producto: x.producto, bodega: conReemp_(x, "bodega"), ka: conReemp_(x, "ka"), pk: conReemp_(x, "pk") }; });
   return Object.keys(mapa).length ? mapa : null;
 }
 
@@ -4587,7 +4596,8 @@ function concCopiarCore_(desdeId, usuario, concId) {
   });
 }
 
-// campos = { bodega, ka, pk, fact, bloqueo, nota, reempaque } (solo los que cambian; reempaque = cajas de lo contado que son reempaque); con sumar: true, Bodega/KA/PK se suman a lo que había
+// campos = { bodega, ka, pk, fact, bloqueo, nota, reemp_bodega, reemp_ka, reemp_pk } (solo los que cambian). El reempaque de
+// cada área se cuenta aparte y se suma al total; «Reempaque» guarda la suma de los tres. Con sumar: true, Bodega/KA/PK se suman a lo que había
 function concGuardarItemCore_(sku, campos, usuario, concId) {
   campos = campos || {};
   const val = v => { if (v === "" || v === null) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
@@ -4606,6 +4616,9 @@ function concGuardarItemCore_(sku, campos, usuario, concId) {
     while (r.length < CONC_T.items.cab.length) r.push("");
     if (campos.nota !== undefined) r[11] = String(campos.nota || "").trim().substring(0, 300);
     if (campos.reempaque !== undefined) r[12] = val(campos.reempaque);
+    let rz = false;
+    [["reemp_bodega", 13], ["reemp_ka", 14], ["reemp_pk", 15]].forEach(([k, i]) => { if (campos[k] !== undefined) { r[i] = val(campos[k]); rz = true; } });
+    if (rz) { const z = [13, 14, 15].map(i => numVacio_(r[i])); r[12] = z.every(v => v === "") ? "" : z.reduce((a, v) => a + (v || 0), 0); }
     r[8] = ahora_(); r[9] = usuario;
     tEscribir_(CONC_T.items, f.fila, 1, r);
     marcarConcEditada_(c, usuario);
@@ -4685,7 +4698,9 @@ function cuerpoPDFConc_(c, sinFirmas) {
   const v = x => x === "" ? "—" : fM(x);
   const grupo = () => "";
   const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${Number(x.reempaque) > 0 ? `<div class="nota-p">Reempaque: ${fM(x.reempaque)} cj</div>` : ""}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${v(x.bodega)}</td><td>${v(x.ka)}</td><td>${v(x.pk)}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
+  // Cada área con su reempaque debajo (se suma al total)
+  const zc = (x, z) => v(x[z]) + (Number(x["reemp_" + z]) > 0 ? `<div class="nota-p">+ ♻️ ${fM(x["reemp_" + z])}</div>` : "");
+  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${Number(x.reempaque) > 0 ? `<div class="nota-p">Reempaque: ${fM(x.reempaque)} cj${x.reempZonas ? " (sumado al total)" : ""}</div>` : ""}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${zc(x, "bodega")}</td><td>${zc(x, "ka")}</td><td>${zc(x, "pk")}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
     (items.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td>${fM(suma("bodega"))}</td><td>${fM(suma("ka"))}</td><td>${fM(suma("pk"))}</td><td>${fM(suma("total"))}</td><td>${fM(suma("fact"))}</td><td></td><td></td></tr>` : "") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
   return `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
@@ -5268,7 +5283,8 @@ function sbImportarTodo() {
     if (!inicioConc[id]) return omitir("conc_items", "conciliación inexistente");
     if (!sk) return omitir("conc_items", "sin SKU");
     ci.push({ conc_id: id, sku: sk, producto: sbTxt_(r[2]), bodega: sbNum_(r[3]), ka: sbNum_(r[4]), pk: sbNum_(r[5]), facturacion: sbNum_(r[6]),
-      bloqueo: sbBool_(r[7]), actualizado: sbTs_(r[8]) || inicioConc[id], usuario: sbTxt_(r[9]), origen: sbTxt_(r[10]), nota: sbTxt_(r[11]) });
+      bloqueo: sbBool_(r[7]), actualizado: sbTs_(r[8]) || inicioConc[id], usuario: sbTxt_(r[9]), origen: sbTxt_(r[10]), nota: sbTxt_(r[11]),
+      reempaque: sbNum_(r[12]), reemp_bodega: sbNum_(r[13]), reemp_ka: sbNum_(r[14]), reemp_pk: sbNum_(r[15]) });
   });
   res.conc_items = sbEnviarTabla_("conc_items", sbSinRepetir_(ci, x => x.conc_id + "|" + x.sku));
 

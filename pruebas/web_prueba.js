@@ -328,6 +328,27 @@ let llamadasSb = 0, sinRed = false;
   await P.evaluate(s2 => api("webConcGuardar", s2, { bodega: 10, ka: 2, pk: "", fact: 20, bloqueo: true }), skC2);
   const fc = q(`select bodega || '|' || ka || '|' || coalesce(pk::text,'vacío') || '|' || facturacion || '|' || bloqueo || '|' || usuario from conc_items where conc_id='${cAb}' and sku='${skC2}'`);
   if (fc !== "10|2|vacío|20|true|Huber") errores.push("guardar en la conciliación: " + fc);
+  // Reempaque por área: se suma al total (10 + 2 + 4 + 3 = 19) y «Reempaque» queda con la suma
+  await P.evaluate(s2 => api("webConcGuardar", s2, { reemp_ka: 4, reemp_bodega: 3 }), skC2);
+  const fr = q(`select coalesce(reemp_bodega::text,'') || '|' || coalesce(reemp_ka::text,'') || '|' || coalesce(reemp_pk::text,'vacío') || '|' || reempaque from conc_items where conc_id='${cAb}' and sku='${skC2}'`);
+  if (fr !== "3|4|vacío|7") errores.push("conciliación: reempaque por área no se guardó: " + fr);
+  const itR = (await P.evaluate(() => api("webConc"))).items.find(x => x.sku === skC2);
+  if (!itR || itR.total !== 19 || itR.reempaque !== 7) errores.push("conciliación: el reempaque no se suma al total: " + JSON.stringify(itR && [itR.total, itR.reempaque]));
+  {
+    const mv = await nueva({ width: 390, height: 844 }, "conc-movil");
+    await mv.page.goto("http://127.0.0.1:8766/"); await mv.page.waitForSelector("#lgN");
+    await mv.page.fill("#lgN", "Huber"); await mv.page.fill("#lgP", "1234"); await mv.page.click("#lgB"); await mv.page.waitForSelector(".kpis", { timeout: 15000 });
+    await mv.page.evaluate(s2 => { S.abiertos.conc = { [s2]: true }; ir("conciliacion"); }, skC2); await mv.page.waitForTimeout(1500);
+    const card = `.conc-card[data-row="${skC2}"]`;
+    const pos = await mv.page.$$eval(`${card} .cc-zonas input`, is => is.map(i => Math.round(i.getBoundingClientRect().top)));
+    if (pos.length !== 6 || new Set(pos.slice(0, 3)).size !== 1 || new Set(pos.slice(3)).size !== 1 || pos[3] <= pos[0]) errores.push("conciliación (celular): Bodega/KA/PK no salen en una fila con su reempaque debajo: " + pos);
+    const fy = await mv.page.$eval(`${card} .cc-fact input`, i => Math.round(i.getBoundingClientRect().top)).catch(() => 0);
+    if (!(fy > pos[3])) errores.push("conciliación (celular): la facturación no queda en la tercera fila");
+    const ancho = await mv.page.evaluate(() => document.documentElement.scrollWidth);
+    if (ancho > 392) errores.push("conciliación (celular): la página se sale de lado: " + ancho);
+    await mv.page.$eval(card, e => e.scrollIntoView()); await mv.page.screenshot({ path: "/tmp/m_conc_reemp.png" });
+    await mv.ctx.close();
+  }
   await P.evaluate(s2 => api("webConcQuitar", s2), skC2);
   if (q(`select count(*) from conc_items where conc_id='${cAb}' and sku='${skC2}'`) !== "0") errores.push("quitar de la conciliación falló");
   await val.page.evaluate(() => api("webPreAgregar", "3617", "Costeñita", "revisar desde la web"));

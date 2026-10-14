@@ -574,8 +574,7 @@
   .cc-tit { min-width: 0; }
   .cc-res { font-size: 13.5px; color: var(--muted); margin-top: 3px; }
   .cc-res b { color: var(--ink); }
-  .cc-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  @media (max-width: 520px) { .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .cc-grid { display: grid; gap: 8px; }
   .cc-campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }
   .cc-campo input { text-align: center; font-size: 17px; font-weight: 800; }
   .chk-sobra { color: #7fb0ff; font-weight: 900; }
@@ -653,17 +652,18 @@
   .cc-bloq input { width: 22px; height: 22px; flex: none; accent-color: var(--bad); margin: 0; }
   .cc-bloq.on { border-color: var(--bad); color: #ffb3c1; background: var(--bad-soft); }
   .cc-del { align-self: end; }
+  /* 3 filas (también en el celular): Bodega · KA · PK / ♻️ reempaque de cada una (se suma al total) / Facturación */
+  .cc-zonas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; margin-bottom: 8px; }
+  .cc-zonas .cc-campo > span { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 22px; }
+  .cc-campo[class*="cc-reemp_"] > span { color: #d3b6ff; font-size: 11px; }
+  .cc-campo[class*="cc-reemp_"] input { min-height: 32px !important; font-size: 14px !important; border-style: dashed !important; border-color: rgba(167,139,250,.6) !important; }
+  html[data-tema="claro"] .cc-campo[class*="cc-reemp_"] > span { color: #6d28d9; }
+  .cc-grid { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .cc-bloq { grid-column: 1 / -1; }
+  .cc-sum, .cc-del { align-self: end; }
   @media (min-width: 700px) {
-    .cc-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) auto auto; }
-    .cc-bloq { white-space: nowrap; }
-  }
-  @media (max-width: 699px) {
-    .cc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
-    .cc-campo.cc-bodega, .cc-campo.cc-pk { grid-column: 1; }
-    .cc-campo.cc-ka, .cc-campo.cc-fact { grid-column: 2 / 4; }
-    .cc-bloq { grid-column: 1 / -1; }
-    .cc-nota { grid-column: 1 / 3; }
-    .cc-del { grid-column: 3; order: 9; }
+    .cc-grid { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+    .cc-bloq { grid-column: auto; white-space: nowrap; }
   }
   /* Nota por producto (debajo de las cantidades) */
   .cc-nota { grid-column: 1 / -1; order: 8; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }

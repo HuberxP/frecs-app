@@ -2597,7 +2597,7 @@ async function modalAgregar() {
     const i = $("#b" + sku, c); if (i && !sinFoco) i.focus();
   };
   const concDe = sku => { for (const cc of concs || []) { const x = cc.items.find(y => y.sku === sku); if (x) return x; } return null; };
-  const cantConc = x => x ? { bodega: x.bodega, ka: x.ka, pk: x.pk } : null;
+  const cantConc = x => x ? { bodega: x.bodega, ka: x.ka, pk: x.pk, reempaque: x.reempaque === undefined ? "" : x.reempaque } : null;
   const marcarListas = () => $$("#agCL input[data-sku], #agPL input[data-sku]", c).forEach(i => { if (!i.disabled && !i.dataset.todos) i.checked = sel.has(i.dataset.sku); });
   autoSku($("#agQ", c), p => agregar(p.sku, p.prod), { limpiar: true });
   c.addEventListener("input", e => {
@@ -3010,8 +3010,12 @@ function pintarConc(el) {
 }
 const ZONAS_C = [["bodega", "Bodega"], ["ka", "KA"], ["pk", "PK"]];
 // Recalcula un producto con lo que hay en pantalla (igual que el servidor)
+// Reempaque por área: se cuenta aparte de lo original y se suma al total
+const REEMP_C = [["reemp_bodega", "bodega"], ["reemp_ka", "ka"], ["reemp_pk", "pk"]];
 function concRecalc(x) {
-  x.total = (Number(x.bodega) || 0) + (Number(x.ka) || 0) + (Number(x.pk) || 0);
+  x.reempZonas = REEMP_C.some(([r]) => vNum(x[r]) !== "");
+  if (x.reempZonas) x.reempaque = REEMP_C.reduce((a, [r]) => a + (Number(x[r]) || 0), 0);
+  x.total = (Number(x.bodega) || 0) + (Number(x.ka) || 0) + (Number(x.pk) || 0) + (x.reempZonas ? x.reempaque : 0);
   x.nivel = nivelConc(x.total, vNum(x.fact) === "" ? null : Number(x.fact));
   x.check = vNum(x.fact) === "" ? null : x.total >= Number(x.fact);
   x.completo = ZONAS_C.every(([z]) => vNum(x[z]) !== "");
@@ -3046,7 +3050,9 @@ function tarjetaConc(x, esc) {
       <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${vNum(x.fact) === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span><span data-falta>${faltaConcHtml(x)}</span><span data-reemp>${Number(x.reempaque) > 0 ? ` <span class="reemp-p">♻️ ${fm(x.reempaque)}</span>` : ""}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
-      <div class="cc-grid">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}${inp("fact", x.fact, "Facturación")}${inp("reempaque", vNum(x.reempaque), "♻️ Reempaque")}
+      <div class="cc-zonas">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}
+        ${inp("reemp_bodega", vNum(x.reemp_bodega), "♻️ Reemp.")}${inp("reemp_ka", vNum(x.reemp_ka), "♻️ Reemp.")}${inp("reemp_pk", vNum(x.reemp_pk), "♻️ Reemp.")}</div>
+      <div class="cc-grid">${inp("fact", x.fact, "Facturación")}
         <label class="cc-bloq ${x.bloqueo ? "on" : ""}"><input type="checkbox" data-f="bloqueo" data-sku="${h(x.sku)}" ${x.bloqueo ? "checked" : ""} ${esc ? "" : "disabled"}><span>🔒 Bloqueo del excedente</span></label>
         ${esc ? `<button class="btn sm cc-sum" data-a="ccant" data-sku="${h(x.sku)}" title="Sumar o corregir (Bodega en cajas o estibas)">＋ Sumar</button><button class="btn sm icon del cc-del" data-a="qconc" data-sku="${h(x.sku)}" title="Quitar de la conciliación" aria-label="Quitar de la conciliación">${ICO_DEL}</button>` : ""}
         <label class="cc-nota"><span>📝 Nota</span>${esc ? `<input type="text" data-f="nota" data-sku="${h(x.sku)}" value="${h(x.nota || "")}" maxlength="300" placeholder="Opcional: algo que deba saber quien revise">` : `<b>${h(x.nota || "—")}</b>`}</label></div>
@@ -3061,7 +3067,7 @@ function pintarConcItem(it) {
     tr.querySelector("[data-chk]").innerHTML = chkConc(it.nivel, it.total, it.fact);
     tr.querySelector("[data-falta]").innerHTML = faltaConcHtml(it);
     ["mal", "ok", "sobra", "sin"].forEach(c => tr.classList.toggle(c, (it.nivel || "sin") === c));
-    ZONAS_C.concat([["reempaque"]]).forEach(([z]) => { const i = tr.querySelector(`input[data-f="${z}"]`); if (i && document.activeElement !== i) mostrarCant(i, vNum(it[z])); });
+    ZONAS_C.concat(REEMP_C).forEach(([z]) => { const i = tr.querySelector(`input[data-f="${z}"]`); if (i && document.activeElement !== i) mostrarCant(i, vNum(it[z])); });
     const fi = tr.querySelector('input[data-f="fact"]'); if (fi && document.activeElement !== fi) fi.value = vNum(it.fact);
     const re = tr.querySelector("[data-reemp]"); if (re) re.innerHTML = Number(it.reempaque) > 0 ? ` <span class="reemp-p">♻️ ${fm(it.reempaque)}</span>` : "";
   }

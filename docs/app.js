@@ -4676,42 +4676,64 @@ function primeroFefo(sku, canal) {
 const marcasProd = sku => typeof marcasTodas === "function" ? marcasTodas().filter(x => x.sku === String(sku)) : [];
 const listaVoz = l => l.length <= 1 ? l.join("") : l.slice(0, -1).join(", ") + " y " + l[l.length - 1];
 
-// Stock por SKU: módulo(s) de consumo o de cuál debería salir
+// Cómo se dice: «el I 16, en el pasillo I», «vence el 19 de diciembre de 2026», «fefo» como una palabra
+const MESES_VOZ = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const fechaVoz = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v || ""); return m ? `${+m[3]} de ${MESES_VOZ[+m[2] - 1]} de ${m[1]}` : ""; };
+function lugarVoz(m) {
+  const sec = String(m || "").replace(/\d.*$/, "").toUpperCase();
+  if (sec === "M") return "en la carpa";
+  if (sec === "KA") return "en la zona KA";
+  if (sec === "PREV") return "en picking preventa";
+  if (/^[A-Z]$/.test(sec)) return `en el pasillo ${sec}`;
+  return sec ? `en la zona ${sec}` : "";
+}
+const ubicVoz = m => `el ${modVoz(m)}${lugarVoz(m) ? ", " + lugarVoz(m) : ""}`;
+// Lo que vence primero de ese producto en ese módulo
+function venceVoz(sku, m) {
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.m === String(m) && i.fis && i.v).sort((a, b) => tV(a.v) - tV(b.v));
+  const f = l.length ? fechaVoz(l[0].v) : "";
+  return f ? `Vence el ${f}.` : "";
+}
+const saludoVoz = () => S.usuario && S.usuario.nombre ? S.usuario.nombre.split(" ")[0] + ". " : "";
+
+// Stock por SKU: el módulo de consumo marcado (dónde está y cuándo vence) o, si no hay, el que debería ser según fefo
 function vozStock(sku, prod, filtro) {
   if (!vozOn()) { S.vozTxt = ""; return; }
   const canal = CANALES[filtro] ? filtro : "";
   const mk = marcasProd(sku).filter(x => (S.inv || []).some(i => i.s === x.sku && i.m === x.m && i.fis));
-  let t;
+  let t = saludoVoz() + prodVoz(prod) + ". ";
   if (mk.length) {
     const porMod = {};
     mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x.canal));
-    const partes = Object.keys(porMod).map(m => `${modVoz(m)}, para ${listaVoz(porMod[m])}`);
-    t = `${prodVoz(prod)}. ${partes.length > 1 ? "Módulos de consumo" : "Módulo de consumo"}: ${partes.join("; ")}.`;
+    const mods = Object.keys(porMod);
+    t += mods.length === 1 ? `El módulo de consumo es ${ubicVoz(mods[0])}, para ${listaVoz(porMod[mods[0]])}. ${venceVoz(sku, mods[0])}`
+      : `Los módulos de consumo son: ` + mods.map(m => `${ubicVoz(m)}, para ${listaVoz(porMod[m])}. ${venceVoz(sku, m)}`).join(" Y ");
   } else {
     const p = primeroFefo(sku, canal);
-    t = p ? `${prodVoz(prod)}. No hay módulo de consumo marcado. ${canal ? `Para ${canal} debería` : "Debería"} salir de ${modVoz(p.m)}, primero en FEFO.`
-      : `${prodVoz(prod)}. No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
+    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}`
+      : `No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
   }
-  hablar(t, `stock|${sku}|${filtro}`);
+  hablar(t.trim(), `stock|${sku}|${filtro}`);
 }
 
-// Por módulo: si este módulo está en consumo; si no, cuál es el de consumo o de cuál debería salir
+// Por módulo: si este módulo está marcado en consumo; si no, el de consumo marcado o el que debería ser según fefo
 function vozModulo(q, lis) {
   if (!vozOn()) { S.vozTxt = ""; return; }
   const skus = [...new Set((lis || []).map(i => i.s))];
-  if (!skus.length) { hablar(`${modVoz(q)} está vacío.`, `mod|${q}`); return; }
+  const cab = `${saludoVoz()}Módulo ${modVoz(q)}${lugarVoz(q) ? ", " + lugarVoz(q) : ""}. `;
+  if (!skus.length) { hablar(cab + "Está vacío.", `mod|${q}`); return; }
   const frases = skus.slice(0, 3).map(s => {
-    const prod = prodVoz((lis.find(i => i.s === s) || {}).p);
-    const pre = skus.length > 1 ? `${prod}: ` : "";
+    const pre = prodVoz((lis.find(i => i.s === s) || {}).p) + ": ";
     const aqui = typeof marcasDe === "function" ? marcasDe(s, q) : [];
-    if (aqui.length) return `${pre}${modVoz(q)} está en consumo para ${listaVoz(aqui.map(x => x.canal))}.`;
-    const otros = [...new Set(marcasProd(s).map(x => x.m))].filter(m => m !== q);
-    if (otros.length) return `${pre}no está en consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(modVoz))}.`;
+    if (aqui.length) return `${pre}este es el módulo de consumo, para ${listaVoz(aqui.map(x => x.canal))}. ${venceVoz(s, q)}`;
+    const otros = [...new Set(marcasProd(s).map(x => x.m))].filter(m => m !== q && (S.inv || []).some(i => i.s === s && i.m === m && i.fis));
+    if (otros.length) return `${pre}no es el de consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(ubicVoz))}. ${venceVoz(s, otros[0])}`;
     const p = primeroFefo(s);
     if (!p) return `${pre}no hay producto disponible en bodega.`;
-    return p.m === q ? `${pre}${modVoz(q)} es el primero en FEFO: debería ser el de consumo.` : `${pre}no está en consumo. Debería salir primero de ${modVoz(p.m)}.`;
+    return p.m === q ? `${pre}no hay módulo de consumo marcado. Según fefo, este debería ser el de consumo. ${venceVoz(s, q)}`
+      : `${pre}no hay módulo de consumo marcado. Según fefo, el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(s, p.m)}`;
   });
-  hablar((skus.length > 1 ? "" : `${prodVoz(lis[0].p)}. `) + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : ""), `mod|${q}`);
+  hablar((cab + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : "")).replace(/\s+/g, " ").trim(), `mod|${q}`);
 }
 
 // =====================================================================

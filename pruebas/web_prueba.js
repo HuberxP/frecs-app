@@ -977,7 +977,7 @@ let llamadasSb = 0, sinRed = false;
       await P.evaluate(() => cerrarModal(true));
       await P.evaluate(() => { S.ultToque = Date.now(); ir("stock", { sku: "2222" }); }); await P.waitForTimeout(900);
       let dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
-      if (!/Módulo de consumo/.test(dicho) || !dicho.includes(modM.replace(/^([A-Z]+)(\d+)/, "$1 $2"))) errores.push("voz: al consultar el SKU no dice el módulo de consumo: " + dicho);
+      if (!/^Huber\. /.test(dicho) || !/módulo de consumo es el /i.test(dicho) || !dicho.includes(modM.replace(/^([A-Z]+)(\d+)/, "$1 $2")) || !/Vence el \d{1,2} de [a-z]+ de \d{4}/.test(dicho) || /FEFO/.test(dicho)) errores.push("voz: al consultar el SKU no dice nombre, módulo de consumo, ubicación y fecha: " + dicho);
       if (!(await P.$("#sr [data-voz-rep]"))) errores.push("voz: no está el botón 🔊 para volver a escuchar");
       // La pantalla se repinta sola (sin tocar): no repite
       const n0 = await P.evaluate(() => window.__dichos.length);
@@ -985,7 +985,12 @@ let llamadasSb = 0, sinRed = false;
       if ((await P.evaluate(() => window.__dichos.length)) !== n0) errores.push("voz: repite cuando la pantalla se actualiza sola");
       await P.evaluate(m => { S.ultToque = Date.now(); ir("modulo", { mod: m }); }, modM); await P.waitForTimeout(900);
       dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
-      if (!/está en consumo/.test(dicho)) errores.push("voz: al consultar el módulo no dice que está en consumo: " + dicho);
+      if (!/este es el módulo de consumo/.test(dicho) || !/pasillo|zona|carpa|picking/.test(dicho)) errores.push("voz: al consultar el módulo no dice que es el de consumo y dónde: " + dicho);
+      // Sin marca: dice el que debería ser según fefo (una palabra), con su ubicación y fecha
+      await P.evaluate(() => { S.ultToque = Date.now(); ir("stock", { sku: "3617" }); }); await P.waitForTimeout(900);
+      dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
+      if (!/Según fefo, el de consumo debería ser el /.test(dicho) && !/No hay producto disponible/.test(dicho)) errores.push("voz: sin marca no dice el que debería ser según fefo: " + dicho);
+      console.log("voz (ejemplo): " + dicho);
       await P.evaluate(() => api("webPref", "voz", false).then(p => { S.usuario.prefs = p; }));
       await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
     }

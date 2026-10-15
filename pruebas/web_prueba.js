@@ -991,6 +991,34 @@ let llamadasSb = 0, sinRed = false;
       dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
       if (!/Según fefo, el de consumo debería ser el /.test(dicho) && !/No hay producto disponible/.test(dicho)) errores.push("voz: sin marca no dice el que debería ser según fefo: " + dicho);
       console.log("voz (ejemplo): " + dicho);
+      // ⚠️ Fecha larga tapando la corta: mismo producto con 2 fechas disponibles en un módulo de A/B/C/D/I
+      {
+        const base = q("select id || '|' || modulo || '|' || sku || '|' || to_char(vence,'YYYY-MM-DD') from wms_base where estado='DISPONIBLE' and coalesce(estibas,0) > 0 and vence is not null and modulo ~ '^[ABCDI][0-9]+$' and (modulo, sku) in (select modulo, sku from wms_base where coalesce(estibas,0)+coalesce(cajas,0) > 0 group by 1,2 having count(distinct vence) = 1) order by id limit 1").split("|");
+        const [idB, mB, sB] = base;
+        const cargaB = q(`select coalesce(carga::text,'') from wms_base where id=${idB}`);
+        q(`update wms_base set carga = now() - interval '2 days' where id=${idB}`);
+        q(`insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+           select sku, producto, modulo, 7, 7 * greatest(coalesce(cajas_por_estiba,1),1), 0, vence + 60, dias + 60, 'DISPONIBLE', '', now(), familia, cajas_por_estiba, 'PRUEBA TAPADO', false, now() from wms_base where id=${idB}`);
+        // Un lote BLOQUEADO con otra fecha no cuenta (va aparte)
+        q(`insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+           select sku, producto, modulo, 2, 2, 0, vence + 90, dias + 90, 'PNC CALIDAD', 'X9', now(), familia, cajas_por_estiba, 'PRUEBA TAPADO', false, now() from wms_base where id=${idB}`);
+        await P.evaluate(() => cargarInv(true));
+        const tp = await P.evaluate(a => { const t = tapadoDe(a[0], a[1]); return t ? [t.nivel, t.fechas.length] : null; }, [sB, mB]);
+        if (!tp || tp[0] !== "probable" || tp[1] !== 2) errores.push("tapado: no detecta la fecha larga cargada después (sin contar lo bloqueado): " + JSON.stringify(tp));
+        await P.evaluate(s2 => { S.ultToque = Date.now(); ir("stock", { sku: s2 }); }, sB); await P.waitForTimeout(900);
+        if (!/Probablemente tapada por fecha larga/.test(await P.textContent("#sr").catch(() => ""))) errores.push("tapado: la tarjeta de la fecha corta no lo avisa");
+        await P.screenshot({ path: "/tmp/w_tapado.png" });
+        await P.evaluate(m => { S.ultToque = Date.now(); ir("modulo", { mod: m }); }, mB); await P.waitForTimeout(900);
+        dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
+        if (!/hay dos fechas de este producto/.test(dicho) || !/probablemente está tapando la fecha corta/.test(dicho)) errores.push("tapado: la voz no lo dice: " + dicho);
+        console.log("voz (tapado): " + dicho);
+        // Si la corta se cargó de última, debería estar adelante
+        q(`update wms_base set carga = now() + interval '1 hour' where id=${idB}`);
+        await P.evaluate(() => cargarInv(true));
+        if ((await P.evaluate(a => (tapadoDe(a[0], a[1]) || {}).nivel, [sB, mB])) !== "adelante") errores.push("tapado: con la corta cargada de última no dice que debería estar adelante");
+        q(`delete from wms_base where obs='PRUEBA TAPADO'`); q(`update wms_base set carga = ${cargaB ? `'${cargaB}'` : "null"} where id=${idB}`);
+        await P.evaluate(() => cargarInv(true));
+      }
       await P.evaluate(() => api("webPref", "voz", false).then(p => { S.usuario.prefs = p; }));
       await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
     }

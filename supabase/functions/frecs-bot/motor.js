@@ -5819,7 +5819,8 @@ function webInit(tk) {
 // Inventario con canales, zonas, vida útil y ocupación ya calculados (caché 5 min)
 function inventarioPayload_() {
   const c = cacheLeer_("inv");
-  if (c) { try { const d = JSON.parse(c); d.sync = estadoSyncWeb_(); return d; } catch (e) {} }
+  // (el caché es del mismo día: los días para vencer cambian con la fecha)
+  if (c) { try { const d = JSON.parse(c); if (!d.generado || String(d.generado).substring(0, 10) === hoyISO_()) { d.sync = estadoSyncWeb_(); return d; } } catch (e) {} }
   const inv = obtenerInventarioLocal();
   const filas = inv.map(i => {
     const c2 = evaluarCanales(i.d, i.fam, i.s, i.p);
@@ -5828,7 +5829,7 @@ function inventarioPayload_() {
       s: i.s, p: i.p, m: i.m, z: z, e: i.e, c: i.c, u: i.u,
       v: i.v, vf: i.v ? formatearFecha(i.v) : "Sin fecha", d: i.d,
       est: i.est, disp: i.est === "DISPONIBLE", cand: i.cand, fam: i.fam, cpe: i.cpe, obs: i.obs,
-      pick: i.pick, act: i.act, actTxt: formatoActualizacion(i.act),
+      pick: i.pick, act: i.act, actTxt: formatoActualizacion(i.act), carga: i.carga,
       prio: i.prio, tpc: i.tpc, reemp: i.reempaque, fis: i.tieneFisico,
       T1: c2.T1, T2: c2.T2, KA: c2.KA, min: c2.min,
       esKA: z === "KA", esPK: z === "PREV" || i.pick, esOp: esZonaOperativa(i), carpa: z === "CARPA",

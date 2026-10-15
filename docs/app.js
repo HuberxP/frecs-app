@@ -1259,6 +1259,8 @@ function invCard(i, o) {
   const rp = repDe(i.m);
   if (rp.v) tags.unshift(`<span class="tag t-rv" title="Reportado por ${h(rp.v.por)} · ${h(fechaCorta(rp.v.en))}">🟠 Reportado como vacío</span>`);
   if (rp.c) tags.unshift(`<span class="tag t-rc" title="Encontraron ${h(rp.c.skuEnc)} · ${h(rp.c.prodEnc)}">⚠️ Conflicto reportado</span>`);
+  // Fecha larga que puede estar tapando la corta (mismo producto, 2 fechas en el módulo)
+  if (typeof tagsTapado === "function") tags.unshift(...tagsTapado(i));
   // Módulo en consumo para un canal (lo marcó un verificador / rotador)
   if (typeof tagsMarcas === "function") tags.unshift(...tagsMarcas(i.s, i.m));
   // Anotado a mano sin WMS (WMS caído): lo que se sacó o se guardó aquí
@@ -4216,6 +4218,46 @@ VISTAS.enconsumo = async (el, p, vigente) => {
 };
 
 // =====================================================================
+// ⚠️ FECHA LARGA TAPANDO FECHA CORTA (secciones A, B, C, D e I)
+// En un módulo de bodega puede haber el mismo producto con dos fechas (cada una con sus estibas).
+// Si la fecha más larga se cargó DESPUÉS que la corta, lo más probable es que quedó adelante y la tapa.
+// Solo cuenta lo DISPONIBLE: lo bloqueado va aparte (se pone en otro módulo cercano), así que no tapa.
+// Otro producto distinto en el módulo tampoco se toma como tapado.
+// Niveles: «probable» (la larga se cargó después) · «posible» (no se sabe el orden de carga) ·
+// «adelante» (la corta se cargó de última: debería estar adelante; igual se avisa que hay 2 fechas).
+// =====================================================================
+const SECC_TAPADO = /^[ABCDI]\d+$/;
+// «2026-10-15 06:56:09.691432+00» o ISO → milisegundos (0 si no se puede leer)
+const tCarga = s => { if (!s) return 0; let x = String(s).trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"); const t = Date.parse(x); return isNaN(t) ? 0 : t; };
+function tapadoDe(sku, m) {
+  if (!SECC_TAPADO.test(String(m || ""))) return null;
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.m === String(m) && i.fis && i.disp && i.v && (i.e > 0 || i.c > 0));
+  const g = {};
+  l.forEach(i => { const x = g[i.v] = g[i.v] || { v: i.v, vf: i.vf, e: 0, c: 0, t: 0 }; x.e += i.e || 0; x.c += i.c || 0; x.t = Math.max(x.t, tCarga(i.carga)); });
+  const fechas = Object.values(g).sort((a, b) => tV(a.v) - tV(b.v));
+  if (fechas.length < 2) return null;
+  const corto = fechas[0], largos = fechas.slice(1);
+  const tapan = largos.filter(x => x.t && corto.t && x.t > corto.t + 60000);
+  const nivel = tapan.length ? "probable" : (!corto.t || largos.some(x => !x.t)) ? "posible" : "adelante";
+  return { corto, largos, tapan, nivel, fechas };
+}
+const cantFecha = x => x.e > 0 ? `${fm(Math.round(x.e * 10) / 10)} est.` : `${fm(x.c)} cj`;
+// Etiquetas para la tarjeta de un lote
+function tagsTapado(i) {
+  const t = i.fis && i.disp ? tapadoDe(i.s, i.m) : null;
+  if (!t) return [];
+  const otras = t.fechas.filter(x => x.v !== i.v).map(x => `${x.vf} (${cantFecha(x)})`).join(", ");
+  if (i.v === t.corto.v) {
+    const txt = t.nivel === "probable" ? `⚠️ Probablemente tapada por fecha larga: ${otras}`
+      : t.nivel === "posible" ? `⚠️ 2 fechas en el módulo: puede estar tapada (${otras})`
+      : `ℹ️ 2 fechas en el módulo: esta se cargó de última, debería estar adelante (${otras})`;
+    return [`<span class="tag ${t.nivel === "adelante" ? "t-tap2" : "t-tap"}" title="Misma referencia con otra fecha en ${h(i.m)}. Lo bloqueado no cuenta (va aparte).">${h(txt)}</span>`];
+  }
+  const tapa = t.tapan.some(x => x.v === i.v);
+  return [`<span class="tag t-tap2" title="En ${h(i.m)} también hay fecha más corta de este producto">🔁 Fecha más corta en el módulo: ${h(t.corto.vf)} (${h(cantFecha(t.corto))})${tapa ? " · probablemente la tapa" : ""}</span>`];
+}
+
+// =====================================================================
 // AJUSTES SIN WMS (cuando el WMS está caído)
 // Se trabaja con la última sincronización y se anota a mano lo que cambió:
 //   · ➖ Saqué: cuántas estibas o cajas se sacaron de un producto en un módulo (primero el lote que vence antes)
@@ -4694,6 +4736,16 @@ function venceVoz(sku, m) {
   const f = l.length ? fechaVoz(l[0].v) : "";
   return f ? `Vence el ${f}.` : "";
 }
+// Si en ese módulo hay 2 fechas del mismo producto: cuáles y si la larga probablemente tapa la corta
+function tapadoVoz(sku, m) {
+  const t = typeof tapadoDe === "function" ? tapadoDe(sku, m) : null;
+  if (!t) return "";
+  const cant = x => x.e > 0 ? `${Math.round(x.e * 10) / 10} ${Math.round(x.e) === 1 ? "estiba" : "estibas"}` : `${x.c} cajas`;
+  const fs = t.fechas.map(x => `${fechaVoz(x.v)}, con ${cant(x)}`);
+  const n = ["", "", "dos", "tres", "cuatro"][t.fechas.length] || String(t.fechas.length);
+  return ` Ojo: en el ${modVoz(m)} hay ${n} fechas de este producto: ${listaVoz(fs)}. ` + (t.nivel === "probable" ? "La fecha larga se cargó después: probablemente está tapando la fecha corta."
+    : t.nivel === "posible" ? "Posiblemente la fecha larga está tapando la corta." : "La fecha corta se cargó de última: debería estar adelante.");
+}
 const saludoVoz = () => S.usuario && S.usuario.nombre ? S.usuario.nombre.split(" ")[0] + ". " : "";
 
 // Stock por SKU: el módulo de consumo marcado (dónde está y cuándo vence) o, si no hay, el que debería ser según fefo
@@ -4706,11 +4758,11 @@ function vozStock(sku, prod, filtro) {
     const porMod = {};
     mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x.canal));
     const mods = Object.keys(porMod);
-    t += mods.length === 1 ? `El módulo de consumo es ${ubicVoz(mods[0])}, para ${listaVoz(porMod[mods[0]])}. ${venceVoz(sku, mods[0])}`
-      : `Los módulos de consumo son: ` + mods.map(m => `${ubicVoz(m)}, para ${listaVoz(porMod[m])}. ${venceVoz(sku, m)}`).join(" Y ");
+    t += mods.length === 1 ? `El módulo de consumo es ${ubicVoz(mods[0])}, para ${listaVoz(porMod[mods[0]])}. ${venceVoz(sku, mods[0])}${tapadoVoz(sku, mods[0])}`
+      : `Los módulos de consumo son: ` + mods.map(m => `${ubicVoz(m)}, para ${listaVoz(porMod[m])}. ${venceVoz(sku, m)}${tapadoVoz(sku, m)}`).join(" Y ");
   } else {
     const p = primeroFefo(sku, canal);
-    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}`
+    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}${tapadoVoz(sku, p.m)}`
       : `No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
   }
   hablar(t.trim(), `stock|${sku}|${filtro}`);
@@ -4722,18 +4774,20 @@ function vozModulo(q, lis) {
   const skus = [...new Set((lis || []).map(i => i.s))];
   const cab = `${saludoVoz()}Módulo ${modVoz(q)}${lugarVoz(q) ? ", " + lugarVoz(q) : ""}. `;
   if (!skus.length) { hablar(cab + "Está vacío.", `mod|${q}`); return; }
-  const frases = skus.slice(0, 3).map(s => {
+  // Lo que se dice de cada producto y, si en ESTE módulo hay 2 fechas de él, también eso
+  const frases = skus.slice(0, 3).map(s => { const f = fraseMod(s); return /Ojo: en el/.test(f) || !tapadoVoz(s, q) ? f : f + tapadoVoz(s, q); });
+  hablar((cab + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : "")).replace(/\s+/g, " ").trim(), `mod|${q}`);
+  function fraseMod(s) {
     const pre = prodVoz((lis.find(i => i.s === s) || {}).p) + ": ";
     const aqui = typeof marcasDe === "function" ? marcasDe(s, q) : [];
-    if (aqui.length) return `${pre}este es el módulo de consumo, para ${listaVoz(aqui.map(x => x.canal))}. ${venceVoz(s, q)}`;
+    if (aqui.length) return `${pre}este es el módulo de consumo, para ${listaVoz(aqui.map(x => x.canal))}. ${venceVoz(s, q)}${tapadoVoz(s, q)}`;
     const otros = [...new Set(marcasProd(s).map(x => x.m))].filter(m => m !== q && (S.inv || []).some(i => i.s === s && i.m === m && i.fis));
-    if (otros.length) return `${pre}no es el de consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(ubicVoz))}. ${venceVoz(s, otros[0])}`;
+    if (otros.length) return `${pre}no es el de consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(ubicVoz))}. ${venceVoz(s, otros[0])}${tapadoVoz(s, otros[0])}`;
     const p = primeroFefo(s);
     if (!p) return `${pre}no hay producto disponible en bodega.`;
-    return p.m === q ? `${pre}no hay módulo de consumo marcado. Según fefo, este debería ser el de consumo. ${venceVoz(s, q)}`
-      : `${pre}no hay módulo de consumo marcado. Según fefo, el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(s, p.m)}`;
-  });
-  hablar((cab + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : "")).replace(/\s+/g, " ").trim(), `mod|${q}`);
+    return p.m === q ? `${pre}no hay módulo de consumo marcado. Según fefo, este debería ser el de consumo. ${venceVoz(s, q)}${tapadoVoz(s, q)}`
+      : `${pre}no hay módulo de consumo marcado. Según fefo, el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(s, p.m)}${tapadoVoz(s, p.m)}`;
+  }
 }
 
 // =====================================================================

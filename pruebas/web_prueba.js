@@ -963,6 +963,32 @@ let llamadasSb = 0, sinRed = false;
     // Al consultar el SKU, la tarjeta del módulo en consumo cambia de color (y solo esa)
     const resal = await P.$$eval("#sr .inv.en-cons", cs => cs.map(c => c.querySelector(".mod-chip").textContent.trim()));
     if (resal.length !== 1 || resal[0] !== modM) errores.push("consumo canal: la tarjeta del módulo en consumo no se resalta: " + resal);
+    // 🔊 Lectura en voz alta (switch del perfil): dice el módulo de consumo al consultar el SKU y el módulo
+    {
+      await P.evaluate(() => {
+        window.__dichos = [];
+        if (!("speechSynthesis" in window)) window.speechSynthesis = { getVoices: () => [], cancel() {}, speak() {} };
+        if (typeof SpeechSynthesisUtterance === "undefined") window.SpeechSynthesisUtterance = function (t) { this.text = t; };
+        speechSynthesis.speak = u => window.__dichos.push(u.text); speechSynthesis.cancel = () => {};
+      });
+      await P.evaluate(() => $("#userChip").click()); await P.waitForSelector("#pfV");
+      await P.waitForTimeout(300); await P.click("#pfV"); await P.waitForTimeout(1200);
+      if (!(await P.evaluate(() => S.usuario.prefs && S.usuario.prefs.voz === true))) errores.push("voz: el switch no quedó guardado");
+      await P.evaluate(() => cerrarModal(true));
+      await P.evaluate(() => { S.ultToque = Date.now(); ir("stock", { sku: "2222" }); }); await P.waitForTimeout(900);
+      let dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
+      if (!/Módulo de consumo/.test(dicho) || !dicho.includes(modM.replace(/^([A-Z]+)(\d+)/, "$1 $2"))) errores.push("voz: al consultar el SKU no dice el módulo de consumo: " + dicho);
+      if (!(await P.$("#sr [data-voz-rep]"))) errores.push("voz: no está el botón 🔊 para volver a escuchar");
+      // La pantalla se repinta sola (sin tocar): no repite
+      const n0 = await P.evaluate(() => window.__dichos.length);
+      await P.evaluate(() => { S.ultToque = 0; repintar(); }); await P.waitForTimeout(800);
+      if ((await P.evaluate(() => window.__dichos.length)) !== n0) errores.push("voz: repite cuando la pantalla se actualiza sola");
+      await P.evaluate(m => { S.ultToque = Date.now(); ir("modulo", { mod: m }); }, modM); await P.waitForTimeout(900);
+      dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
+      if (!/está en consumo/.test(dicho)) errores.push("voz: al consultar el módulo no dice que está en consumo: " + dicho);
+      await P.evaluate(() => api("webPref", "voz", false).then(p => { S.usuario.prefs = p; }));
+      await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
+    }
     await P.screenshot({ path: "/tmp/w_marca_stock.png" });
     await P.evaluate(() => ir("enconsumo")); await P.waitForSelector(".mc-card", { timeout: 8000 }).catch(() => {}); await P.waitForTimeout(400);
     const nC = (await P.$$(".mc-card")).length;

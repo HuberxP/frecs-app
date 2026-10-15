@@ -1055,9 +1055,11 @@ function cacheBorrar_(clave) { try { CacheService.getScriptCache().remove(`${cla
 // ---------------------------------------------------------
 // 1. LECTURA DE LA BASE LOCAL (WMS_Base y WMS_Modulos)
 // ---------------------------------------------------------
-let _INV_CACHE = null;
+let _INV_CACHE = null, _INV_DIA = "";
 function obtenerInventarioLocal() {
-  if (_INV_CACHE) return _INV_CACHE.map(x => Object.assign({}, x));
+  // Los días para vencer dependen de la fecha de la consulta: si cambió el día, se vuelve a leer
+  const hoyK = new Date().toDateString();
+  if (_INV_CACHE && _INV_DIA === hoyK) return _INV_CACHE.map(x => Object.assign({}, x));
   const sheet = hoja_("WMS_Base");
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
@@ -1086,7 +1088,7 @@ function obtenerInventarioLocal() {
       tieneFisico: e > 0 || c > 0 || u > 0
     });
   }
-  _INV_CACHE = inv;
+  _INV_CACHE = inv; _INV_DIA = hoyK;
   return inv.map(x => Object.assign({}, x));
 }
 

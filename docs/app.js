@@ -721,6 +721,7 @@ $("#userChip").onclick = () => {
     <div class="ficha"><span>Rol</span><b>${h(rolTxt(u.rol))}</b>${u.correo ? `<span>Correo</span><b>${h(u.correo)}</b>` : `<span>Correo</span><b class="muted">No disponible (cuenta Gmail)</b>`}</div>
     ${S.sync ? `<div class="ficha sync-f"><span>🔄 Última sincronización con el WMS</span><b>${h(S.sync.bot)}</b><span>📦 Último movimiento en el WMS</span><b>${h(S.sync.wms)}</b></div>` : ""}
     ${u.rol === "administrador" ? `<div id="pfSA"></div>` : ""}
+    <label class="sw-fila"><span><b>🔊 Leer en voz alta</b><br><span class="small muted">Al consultar un producto o un módulo dice cuál es el módulo de consumo o de cuál debería salir</span></span><span class="sw"><input type="checkbox" id="pfV" ${typeof vozOn === "function" && vozOn() ? "checked" : ""} ${typeof vozDisponible === "function" && !vozDisponible() ? "disabled" : ""}><i></i></span></label>
     ${esVerif() ? "" : `<label class="sw-fila"><span><b>Sugerencias del WMS</b><br><span class="small muted">En validaciones: cuántas cajas tiene el WMS y el aviso cuando tiene menos</span></span><span class="sw"><input type="checkbox" id="pfW" ${verWms() ? "checked" : ""}><i></i></span></label>`}
     <details class="card" style="margin-top:14px"><summary>Cambiar mi PIN</summary>
       <label class="field"><span>PIN actual</span><input type="password" inputmode="numeric" id="cpA" maxlength="8"></label>
@@ -728,6 +729,14 @@ $("#userChip").onclick = () => {
       <button class="btn" id="cpB" style="margin-top:10px">Guardar PIN</button></details>
     <div class="modal-actions"><button class="btn danger" id="lgOut">Cerrar sesión</button><button class="btn" data-x>Cerrar</button></div>`);
   if ($("#pfSA", c)) pintarSyncAuto($("#pfSA", c));
+  const sv = $("#pfV", c);
+  if (sv) sv.onchange = async () => {
+    const v = sv.checked; sv.disabled = true;
+    if (v) hablar("Lectura en voz alta activada.", "", true);   // (con el toque el navegador deja hablar)
+    try { S.usuario.prefs = await api("webPref", "voz", v); ls.setJ("usuario", S.usuario); toast(v ? "🔊 Leerá en voz alta el módulo de consumo" : "Lectura en voz alta apagada", "ok", 3000); }
+    catch (e) { sv.checked = !v; toast(e.message, "bad", 5000); }
+    sv.disabled = false;
+  };
   const sw = $("#pfW", c);
   if (sw) sw.onchange = async () => {
     const v = sw.checked; sw.disabled = true;
@@ -943,7 +952,7 @@ function pintarSync() {
   $("#syncChip").innerHTML = s ? `Base: <b>${h(s.bot)}</b><br>Últ. mov. WMS: <b>${h(s.wms)}</b>` : "";
 }
 function guardarInv(d) {
-  S.inv = d.filas; S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
+  S.inv = d.filas; S.invDia = diaHoy(); S.ocup = d.ocupacion || {}; S.sync = d.sync; pintarSync(); pintarRecordatorio();
   if (Array.isArray(d.fotos)) S.fotos = d.fotos;
   if (Array.isArray(d.ajustes)) { S.ajustes = d.ajustes; ls.setJ("ajustes", S.ajustes); }
   if (Array.isArray(d.bloqueos)) { S.bloqueos = d.bloqueos; ls.setJ("bloqueos", S.bloqueos); }
@@ -964,7 +973,10 @@ function verFoto(sku, m) {
   return c;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-foto]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m] = b.dataset.foto.split("|"); verFoto(s, m); }, true);
+const diaHoy = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 async function cargarInv(forzar) {
+  // Los días para vencer se cuentan con la fecha del momento de la consulta: si cambió el día, se recalcula
+  if (S.inv && S.invDia && S.invDia !== diaHoy()) forzar = true;
   if (S.inv && !forzar) return S.inv;
   if (S.cargandoInv && !forzar) return S.cargandoInv;
   S.cargandoInv = api("webInventario").then(d => { guardarInv(d); S.cargandoInv = null; return S.inv; })
@@ -1399,7 +1411,7 @@ VISTAS.stock = async (el, p, vigente) => {
     const ficha = S.cat.find(c => c.sku === sku);
     if (!ficha) { r.innerHTML = vacio("Este SKU no existe en la hoja Sku.", "❌"); return; }
     const fis = inv.filter(i => i.s === sku && i.fis);
-    if (!fis.length) { r.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="prod" style="font-weight:700;font-size:17px">${skuTxt(sku, ficha.prod)}</div></div>` + vacio("No hay existencias físicas.", "⚠️"); return; }
+    if (!fis.length) { r.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="prod" style="font-weight:700;font-size:17px">${skuTxt(sku, ficha.prod)}</div></div>` + vacio("No hay existencias físicas.", "⚠️"); if (typeof vozStock === "function") vozStock(sku, ficha.prod, filtro); return; }
     const visibles = fis.filter(i => verKA || !i.esOp);
     const tot = visibles.filter(i => i.disp).reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
     const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : cumpleCanal(i, filtro))).sort((a, b) => (filtro === "T2" && reempPrimero(a, b)) || ordConsumo(a, b));
@@ -1410,7 +1422,7 @@ VISTAS.stock = async (el, p, vigente) => {
     const modsDisp = new Set(fis.filter(i => i.disp && !i.esOp).map(i => i.m)), unico = modsDisp.size === 1 ? [...modsDisp][0] : "";
     const segBtn = (f, t) => `<button data-f="${f}" class="${filtro === f ? "on" : ""}">${t}</button>`;
     $("#sCan", el).innerHTML = canalBanner(esCanal && minC ? `${h(CANALES[filtro])} pide ${minC} días para este producto` : "");
-    r.innerHTML = `<div class="card st-card ${unico ? "unico" : ""}"><div class="prod">${skuTxt(sku, fis[0].p || ficha.prod)}</div>${unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto: ${h(unico)}</span>` : ""}
+    r.innerHTML = `<div class="card st-card ${unico ? "unico" : ""}"><div class="prod">${skuTxt(sku, fis[0].p || ficha.prod)}${typeof botonVoz === "function" ? botonVoz() : ""}</div>${unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto: ${h(unico)}</span>` : ""}
         <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
@@ -1419,6 +1431,8 @@ VISTAS.stock = async (el, p, vigente) => {
         : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
+    // 🔊 Módulo de consumo o de cuál debería salir (si la persona prendió la voz)
+    if (typeof vozStock === "function") vozStock(sku, fis[0].p || ficha.prod, filtro);
   };
   const consultar = () => {
     const v = inp.value.trim();
@@ -1577,14 +1591,17 @@ VISTAS.modulo = async (el, p, vigente) => {
     const o = S.ocup[q];
     arriba = `<div class="card" style="margin-bottom:12px"><b>Ocupación:</b> ${fm(o.usadas)} / ${fm(o.capTot)} estibas (${o.caras} caras × ${o.porCara}) · ${o.libres <= 0 ? `<span class="pill bad">MÓDULO LLENO</span>` : `<span class="pill ok">Faltan ${fm(o.libres)} estibas</span>`}</div>`;
   }
-  if (!esPasillo) arriba += `<div class="rep-atajos">${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button></div>`;
+  if (!esPasillo) arriba += `<div class="rep-atajos">${typeof botonVoz === "function" ? botonVoz() : ""}${lis.length && !repVacio(q) ? `<button class="btn sm" data-rep="repvacio">⬜ Reportar ${h(q)} vacío</button>` : ""}<button class="btn sm" data-rep="repconflicto">⚠️ Reportar conflicto en ${h(q)}</button></div>`;
   el.onclick = e => { const b = e.target.closest("[data-rep]"); if (b) return ir(b.dataset.rep, { m: q });
     if (e.target.closest("[data-todo-canal]")) return ir("modulo", { mod: q, todo: 1 });
     if (e.target.closest("[data-solo-canal]")) return ir("modulo", { mod: q }); };
   const r = $("#mr", el);
-  if (!lis.length) { r.innerHTML = arriba + (todos.length ? vacio(`Nada en ${q} cumple ${CANALES[cn]}.`, "⛔") : moduloVacioHtml(q)); return; }
+  // 🔊 Un módulo exacto: si está en consumo, o cuál es el de consumo / de cuál debería salir
+  const voz = () => { if (!esPasillo && typeof vozModulo === "function") vozModulo(q, lis); };
+  if (!lis.length) { r.innerHTML = arriba + (todos.length ? vacio(`Nada en ${q} cumple ${CANALES[cn]}.`, "⛔") : moduloVacioHtml(q)); voz(); return; }
   r.innerHTML = "<div></div>";
   listaInv(r.firstChild, { titulo: `Inventario en ${h(q)}`, arriba, items: lis });
+  voz();
 };
 
 // Módulo sin producto: por qué está vacío (a mano sin WMS, reportado o según el WMS) y botón para añadir
@@ -4603,6 +4620,98 @@ async function avisarAntesDeSincronizar() {
   if (!n) return true;
   return confirmar("Hay cambios a mano", `Hay <b>${n}</b> cambio${n > 1 ? "s" : ""} anotado${n > 1 ? "s" : ""} a mano (✍️ Anotado sin WMS). Al sincronizar manda el WMS: si todavía no los pasaron al WMS, dejarán de verse.<br><br>
     Quedan guardados y luego se pueden volver a aplicar con <b>♻️ Volver a aplicar</b> (en Inicio). ¿Sincronizar de todas formas?`, "Sí, sincronizar", true);
+}
+
+// =====================================================================
+// 🔊 LECTURA EN VOZ ALTA (switch en el perfil de cada persona)
+// Al consultar un producto (Stock por SKU) o un módulo (Por módulo) la app dice en voz alta cuál
+// es el módulo de consumo marcado o, si no hay ninguno, de cuál debería salir (el primero en FEFO).
+// Usa la voz en español del celular o del computador (speechSynthesis): sin costo y sin internet.
+// Solo habla cuando la persona consulta (no cuando la pantalla se actualiza sola).
+// =====================================================================
+const vozDisponible = () => typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+const vozOn = () => !!(S.usuario && S.usuario.prefs && S.usuario.prefs.voz === true) && vozDisponible();
+// Último toque o tecla: la voz solo sale por una acción de la persona (no por una actualización sola)
+S.ultToque = 0;
+["pointerdown", "keydown"].forEach(ev => document.addEventListener(ev, () => { S.ultToque = Date.now(); }, true));
+// «I16» → «I 16», «KA12» → «KA 12» (la voz lo lee mejor)
+const modVoz = m => String(m || "").replace(/^([A-Za-z]+)\s*(\d+)/, "$1 $2");
+// Nombre corto para decir: sin «X 24», «330CC» → «330 cc», en minúsculas
+const prodVoz = p => String(p || "").replace(/\s+x\s*\d+.*$/i, "").replace(/(\d)\s*cc\b/gi, "$1 cc").toLowerCase().trim();
+let vozVoz = null;
+function vozElegir() {
+  if (vozVoz || !vozDisponible()) return vozVoz;
+  const vs = speechSynthesis.getVoices();
+  vozVoz = vs.find(v => /^es[-_]CO/i.test(v.lang)) || vs.find(v => /^es[-_](419|MX|US)/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null;
+  return vozVoz;
+}
+if (vozDisponible()) speechSynthesis.onvoiceschanged = () => { vozVoz = null; vozElegir(); };
+// Dice el texto. clave: lo que se consultó (si la pantalla se repinta sola con lo mismo, no se repite)
+function hablar(texto, clave, forzar) {
+  if (!texto || !vozDisponible()) return;
+  S.vozTxt = texto;
+  if (!forzar) {
+    if (!vozOn()) return;
+    const reciente = Date.now() - S.ultToque < 4000;
+    if (!reciente && clave === S.vozClave) return;
+    if (!reciente && document.hidden) return;
+  }
+  S.vozClave = clave;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(texto);
+    const v = vozElegir(); if (v) u.voice = v;
+    u.lang = v ? v.lang : "es-CO"; u.rate = 1; u.pitch = 1;
+    speechSynthesis.speak(u);
+  } catch (e) { /* sin voz en este equipo */ }
+}
+const botonVoz = () => vozOn() ? `<button type="button" class="btn sm voz-btn" data-voz-rep title="Volver a escuchar" aria-label="Volver a escuchar">🔊</button>` : "";
+document.addEventListener("click", e => { if (e.target.closest("[data-voz-rep]")) { e.preventDefault(); hablar(S.vozTxt, S.vozClave, true); } });
+
+// El primero en FEFO de un producto (lo disponible en bodega, sin KA / PREV ni reportados vacíos; con canal, lo que cumple)
+function primeroFefo(sku, canal) {
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.fis && i.disp && !i.esOp && !repVacio(i.m) && (!canal || cumpleCanal(i, canal)));
+  return l.sort((a, b) => (canal === "T2" && reempPrimero(a, b)) || ordConsumo(a, b))[0] || null;
+}
+const marcasProd = sku => typeof marcasTodas === "function" ? marcasTodas().filter(x => x.sku === String(sku)) : [];
+const listaVoz = l => l.length <= 1 ? l.join("") : l.slice(0, -1).join(", ") + " y " + l[l.length - 1];
+
+// Stock por SKU: módulo(s) de consumo o de cuál debería salir
+function vozStock(sku, prod, filtro) {
+  if (!vozOn()) { S.vozTxt = ""; return; }
+  const canal = CANALES[filtro] ? filtro : "";
+  const mk = marcasProd(sku).filter(x => (S.inv || []).some(i => i.s === x.sku && i.m === x.m && i.fis));
+  let t;
+  if (mk.length) {
+    const porMod = {};
+    mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x.canal));
+    const partes = Object.keys(porMod).map(m => `${modVoz(m)}, para ${listaVoz(porMod[m])}`);
+    t = `${prodVoz(prod)}. ${partes.length > 1 ? "Módulos de consumo" : "Módulo de consumo"}: ${partes.join("; ")}.`;
+  } else {
+    const p = primeroFefo(sku, canal);
+    t = p ? `${prodVoz(prod)}. No hay módulo de consumo marcado. ${canal ? `Para ${canal} debería` : "Debería"} salir de ${modVoz(p.m)}, primero en FEFO.`
+      : `${prodVoz(prod)}. No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
+  }
+  hablar(t, `stock|${sku}|${filtro}`);
+}
+
+// Por módulo: si este módulo está en consumo; si no, cuál es el de consumo o de cuál debería salir
+function vozModulo(q, lis) {
+  if (!vozOn()) { S.vozTxt = ""; return; }
+  const skus = [...new Set((lis || []).map(i => i.s))];
+  if (!skus.length) { hablar(`${modVoz(q)} está vacío.`, `mod|${q}`); return; }
+  const frases = skus.slice(0, 3).map(s => {
+    const prod = prodVoz((lis.find(i => i.s === s) || {}).p);
+    const pre = skus.length > 1 ? `${prod}: ` : "";
+    const aqui = typeof marcasDe === "function" ? marcasDe(s, q) : [];
+    if (aqui.length) return `${pre}${modVoz(q)} está en consumo para ${listaVoz(aqui.map(x => x.canal))}.`;
+    const otros = [...new Set(marcasProd(s).map(x => x.m))].filter(m => m !== q);
+    if (otros.length) return `${pre}no está en consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(modVoz))}.`;
+    const p = primeroFefo(s);
+    if (!p) return `${pre}no hay producto disponible en bodega.`;
+    return p.m === q ? `${pre}${modVoz(q)} es el primero en FEFO: debería ser el de consumo.` : `${pre}no está en consumo. Debería salir primero de ${modVoz(p.m)}.`;
+  });
+  hablar((skus.length > 1 ? "" : `${prodVoz(lis[0].p)}. `) + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : ""), `mod|${q}`);
 }
 
 // =====================================================================

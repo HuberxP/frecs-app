@@ -1568,6 +1568,11 @@
   .aj-fab.hidden { display: none; }
   @media (max-width: 899px) { .aj-fab .txt { display: none; } .aj-fab { padding: 0 10px; } }
   html[data-tema="claro"] .tag.t-aj { color: #6d28d9; background: #f1ebff; } html[data-tema="claro"] .aj-f { background: #fff; }
+  /* Módulo marcado en consumo (🚚): fondo morado (no se confunde con los colores de vida útil) y el borde late */
+  .card.inv.en-cons { background: linear-gradient(0deg, rgba(180,108,255,.16), rgba(180,108,255,.16)), var(--card); border-top-color: #b46cff; border-right-color: #b46cff; border-bottom-color: #b46cff; border-top-width: 2px; border-right-width: 2px; border-bottom-width: 2px; animation: latirCons 1.6s ease-in-out infinite; }
+  @keyframes latirCons { 0%, 100% { box-shadow: 0 0 0 0 rgba(180,108,255,0); } 50% { box-shadow: 0 0 0 5px rgba(180,108,255,.55); } }
+  @media (prefers-reduced-motion: reduce) { .card.inv.en-cons { animation: none; box-shadow: 0 0 0 3px rgba(180,108,255,.55); } }
+  html[data-tema="claro"] .card.inv.en-cons { background: #f3e8ff; border-top-color: #8b3fd9; border-right-color: #8b3fd9; border-bottom-color: #8b3fd9; }
   .sa-fila { margin-top: 12px; } .sa-mal { color: var(--bad); }
   /* 🏷️ Lista de tapacódigos (Administración) */
   .tl-lista { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }

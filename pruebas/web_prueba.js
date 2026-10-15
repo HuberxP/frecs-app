@@ -552,9 +552,10 @@ let llamadasSb = 0, sinRed = false;
   const navV = await V.evaluate(() => $$("#nav a[data-v]").map(a => a.dataset.v).sort().join(","));
   if (navV !== "enconsumo,modulo,pocosvig,producto,repconflicto,repgen,repvacio,stock") errores.push("verificador ve en el menú: " + navV);
   // Sincronizar con el WMS: solo rotador o administrador
-  if (await V.isVisible("#syncBtn")) errores.push("verificador: ve el botón Sincronizar");
+  if (!(await V.isVisible("#syncBtn"))) errores.push("verificador: no ve el botón Sincronizar");
   const syncV = await V.evaluate(() => api("webSincronizar").then(() => "sin error", e => e.message));
-  if (!/Solo el rotador o el administrador/.test(syncV)) errores.push("verificador: puede sincronizar: " + syncV);
+  // El verificador ya puede sincronizar: no lo frena el rol (aquí Apps Script no está configurado y falla la conexión)
+  if (/Solo el/.test(syncV)) errores.push("verificador: no lo deja sincronizar: " + syncV);
   const barV = await V.evaluate(() => $$("#bottombar button").map(b => b.dataset.v).join(","));
   if (barV !== "repvacio,repconflicto,repgen,stock") errores.push("verificador: barra de abajo " + barV);
   await V.evaluate(() => ir("validacion")); await V.waitForTimeout(300);
@@ -918,6 +919,21 @@ let llamadasSb = 0, sinRed = false;
   // --- Rotador (antes validador) ---
   const rot = await P.evaluate(() => ({ t: rolTxt("validador"), m: conRotador("se necesita rol validador") }));
   if (rot.t !== "rotador" || rot.m !== "se necesita rol rotador") errores.push("rotador: el nombre no cambió: " + JSON.stringify(rot));
+  // --- Fechas cortas: los días para vencer se cuentan desde hoy (no los que traía el WMS) ---
+  {
+    const fila = q("select id || '|' || modulo || '|' || sku from wms_base where coalesce(estibas,0)+coalesce(cajas,0) > 0 and vence is not null order by id limit 1").split("|");
+    const vence = q("select to_char((now() at time zone 'America/Bogota')::date + 10, 'YYYY-MM-DD')");
+    const antes = q(`select to_char(vence,'YYYY-MM-DD') || '|' || coalesce(dias::text,'') from wms_base where id=${fila[0]}`);
+    q(`update wms_base set vence='${vence}', dias=999 where id=${fila[0]}`);
+    await P.evaluate(() => cargarInv(true));
+    const dd = await P.evaluate(a => (S.inv.find(i => i.m === a[1] && i.s === a[2] && i.v === a[3]) || {}).d, [fila[0], fila[1], fila[2], vence]);
+    if (dd !== 10) errores.push("fechas cortas: los días no se cuentan desde hoy: " + dd);
+    await P.evaluate(() => ir("fechas", { dias: 12, est: "ALL" })); await P.waitForTimeout(700);
+    if (!(await P.$$eval("#view .inv", (cs, m) => cs.some(c => c.textContent.includes(m)), fila[1]))) errores.push("fechas cortas: el producto que vence en 10 días no sale con «≤ 12 días»");
+    const [v0, d0] = antes.split("|");
+    q(`update wms_base set vence='${v0}', dias=${d0 === "" ? "null" : d0} where id=${fila[0]}`);
+    await P.evaluate(() => cargarInv(true));
+  }
   // --- Módulos en consumo por canal ---
   if (!(await P.evaluate(() => vistaPermitida("enconsumo", "verificador") && vistaPermitida("enconsumo", "opm") && vistaPermitida("enconsumo", "lector")))) errores.push("consumo canal: no lo ven todos los roles");
   await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
@@ -944,8 +960,11 @@ let llamadasSb = 0, sinRed = false;
     if (filas !== esper) errores.push(`consumo canal: marcas mal guardadas (${filas} ≠ ${esper})`);
     await P.evaluate(() => cerrarModal(true)); await P.waitForTimeout(300);
     if (!(await P.$("#sr .tag.t-cons"))) errores.push("consumo canal: la tarjeta no muestra la etiqueta de consumo");
+    // Al consultar el SKU, la tarjeta del módulo en consumo cambia de color (y solo esa)
+    const resal = await P.$$eval("#sr .inv.en-cons", cs => cs.map(c => c.querySelector(".mod-chip").textContent.trim()));
+    if (resal.length !== 1 || resal[0] !== modM) errores.push("consumo canal: la tarjeta del módulo en consumo no se resalta: " + resal);
     await P.screenshot({ path: "/tmp/w_marca_stock.png" });
-    await P.evaluate(() => ir("enconsumo")); await P.waitForTimeout(800);
+    await P.evaluate(() => ir("enconsumo")); await P.waitForSelector(".mc-card", { timeout: 8000 }).catch(() => {}); await P.waitForTimeout(400);
     const nC = (await P.$$(".mc-card")).length;
     if (nC !== esper.split(",").length) errores.push("consumo canal: la sección no lista las marcas: " + nC);
     if (!(await P.$("#mcL h3.mc-fam + .grid .mc-card"))) errores.push("consumo canal: no se agrupa por familia");

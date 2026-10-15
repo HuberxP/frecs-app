@@ -101,6 +101,7 @@ const ICO_DEL = `<svg class="ico-del" viewBox="0 0 24 24" width="18" height="18"
 // Cantidades con nombre completo: "Estibas: 3 | Cajas: 120 | Unidades: 0"
 const qty = (e, c, u, emp) => `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
+const puedeSincronizar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // Verificador: solo estas pantallas
 const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
@@ -707,8 +708,8 @@ document.addEventListener("input", e => {
 });
 function pintarUsuario() {
   $("#userChip").textContent = "👤 " + (S.usuario ? S.usuario.nombre : "…"); pintarCanal();
-  // Sincronizar con el WMS: solo el rotador o el administrador
-  $("#syncBtn").classList.toggle("hidden", !(S.usuario && puede("validador")));
+  // Sincronizar con el WMS: verificador, rotador o administrador
+  $("#syncBtn").classList.toggle("hidden", !puedeSincronizar());
   if (typeof pintarRecordatorio === "function") pintarRecordatorio();
 }
 $("#canalChip").onclick = () => { if (S.usuario) modalCanal(); };
@@ -1254,7 +1255,9 @@ function invCard(i, o) {
   let obs = "";
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
   else if (i.obs) obs = `<div class="obs">📝 ${h(i.obs)}</div>`;
-  return `<article class="card inv v-${h(i.vida)} ${rp.v ? "rep-v" : ""}">
+  // Módulo marcado en consumo: la tarjeta cambia de color y el borde late, para verlo de una en la lista
+  const enCons = typeof marcasDe === "function" && marcasDe(i.s, i.m).length > 0;
+  return `<article class="card inv v-${h(i.vida)} ${rp.v ? "rep-v" : ""} ${enCons ? "en-cons" : ""}">
     <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}${i.prio ? botonFoto(i.s, i.m) : ""}</span>${est}</div>
     ${o.producto === false ? "" : `<div class="prod">${skuTxt(i.s, i.p)}</div>${i.fam ? `<div class="sub">${h(i.fam)}</div>` : ""}`}
     ${qty(i.e, i.c, i.u, i.emp)}

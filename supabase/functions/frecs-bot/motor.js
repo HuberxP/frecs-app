@@ -1089,8 +1089,10 @@ function obtenerInventarioLocal() {
     const e = parseInt(r[3], 10) || 0;
     const c = parseInt(r[4], 10) || 0;
     const u = parseInt(String(r[5]).replace(/[.,\s]/g, ""), 10) || 0;
-    let d = parseInt(r[7], 10);
-    if (isNaN(d)) d = 9999;
+    // Días para vencer: fecha de vencimiento menos la fecha de HOY (la de la consulta), no los días que
+    // traía el WMS al sincronizar (esos se quedan viejos). Sin fecha legible: los del WMS, o 9999.
+    let d = diasHastaFecha_(r[6]);
+    if (d === 9999) { d = parseInt(r[7], 10); if (isNaN(d)) d = 9999; }
     inv.push({
       s: String(r[0]).trim(), p: String(r[1]), m: limpiarModulo(r[2]),
       e: e, c: c, u: u,
@@ -5377,8 +5379,9 @@ function sbWebPost_(data) {
       const hecho = sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []);
       return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: hecho })).setMimeType(ContentService.MimeType.JSON);
     }
-    // Sincronizar con el WMS: solo el rotador (validador) o el administrador
-    if (!ROLES[u.rol] || ROLES[u.rol] < ROLES.validador) throw new Error("Solo el rotador o el administrador sincronizan con el WMS.");
+    // Sincronizar con el WMS: verificador, rotador (validador) o administrador. Forzar una bajada grande: solo rotador o administrador
+    if (!["verificador", "validador", "administrador"].includes(u.rol)) throw new Error("Solo el verificador, el rotador o el administrador sincronizan con el WMS.");
+    if (data.forzar === true && (!ROLES[u.rol] || ROLES[u.rol] < ROLES.validador)) throw new Error("Solo el rotador o el administrador pueden forzar una bajada grande del inventario.");
     const s = sincronizarWMSCore(data.forzar === true);
     if (!s.ok) throw new Error(s.error);
     syncAutoTrasManual_();

@@ -5384,11 +5384,13 @@ function sbWebPost_(data) {
   let r;
   try {
     if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
-    if (!["sincronizar", "maestros", "pdf_telegram", "turnos", "sincronizar_bot", "maestros_bot", "sync_auto"].includes(data.accion)) throw new Error("Acción no válida.");
+    if (!["sincronizar", "maestros", "pdf_telegram", "turnos", "sincronizar_bot", "maestros_bot", "wms_hojas", "sync_auto"].includes(data.accion)) throw new Error("Acción no válida.");
     // Pedidos del bot en Supabase (función frecs-bot): se autorizan con el secreto compartido
-    if (data.accion === "sincronizar_bot" || data.accion === "maestros_bot") {
+    if (data.accion === "sincronizar_bot" || data.accion === "maestros_bot" || data.accion === "wms_hojas") {
       const sec = prop_("BOT_SECRET", "");
       if (!sec || String(data.secreto || "") !== sec) throw new Error("No autorizado.");
+      // Copia en las hojas de lo que Supabase trajo del WMS (no consulta el WMS)
+      if (data.accion === "wms_hojas") return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: sbWmsAHojas_() })).setMimeType(ContentService.MimeType.JSON);
       if (data.accion === "maestros_bot") return ContentService.createTextOutput(JSON.stringify({ ok: true, hojas: sbBajarMaestros_(Array.isArray(data.tablas) ? data.tablas.map(String) : []) })).setMimeType(ContentService.MimeType.JSON);
       const s2 = sincronizarWMSCore(data.forzar === true);
       if (!s2.ok) throw new Error(s2.error);
@@ -5405,9 +5407,7 @@ function sbWebPost_(data) {
     }
     // Sincronización automática: el administrador la prende o la apaga (sin «on» solo devuelve cómo está)
     if (data.accion === "sync_auto") {
-      if (u.rol !== "administrador") throw new Error("Solo el administrador cambia la sincronización automática.");
-      const e = typeof data.on === "boolean" ? syncAutoPoner_(data.on, u.nombre) : syncAutoPublicar_();
-      return ContentService.createTextOutput(JSON.stringify({ ok: true, estado: e })).setMimeType(ContentService.MimeType.JSON);
+      throw new Error("La sincronización automática ahora la hace Supabase: cámbiala desde la página (recárgala para tener la versión nueva).");
     }
     if (data.accion === "pdf_telegram") return ContentService.createTextOutput(JSON.stringify(sbPdfTelegram_(data, u))).setMimeType(ContentService.MimeType.JSON);
     if (data.accion === "maestros") {
@@ -6285,115 +6285,66 @@ function usrCambiarPinCore_(nombre, pinActual, pinNuevo) {
 ;
 // ===== 32_Sync_Auto.gs =====
 // =========================================================
-// 32 · SINCRONIZACIÓN AUTOMÁTICA CON EL WMS (switch del administrador)
+// 32 · EL WMS AHORA LO CONSULTA SUPABASE (Apps Script solo guarda la copia en las hojas)
 // ---------------------------------------------------------
-// Para quedar con los datos más recientes si el WMS se cae. El administrador la prende o la
-// apaga en su perfil de la página (Automático / Manual). Prendida:
-//   · cada sincronización deja agendada la siguiente entre 3 h y 4 h después, a un minuto
-//     al azar (3 h 12 min, luego 3 h 47 min…): nunca la misma hora ni el mismo intervalo;
-//   · es la sincronización normal (hojas + Supabase), con sus mismas protecciones: si el WMS no
-//     responde o trae muchas menos ubicaciones, no se reemplaza nada;
-//   · manda lo que trae el WMS (lo anotado a mano queda guardado y se puede volver a aplicar);
-//   · una sincronización manual (⟳ o /sincronizar) corre la siguiente automática;
-//   · si falla, avisa al grupo de Telegram una vez (y otra cuando vuelva a funcionar).
-// Un vigía cada hora revisa que la siguiente siga agendada (por si un disparador se pierde).
-// El estado queda en Supabase (frecs_config «sync_auto») para que la página lo muestre.
+// La sincronización con el WMS (manual con ⟳ o /sincronizar, y la automática cada 30 a 45 minutos)
+// la hace la función frecs-bot de Supabase. Aquí quedan:
+//   · pasarWmsASupabase(): se corre UNA vez (Ejecutar ▶) para dejar la conexión al WMS (direcciones,
+//     centro, usuario y clave de las propiedades del script) en el Vault de Supabase. No pasa por el
+//     chat ni por GitHub. Si cambia la clave del WMS, se cambia la propiedad y se vuelve a correr.
+//   · sbWmsAHojas_(): después de cada sincronización, la función pide copiar WMS_Base y WMS_Modulos
+//     desde Supabase a las hojas (respaldo). No consulta el WMS.
+//   · Los disparadores de la automática vieja (si alguna vez se prendieron aquí) se borran solos.
 // =========================================================
-const SYNC_AUTO_MIN = 180, SYNC_AUTO_MAX = 240;   // minutos entre una y otra (al azar en ese rango)
 const SYNC_AUTO_FN = "syncAutoEjecutar", SYNC_AUTO_VIGIA = "syncAutoVigia";
 
-function syncAutoProps_() { return PropertiesService.getScriptProperties(); }
-function syncAutoEstado_() {
-  const p = syncAutoProps_(), n = k => Number(p.getProperty(k) || 0), iso = t => t ? new Date(t).toISOString() : "";
-  return {
-    on: p.getProperty("SYNC_AUTO") === "1", por: p.getProperty("SYNC_AUTO_POR") || "", en: iso(n("SYNC_AUTO_EN")),
-    prox: p.getProperty("SYNC_AUTO") === "1" ? iso(n("SYNC_PROX")) : "", ult: iso(n("SYNC_ULT")),
-    ok: p.getProperty("SYNC_ULT_OK") === "1", msg: p.getProperty("SYNC_ULT_MSG") || ""
-  };
-}
-// La siguiente: entre 3 y 4 horas, con minutos y segundos al azar
-function syncAutoSiguiente_(desde) {
-  const min = SYNC_AUTO_MIN + Math.random() * (SYNC_AUTO_MAX - SYNC_AUTO_MIN);
-  return (desde || Date.now()) + Math.round(min * 60000 + Math.random() * 59000);
-}
-// Borra los disparadores de la automática (solo el indicado, o los dos)
-function syncAutoBorrar_(fn) {
-  ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (fn ? h === fn : (h === SYNC_AUTO_FN || h === SYNC_AUTO_VIGIA)) ScriptApp.deleteTrigger(t); });
-}
-// Agenda la siguiente (un disparador de una sola vez a esa hora exacta)
-function syncAutoAgendar_(prox) {
-  syncAutoProps_().setProperty("SYNC_PROX", String(prox));
-  syncAutoBorrar_(SYNC_AUTO_FN);
-  ScriptApp.newTrigger(SYNC_AUTO_FN).timeBased().after(Math.max(60000, prox - Date.now())).create();
-}
-// Deja el estado en Supabase (la página lo lee de ahí). No frena nada si falla.
-function syncAutoPublicar_() {
-  const e = syncAutoEstado_();
-  try { if (sbActivo_()) sbRpc_("sb_sync_auto", { p_valor: e }); } catch (er) { console.log("sync_auto: no se pudo guardar el estado en Supabase: " + er.message); }
-  return e;
-}
-
-// Prender / apagar (solo el administrador, desde la página)
-function syncAutoPoner_(on, usuario) {
-  const p = syncAutoProps_();
-  p.setProperty("SYNC_AUTO", on ? "1" : "");
-  p.setProperty("SYNC_AUTO_POR", String(usuario || ""));
-  p.setProperty("SYNC_AUTO_EN", String(Date.now()));
+function pasarWmsASupabase() {
+  if (!sbActivo_()) throw new Error("Falta configurar Supabase en Apps Script (SUPABASE_URL y SUPABASE_SECRET).");
+  const c = WMS_CONFIG;
+  if (!c.username || !c.password) throw new Error("Faltan el usuario o la clave del WMS en las propiedades del script.");
+  const r = sbRpc_("sb_wms_config_guardar", { p_cfg: {
+    login_url: String(c.loginUrl), inventarios_url: String(c.inventariosUrl), cd_id: c.cdId,
+    media_url: String(c.mediaUrl || ""), usuario: String(c.username), clave: String(c.password)
+  } });
   syncAutoBorrar_();
-  if (on) {
-    syncAutoAgendar_(syncAutoSiguiente_());
-    ScriptApp.newTrigger(SYNC_AUTO_VIGIA).timeBased().everyHours(1).create();
-  } else p.deleteProperty("SYNC_PROX");
-  return syncAutoPublicar_();
+  console.log("Conexión al WMS guardada en Supabase (Vault): " + JSON.stringify(r && r.campos));
+  return r;
 }
 
-// La sincronización automática (la llama su disparador; el vigía si quedó atrasada)
-function syncAutoEjecutar() {
-  const p = syncAutoProps_();
-  if (p.getProperty("SYNC_AUTO") !== "1") { syncAutoBorrar_(); return; }
-  const prox = Number(p.getProperty("SYNC_PROX") || 0);
-  // Llegó antes de tiempo (p. ej. una manual la corrió): se vuelve a agendar para su hora
-  if (prox && Date.now() < prox - 5 * 60000) { syncAutoAgendar_(prox); return; }
-  let ok = false, msg = "";
-  try {
-    const r = sincronizarWMSCore(false);
-    ok = !!r.ok;
-    msg = r.ok ? `${r.fisicas} ubicaciones${r.supabase && r.supabase.error ? " · no llegó a Supabase: " + r.supabase.error : ""}` : String(r.error || "No se pudo sincronizar.");
-    if (r.ok && r.supabase && r.supabase.error) ok = false;
-  } catch (e) { msg = String(e && e.message || e); }
-  const antesOk = p.getProperty("SYNC_ULT_OK") !== "0";
-  p.setProperty("SYNC_ULT", String(Date.now()));
-  p.setProperty("SYNC_ULT_OK", ok ? "1" : "0");
-  p.setProperty("SYNC_ULT_MSG", msg.substring(0, 300));
-  syncAutoAgendar_(syncAutoSiguiente_());
-  console.log(`Sincronización automática: ${ok ? "OK" : "FALLÓ"} · ${msg}`);
-  // Aviso al grupo solo cuando cambia (falló / volvió a funcionar), para no repetirlo cada vez
-  if (ok !== antesOk && GRUPO_CALIDAD_ID) {
-    try {
-      enviarMensaje(GRUPO_CALIDAD_ID, ok ? "✅ *Sincronización automática*: el WMS volvió a responder y la base quedó al día."
-        : `⚠️ *Sincronización automática*: no se pudo traer el WMS.\n${escapeMd(msg)}\n\nLa base sigue con la última sincronización buena. Se vuelve a intentar sola en 3 a 4 horas.`);
-    } catch (e) {}
-  }
-  syncAutoPublicar_();
+// Copia de respaldo: lo que quedó en Supabase → pestañas WMS_Base y WMS_Modulos
+function sbWmsAHojas_() {
+  const d = sbRpc_("sb_datos_bot", { p_extra: [] }) || {};
+  const filas = (d.wms_base || []).map(r => WMS_HEADERS.map((x, k) => r[k] === null || r[k] === undefined ? "" : r[k]));
+  const mods = (d.wms_modulos || []).map(r => WMS_MOD_HEADERS.map((x, k) => r[k] === null || r[k] === undefined ? "" : r[k]));
+  if (!filas.length) return { filas: 0 };
+  return conLock_(() => {
+    const sh = hoja_("WMS_Base");
+    if (!sh) throw new Error("No existe la pestaña 'WMS_Base'.");
+    sh.getRange("G:G").setNumberFormat("@"); sh.getRange("K:K").setNumberFormat("@"); sh.getRange("P:P").setNumberFormat("@");
+    escribirTabla_(sh, WMS_HEADERS, filas);
+    let shMod = hoja_("WMS_Modulos");
+    if (!shMod) { shMod = ss_().insertSheet("WMS_Modulos"); shMod.setFrozenRows(1); }
+    shMod.getRange("A:D").setNumberFormat("@");
+    escribirTabla_(shMod, WMS_MOD_HEADERS, mods);
+    SpreadsheetApp.flush();
+    const p = PropertiesService.getScriptProperties();
+    p.setProperty("wms_last_sync_ts", String(Date.now()));
+    p.setProperty("wms_last_rows", String(filas.filter(r => numero_(r[3]) > 0 || numero_(r[4]) > 0 || numero_(r[5]) > 0).length));
+    p.setProperty("wms_last_modules", String(mods.length));
+    _INV_CACHE = null; _MOD_CACHE = null; cacheBorrar_("inv"); cacheBorrar_("wmsdisp");
+    syncAutoBorrar_();
+    return { filas: filas.length, modulos: mods.length };
+  });
 }
 
-// Vigía (cada hora): si la siguiente quedó atrasada más de 20 minutos, la corre; si se perdió su disparador, lo vuelve a poner
-function syncAutoVigia() {
-  const p = syncAutoProps_();
-  if (p.getProperty("SYNC_AUTO") !== "1") { syncAutoBorrar_(); return; }
-  const prox = Number(p.getProperty("SYNC_PROX") || 0);
-  if (!prox || Date.now() > prox + 20 * 60000) return syncAutoEjecutar();
-  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === SYNC_AUTO_FN)) syncAutoAgendar_(prox);
+// Borra los disparadores de la automática vieja de Apps Script
+function syncAutoBorrar_() {
+  try { ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (h === SYNC_AUTO_FN || h === SYNC_AUTO_VIGIA) ScriptApp.deleteTrigger(t); }); } catch (e) {}
 }
-
-// Después de una sincronización manual: la automática cuenta desde ahí (no repite al rato)
-function syncAutoTrasManual_() {
-  try {
-    if (syncAutoProps_().getProperty("SYNC_AUTO") !== "1") return;
-    syncAutoAgendar_(syncAutoSiguiente_());
-    syncAutoPublicar_();
-  } catch (e) { console.log("sync_auto tras manual: " + e.message); }
-}
+// Si quedó algún disparador viejo, al correr se borra y no consulta el WMS
+function syncAutoEjecutar() { syncAutoBorrar_(); }
+function syncAutoVigia() { syncAutoBorrar_(); }
+function syncAutoTrasManual_() { /* la automática la lleva Supabase */ }
 
 ;
 // ===== 40_PDF_Comun.gs =====

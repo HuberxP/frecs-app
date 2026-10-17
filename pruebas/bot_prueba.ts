@@ -1,6 +1,6 @@
 // Prueba del bot en Supabase (función frecs-bot) con: PostgreSQL local (como Supabase),
 // un Telegram falso y un Apps Script falso. Correr:  deno run -A pruebas/bot_prueba.ts
-const P_SB = 8791, P_TG = 8792, P_AS = 8793;
+const P_SB = 8791, P_TG = 8792, P_AS = 8793, P_WMS = 8794;
 const psql = async (sql: string, rol = "service_role") => {
   const cmd = new Deno.Command("su", { args: ["postgres", "-c", "psql -p 5439 -d frecs -At -v ON_ERROR_STOP=1 -q"], stdin: "piped", stdout: "piped", stderr: "piped" });
   const p = cmd.spawn();
@@ -48,6 +48,37 @@ Deno.serve({ port: P_AS, onListen() {} }, async req => {
   if (j.secreto !== "secreto-bot") return new Response(JSON.stringify({ ok: false, error: "No autorizado." }));
   if (j.accion === "sincronizar_bot") return new Response(JSON.stringify({ ok: true, filas: 1234, modulos: 383 }));
   return new Response(JSON.stringify({ ok: true, hojas: j.tablas }));
+});
+
+// --- WMS falso (login + inventario por páginas, armado con lo que hay en wms_base) ---
+const wms = { logins: 0, gets: 0, heads: [] as Headers[], falla: 0, rechazo: 0, token: "" };
+const jwt = (exp: number) => "h." + btoa(JSON.stringify({ exp })).replace(/=+$/, "") + ".f";
+let invFalso: any[] = [];
+async function armarInvFalso() {
+  const filas = JSON.parse(await psql(`select coalesce(jsonb_agg(jsonb_build_object('nombre', m.modulo, 'section_nombre', m.seccion, 'bodega_nombre', m.bodega, 'es_picking', m.picking,
+      'inventarios', coalesce((select jsonb_agg(jsonb_build_object('producto_sku', w.sku, 'producto_descripcion', w.producto, 'total_estibas', w.estibas, 'total_cajas', w.cajas, 'total_unidades', w.unidades,
+        'fecha_vencimiento', w.vence, 'dias_por_vencer', w.dias, 'estado_inventario_nombre', w.estado, 'candado_codigo', w.candado, 'fecha_carga', w.carga::text, 'familia_nombre', w.familia,
+        'producto_cajas_por_estiba', w.cajas_por_estiba, 'observaciones', w.obs, 'es_picking', w.picking, 'fecha_ultima_actualizacion', w.actualizacion::text) order by w.id) from wms_base w where w.modulo = m.modulo), '[]'::jsonb)) order by m.modulo), '[]')::text from wms_modulos m`, "postgres"));
+  invFalso = filas;
+}
+Deno.serve({ port: P_WMS, onListen() {} }, async req => {
+  const u = new URL(req.url);
+  wms.heads.push(req.headers);
+  if (u.pathname === "/api/login/") {
+    const b = await req.json(); wms.logins++;
+    if (b.username !== "usuario-wms" || b.password !== "clave-wms") return new Response('{"detail":"no"}', { status: 400 });
+    wms.token = jwt(Math.floor(Date.now() / 1000) + 3 * 86400) + wms.logins;
+    return new Response(JSON.stringify({ token: wms.token }), { headers: { "Content-Type": "application/json" } });
+  }
+  if (u.pathname === "/api/inventarios/") {
+    wms.gets++;
+    if (wms.falla) { wms.falla--; return new Response("error", { status: 500 }); }
+    if (wms.rechazo) { wms.rechazo--; return new Response('{"detail":"token"}', { status: 401 }); }
+    if (req.headers.get("authorization") !== "Bearer " + wms.token) return new Response('{"detail":"token"}', { status: 401 });
+    const pg = JSON.parse(u.searchParams.get("paging") || "{}");
+    return new Response(JSON.stringify({ records_filtered: invFalso.length, results: invFalso.slice(pg.start, pg.start + pg.length) }), { headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("no", { status: 404 });
 });
 
 Deno.env.set("SUPABASE_URL", `http://127.0.0.1:${P_SB}`);
@@ -100,10 +131,47 @@ for (const d of ["PDFPOCOS", "PDFCONSO", "PDFCONSO2", "PDFRESUMEN", "PDFRETORNAB
 // Mensaje repetido por Telegram: se atiende una sola vez
 { const antes = tg.length; const u = { update_id: 99999, message: { chat: { id: 5 }, text: "/estado" } }; await enviar(u); const n1 = tg.length; await enviar(u); ok(n1 > antes && tg.length === n1, "un mensaje repetido se atiende una vez"); }
 
-// /sincronizar: el WMS lo trae Apps Script
-{ const antes = tg.length; await msj("/sincronizar");
-  ok(as.some(x => x.accion === "sincronizar_bot" && x.secreto === "secreto-bot"), "sincronizar pide el WMS a Apps Script con el secreto");
-  ok(tg.slice(antes).some(x => /Base actualizada[\s\S]*1\.234 ubicaciones/.test(x.text || "")), "sincronizar responde con el resultado"); }
+// /sincronizar: Supabase trae el WMS directamente (la conexión en el Vault; Apps Script solo copia a las hojas)
+{
+  // Sin la conexión al WMS en Supabase todavía: la manual la sigue haciendo Apps Script
+  await psql("delete from vault.secrets where name = 'frecs_wms';", "postgres");
+  { const a0 = tg.length; as.length = 0; await msj("/sincronizar");
+    ok(as.some(x => x.accion === "sincronizar_bot" && x.secreto === "secreto-bot") && tg.slice(a0).some(x => /1\.234 ubicaciones/.test(x.text || "")), "sin la conexión en Supabase, /sincronizar lo sigue haciendo Apps Script"); }
+  await armarInvFalso();
+  await psql(`delete from vault.secrets where name = 'frecs_wms'; select vault.create_secret(${lit({ login_url: `http://127.0.0.1:${P_WMS}/api/login/`, inventarios_url: `http://127.0.0.1:${P_WMS}/api/inventarios/`, cd_id: 3, usuario: "usuario-wms", clave: "clave-wms" })}, 'frecs_wms', ''); update wms_sesion set token = null;`, "postgres");
+  const filasAntes = await psql("select count(*) from wms_base", "postgres"), conProd = await psql("select count(*) from wms_base where estibas > 0 or cajas > 0 or unidades > 0", "postgres");
+  const antes = tg.length; as.length = 0;
+  await msj("/sincronizar");
+  ok(wms.logins === 1 && wms.gets >= 1, `sincronizar consulta el WMS desde Supabase (${wms.logins} inicio de sesión, ${wms.gets} página(s))`);
+  ok(tg.slice(antes).some(x => new RegExp(`Base actualizada[\\s\\S]*${Number(conProd).toLocaleString("es-CO")} ubicaciones`).test(x.text || "")), "sincronizar responde con el resultado");
+  ok((await psql("select count(*) from wms_base", "postgres")) === filasAntes && (await psql("select por from sync_estado where id = 1", "postgres")) === "Bot", "la base queda con lo que trajo el WMS");
+  const hd = wms.heads[wms.heads.length - 1];
+  ok(/Chrome\/\d+/.test(hd.get("user-agent") || "") && hd.get("origin") === `http://127.0.0.1:${P_WMS}` && hd.get("sec-ch-ua-mobile") === "?1" && hd.get("x-cd-id") === "3", "pide con los encabezados de Chrome: " + hd.get("user-agent"));
+  await new Promise(r => setTimeout(r, 300));
+  ok(as.some(x => x.accion === "wms_hojas" && x.secreto === "secreto-bot"), "y pide a Apps Script la copia en las hojas (sin tocar el WMS)");
+  // Desde la página: reutiliza la sesión (no vuelve a iniciar sesión)
+  const tkV = JSON.parse(await psql("select ingresar('Ana María','5555')::text;", "anon")).token;
+  const pag = (c: unknown) => manejar(new Request("http://x/", { method: "POST", body: JSON.stringify(c) })).then(r => r.json());
+  let r = await pag({ accion: "wms_sync", token: tkV });
+  ok(r.ok && wms.logins === 1, "la página sincroniza con la misma sesión del WMS (no inicia sesión otra vez)");
+  ok(!(await pag({ accion: "wms_sync", token: "falso" })).ok, "sin sesión de Frecs no sincroniza");
+  // El WMS rechaza el token: inicia sesión una vez y sigue
+  wms.rechazo = 1; r = await pag({ accion: "wms_sync", token: tkV });
+  ok(r.ok && wms.logins === 2, "si el WMS rechaza la sesión, inicia sesión otra vez y sigue");
+  // Automática (pg_cron): si falla avisa al grupo una vez; cuando vuelve, avisa que volvió
+  await psql(`update frecs_config set valor = '{"on":true,"ok":true}' where clave = 'sync_auto'; insert into frecs_config (clave, valor) select 'sync_auto', '{"on":true,"ok":true}' where not exists (select 1 from frecs_config where clave = 'sync_auto');`, "postgres");
+  const auto = () => manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "wms_sync", secreto: "secreto-bot", auto: true }) }));
+  ok((await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "wms_sync", secreto: "malo" }) }))).status === 401, "la automática sin el secreto no corre");
+  let a0 = tg.length; wms.falla = 1; await auto();
+  ok(tg.slice(a0).some(x => String(x.chat_id) === "-100" && /no se pudo traer el WMS/.test(x.text || "")), "si la automática falla, avisa al grupo");
+  a0 = tg.length; wms.falla = 1; await auto();
+  ok(!tg.slice(a0).some(x => /Sincronización automática/.test(x.text || "")), "si sigue fallando no repite el aviso");
+  a0 = tg.length; await auto();
+  ok(tg.slice(a0).some(x => /volvió a responder/.test(x.text || "")), "cuando vuelve a funcionar, avisa una vez");
+  const est = JSON.parse(await psql("select valor from frecs_config where clave = 'sync_auto'", "postgres"));
+  ok(est.ok === true && /ubicaciones/.test(est.msg) && est.ult, "queda cómo le fue a la última automática");
+  await psql(`update frecs_config set valor = '{}' where clave = 'sync_auto'`, "postgres");
+}
 
 // Limbo paso a paso (la memoria del bot queda en Supabase entre mensajes)
 await cb("LIMBO_ADD");

@@ -99,7 +99,10 @@ let llamadasSb = 0, sinRed = false;
   const sy = await nueva({ width: 1280, height: 800 }, "sync");
   let respSync = { ok: true, filas: 362, modulos: 383, supabase: { filas: 362, modulos: 383 } }, pedidos = [];
   await sy.ctx.route("**/config.js*", async route => { const r = await route.fetch(); const t = (await r.text()).replace(/appsScriptUrl: "[^"]*"/, 'appsScriptUrl: "https://script.google.com/macros/s/PRUEBA/exec"'); await route.fulfill({ response: r, body: t }); });
+  // Apps Script sigue guardando la copia en las hojas (maestros, turnos)
   await sy.ctx.route("https://script.google.com/**", async route => { pedidos.push(JSON.parse(route.request().postData())); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(respSync) }); });
+  // ⟳ ahora lo hace Supabase (función frecs-bot): se simula su respuesta
+  await sy.ctx.route("https://wktznckezlxptocmhhze.supabase.co/functions/v1/frecs-bot", async route => { pedidos.push(JSON.parse(route.request().postData())); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(respSync) }); });
   await sy.page.goto("http://127.0.0.1:8766/"); await sy.page.waitForSelector("#lgN");
   await sy.page.fill("#lgN", "Huber"); await sy.page.fill("#lgP", "1234"); await sy.page.click("#lgB");
   await sy.page.waitForSelector(".kpis", { timeout: 15000 });
@@ -110,7 +113,7 @@ let llamadasSb = 0, sinRed = false;
   if (!/Base actualizada|revisa/.test(tst) || !/Ubicaciones con producto/.test(tst)) errores.push("⟳ sin ventana de resultado: " + tst);
   await sy.page.screenshot({ path: "/tmp/w_sync_ok.png" });
   await sy.page.evaluate(() => cerrarModal(true));
-  if (!pedidos.length || pedidos[0].accion !== "sincronizar" || !pedidos[0].token) errores.push("⟳ pedido mal formado: " + JSON.stringify(pedidos));
+  if (!pedidos.some(p => p.accion === "wms_sync" && p.token)) errores.push("⟳ pedido a Supabase mal formado: " + JSON.stringify(pedidos));
   if (llamadasSb - nAntes < 1) errores.push("⟳ no recargó los datos de Supabase");
   respSync = { ok: false, error: "El WMS devolvió 10 ubicaciones con producto y la última vez fueron 362. Por seguridad no se reemplazó la base. Si la bajada es real, usa /sincronizar forzar." };
   await sy.page.click("#syncBtn"); await sy.page.waitForTimeout(800);
@@ -119,21 +122,20 @@ let llamadasSb = 0, sinRed = false;
   else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
   await sy.page.screenshot({ path: "/tmp/w_sync.png" });
   await sy.page.evaluate(() => { if (modalAbierto()) cerrarModal(true); });
-  // --- Sincronización automática: switch en el perfil del administrador (la hace Apps Script) ---
+  // --- Sincronización automática: switch en el perfil del administrador (la hace Supabase cada 30–45 min) ---
   {
-    const prox = new Date(Date.now() + 3.3 * 3600e3).toISOString();
-    respSync = { ok: true, estado: { on: true, por: "Huber", prox: prox, ult: "", ok: true, msg: "" } };
-    const nPed = pedidos.length;
+    psql("update frecs_config set valor = '{}' where clave = 'sync_auto';", "postgres");
+    await sy.page.evaluate(() => { S.syncAuto = {}; });
     await sy.page.evaluate(() => $("#userChip").click()); await sy.page.waitForSelector("#pfSAc");
     if (!/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no arranca en Manual");
     await sy.page.waitForTimeout(500); await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1200);
-    const pd = pedidos.slice(nPed).pop();
-    if (!pd || pd.accion !== "sync_auto" || pd.on !== true || !pd.token) errores.push("sync automática: el pedido a Apps Script está mal: " + JSON.stringify(pd));
-    if (!/Automático/.test(await sy.page.textContent("#pfSA")) || !/Próxima/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no muestra Automático y la próxima: " + await sy.page.textContent("#pfSA"));
+    const est = JSON.parse(psql("select valor from frecs_config where clave = 'sync_auto';", "postgres") || "{}");
+    const min = (Date.parse(est.prox) - Date.now()) / 60000;
+    if (est.on !== true || est.por !== "Huber" || !(min >= 29 && min <= 46)) errores.push("sync automática: no quedó prendida en Supabase con la próxima en 30–45 min: " + JSON.stringify(est));
+    if (!/Automático/.test(await sy.page.textContent("#pfSA")) || !/Próxima/.test(await sy.page.textContent("#pfSA")) || !/30 a 45 minutos/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no muestra Automático, cada 30 a 45 minutos y la próxima: " + await sy.page.textContent("#pfSA"));
     await sy.page.screenshot({ path: "/tmp/w_sync_auto.png" });
-    respSync = { ok: true, estado: { on: false } };
     await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1000);
-    if (pedidos.slice(nPed).pop().on !== false || !/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no se pudo volver a Manual");
+    if (JSON.parse(psql("select valor from frecs_config where clave = 'sync_auto';", "postgres")).on !== false || !/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no se pudo volver a Manual");
     await sy.page.evaluate(() => cerrarModal(true));
     // El rotador no ve el switch
     if (await sy.page.evaluate(() => { const r = S.usuario.rol; S.usuario.rol = "validador"; $("#userChip").click(); const x = !!$("#pfSA"); cerrarModal(true); S.usuario.rol = r; return x; })) errores.push("sync automática: el rotador ve el switch");

@@ -4,17 +4,22 @@
 // Corre la misma lógica del bot de Apps Script (motor.js, armado desde gas/*.gs) sobre
 // los datos de Supabase. Lo que el bot "envía" se anota en una cola y aquí se manda en
 // orden: mensajes, botones, PDF (dibujados en pdf.ts) y los cambios a Supabase.
-// Solo el GET al WMS sigue en Apps Script (acción sincronizar_bot).
+// El GET al WMS también se hace aquí (wms.ts): manual (⟳ en la página o /sincronizar) y automática
+// (pg_cron cada minuto revisa si ya toca: entre 30 y 45 minutos al azar). Apps Script solo guarda
+// la copia de respaldo en las hojas.
 //
 // Pedidos que atiende (POST):
 //   · Telegram (cabecera X-Telegram-Bot-Api-Secret-Token)
 //   · { accion: "pdf_telegram", token, nombre, b64, caption }  → desde la página (validador)
 //   · { accion: "reporte", token, ids }                        → aviso de módulos reportados (vacío / conflicto)
 //   · { accion: "alerta", secreto }                           → alerta de las 6 a.m. y 2 p.m. (pg_cron)
+//   · { accion: "wms_sync", token, forzar }                    → sincronizar con el WMS desde la página
+//   · { accion: "wms_sync", secreto, auto: true }              → la automática (pg_cron, sb_wms_tic)
 // Secretos de la función: TELEGRAM_TOKEN. El resto viene de frecs_config (sb_bot_config).
 // =====================================================================
 import { crearMotor } from "./motor.js";
 import { htmlAPdf } from "./pdf.ts";
+import { sincronizarWms } from "./wms.ts";
 
 const URL_SB = (Deno.env.get("SUPABASE_URL") || "").replace(/\/+$/, "");
 const CLAVE = Deno.env.get("SB_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -97,13 +102,37 @@ async function appsScript(cfg: Record<string, string>, cuerpo: any) {
   try { return await r.json(); } catch (_) { return { ok: false, error: "Apps Script no respondió bien." }; }
 }
 
+// Sincronización con el WMS (manual o automática). Deja el resultado en Supabase (la automática avisa al
+// grupo solo cuando cambia: falló / volvió a funcionar) y pide a Apps Script la copia en las hojas.
+async function syncWms(cfg: Record<string, string>, o: { forzar?: boolean; por: string; fotos?: boolean; auto?: boolean }) {
+  let r: any;
+  try { r = await sincronizarWms(rpc, o); }
+  catch (e) { r = { ok: false, error: (e as Error).message }; }
+  // Mientras no se haya pasado la conexión al WMS a Supabase, la manual la sigue haciendo Apps Script
+  if (!r.ok && !o.auto && /^Falta la conexión al WMS/.test(r.error || "") && cfg.bot_apps_script_url) {
+    try { const a = await appsScript(cfg, { accion: "sincronizar_bot", forzar: !!o.forzar }); r = a && a.ok ? { ok: true, filas: a.filas, fisicas: a.filas, modulos: a.modulos, porAppsScript: true } : { ok: false, error: (a && a.error) || r.error }; }
+    catch (e) { r = { ok: false, error: (e as Error).message }; }
+    if (r.porAppsScript) return r;
+  }
+  const msg = r.ok ? `${r.fisicas} ubicaciones` : String(r.error || "No se pudo sincronizar.");
+  let est: any = null;
+  try { est = await rpc("sb_wms_resultado", { p_auto: !!o.auto, p_ok: !!r.ok, p_msg: msg.slice(0, 300) }); } catch (e) { console.warn("resultado:", (e as Error).message); }
+  if (o.auto && est && est.antes_ok !== undefined && !!est.antes_ok !== !!r.ok && cfg.bot_grupo) {
+    await tgMensaje("sendMessage", { chat_id: cfg.bot_grupo, parse_mode: "Markdown", text: r.ok ? "✅ *Sincronización automática*: el WMS volvió a responder y la base quedó al día."
+      : `⚠️ *Sincronización automática*: no se pudo traer el WMS.\n${msg.replace(/[_*[\]`]/g, "")}\n\nLa base sigue con la última sincronización buena. Se vuelve a intentar sola en 30 a 45 minutos.` }).catch(() => null);
+  }
+  // Copia de respaldo en las hojas (Apps Script lee la base de Supabase, no el WMS)
+  if (r.ok && cfg.bot_apps_script_url) { const p = appsScript(cfg, { accion: "wms_hojas" }).catch(e => console.warn("hojas wms:", e.message)); const er = (globalThis as any).EdgeRuntime; if (er && er.waitUntil) er.waitUntil(p); }
+  return r;
+}
+
 // Envía en orden lo que dejó el motor
 async function vaciarCola(cola: any[], cfg: Record<string, string>) {
   const hojas = new Set<string>();
   for (const it of cola) {
     try {
       if (it.tipo === "sync") {
-        const r = await appsScript(cfg, { accion: "sincronizar_bot", forzar: it.forzar });
+        const r = await syncWms(cfg, { forzar: !!it.forzar, por: "Bot", fotos: true });
         if (!r.ok) await tgMensaje("sendMessage", { chat_id: it.chatId, text: "❌ " + (r.error || "No se pudo sincronizar.") });
         else if (String(it.chatId) !== String(cfg.bot_grupo || "")) await tgMensaje("sendMessage", { chat_id: it.chatId, text: `✅ *Base actualizada.*\n\n${fM(r.filas)} ubicaciones con producto en ${fM(r.modulos)} módulos.`, parse_mode: "Markdown" });
         continue;
@@ -224,6 +253,20 @@ export async function manejar(req: Request): Promise<Response> {
     if (!cfg.bot_grupo) return respuesta({ ok: false, error: "No está configurado el grupo de Telegram." });
     await correr([], m => m.alerta());
     return respuesta({ ok: true });
+  }
+  // Sincronizar con el WMS: la automática (pg_cron con el secreto) o la manual desde la página (sesión)
+  if (cuerpo.accion === "wms_sync") {
+    if (cuerpo.secreto !== undefined) {
+      if (!cfg.bot_secreto || cuerpo.secreto !== cfg.bot_secreto) return respuesta({ ok: false, error: "No autorizado" }, 401);
+      return respuesta(await syncWms(cfg, { forzar: false, por: "Automática", auto: true }));
+    }
+    let u: any;
+    try { u = await rpc("mi_sesion", { p_token: String(cuerpo.token || "") }); }
+    catch (e) { const m = String((e as Error).message); return respuesta(/SESION:/.test(m) ? { ok: false, sesion: true, error: m.replace(/^.*SESION:\s*/, "") } : { ok: false, error: m }); }
+    if (!u || !["verificador", "validador", "administrador"].includes(u.rol)) return respuesta({ ok: false, error: "Solo el verificador, el rotador o el administrador sincronizan con el WMS." });
+    const forzar = cuerpo.forzar === true;
+    if (forzar && !["validador", "administrador"].includes(u.rol)) return respuesta({ ok: false, error: "Solo el rotador o el administrador pueden forzar la sincronización." });
+    return respuesta(await syncWms(cfg, { forzar, por: String(u.nombre || "Página"), fotos: true }));
   }
   return respuesta({ ok: false, error: "Acción no válida." }, 400);
 }

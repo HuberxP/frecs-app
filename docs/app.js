@@ -753,14 +753,14 @@ $("#userChip").onclick = () => {
 };
 
 // Sincronización automática con el WMS (solo el administrador): Automático / Manual
-// Apps Script la hace cada 3 a 4 horas, a una hora distinta cada vez; la manual sigue funcionando igual.
+// Supabase la hace cada 30 a 45 minutos, a una hora distinta cada vez; la manual sigue funcionando igual.
 const horaSA = iso => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; const hoy = new Date(), man = new Date(Date.now() + 864e5);
   const dia = d.toDateString() === hoy.toDateString() ? "hoy" : d.toDateString() === man.toDateString() ? "mañana" : d.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit" });
   return `${dia} ${d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}`; };
 function pintarSyncAuto(box) {
   const e = S.syncAuto || {};
   box.innerHTML = `<label class="sw-fila sa-fila"><span><b>🔄 Sincronizar con el WMS: ${e.on ? "Automático" : "Manual"}</b><br><span class="small muted">${e.on
-      ? `Cada 3 a 4 horas, a una hora distinta cada vez.${e.prox ? ` Próxima: <b>${h(horaSA(e.prox))}</b>.` : ""}`
+      ? `Cada 30 a 45 minutos, a una hora distinta cada vez.${e.prox ? ` Próxima: <b>${h(horaSA(e.prox))}</b>.` : ""}`
       : "Solo cuando alguien toca ⟳ Sincronizar o usa /sincronizar."}</span>
     ${e.ult ? `<br><span class="small ${e.ok ? "muted" : "sa-mal"}">Última automática: ${h(horaSA(e.ult))} · ${e.ok ? "✅" : "❌"} ${h(e.msg || "")}</span>` : ""}</span>
     <span class="sw"><input type="checkbox" id="pfSAc" ${e.on ? "checked" : ""}><i></i></span></label>`;

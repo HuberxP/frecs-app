@@ -80,7 +80,7 @@
     "webOrganizar", "webConsolidar", "webInfiltrados", "webAvanzados", "webMezclados", "webAcomodar", "webEnvasado", "webEnvasadoProducto", "webConsumo",
     "webCarpa", "webBarriles", "webLimbo", "webCapacidad", "webTurno", "webVal", "webValSugerencias", "webValConc", "webEnt", "webConc", "webHistorial", "webFinal"]);
   const AVISO = {
-    webSincronizar: "Para traer el WMS usa ⟳ en el dashboard actual o /sincronizar en el bot. Aquí se ve apenas termine (vuelve a abrir la página).",
+    webSincronizar: "Falta la conexión con Supabase para traer el WMS.",
     webSetup: "Los usuarios se crean desde Administración → Usuarios.",
     webMantPrevia: "En la versión nueva no hace falta archivar: Supabase guarda el historial completo sin ponerse lento.",
     webMantArchivar: "En la versión nueva no hace falta archivar: Supabase guarda el historial completo sin ponerse lento."
@@ -88,42 +88,41 @@
   const NO_AUN = "Esto todavía se hace en el dashboard actual (llega en la siguiente fase).";
 
   // ⟳ Sincronizar: lo hace Apps Script (tiene la clave del WMS). Autoriza con la sesión de Supabase.
+  // Sincronizar con el WMS: lo hace Supabase (función frecs-bot, solo GET al WMS). Verificador, rotador
+  // (validador) o administrador; forzar (bajada grande de inventario) solo rotador o administrador.
   async function sincronizar(tk, forzar, ok, fallo) {
-    if (!CFG.appsScriptUrl) return fallo(AVISO.webSincronizar);
-    // Verificador, rotador (validador) o administrador sincronizan con el WMS (Apps Script lo vuelve a revisar)
+    if (!URL_BOT) return fallo(AVISO.webSincronizar);
     await cargarDatos(tk);
     const rol = datos && datos.usuario && datos.usuario.rol;
     if (!["verificador", "validador", "administrador"].includes(rol)) return fallo("Solo el verificador, el rotador o el administrador sincronizan con el WMS.");
     let r;
     try {
-      r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "sincronizar", token: tk, forzar: !!forzar }) });
+      r = await fetch(URL_BOT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "wms_sync", token: tk, forzar: !!forzar }) });
     } catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
     let j = null;
-    try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+    try { j = await r.json(); } catch (e) { return fallo("La función de Supabase no respondió bien. Intenta de nuevo en un momento."); }
+    // Mientras no se haya pasado la conexión al WMS a Supabase, lo hace Apps Script como antes
+    if (!j.ok && /^Falta la conexión al WMS/.test(j.error || "") && CFG.appsScriptUrl) {
+      try { r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ accion: "sincronizar", token: tk, forzar: !!forzar }) }); j = await r.json(); }
+      catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
+      if (j.ok && j.supabase) j.fotos = j.supabase.fotos || null;
+    }
     if (!j.ok) return fallo(j.error || "No se pudo sincronizar.", j.sesion ? { sesion: true } : null);
     await cargarDatos(tk, true);
     const inv = conFotos(JSON.parse(MOTOR.llamar("webInventario", [tk])).data);
     // Lo anotado a mano de la sincronización nueva (lo de antes deja de contar)
     if (inv) { inv.ajustes = (datos && datos.ajustes) || []; inv.bloqueos = (datos && datos.bloqueos) || []; inv.revisiones = (datos && datos.revisiones) || []; }
-    if (j.supabase && j.supabase.error) return fallo("El WMS se guardó en las hojas, pero no llegó a Supabase: " + j.supabase.error);
-    return ok({ filas: j.filas, modulos: j.modulos, inv: inv, fotos: (j.supabase && j.supabase.fotos) || null });
+    return ok({ filas: j.filas, modulos: j.modulos, inv: inv, fotos: j.fotos || null });
   }
-  // Sincronización automática con el WMS (solo el administrador; la hace Apps Script). on: true / false, o sin on para ver cómo está
+  // Sincronización automática con el WMS (solo el administrador; la hace Supabase cada 30 a 45 minutos).
+  // on: true / false, o sin on para ver cómo está
   async function syncAuto(tk, on, ok, fallo) {
-    if (!CFG.appsScriptUrl) return fallo("La sincronización automática necesita Apps Script configurado.");
     await cargarDatos(tk);
     if (!(datos && datos.usuario && datos.usuario.rol === "administrador")) return fallo("Solo el administrador cambia la sincronización automática.");
-    let r;
-    try {
-      r = await fetch(CFG.appsScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ accion: "sync_auto", token: tk }, typeof on === "boolean" ? { on: on } : {})) });
-    } catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
-    let j = null;
-    try { j = await r.json(); } catch (e) { return fallo("Apps Script no respondió bien (¿está publicada la versión nueva del código?)."); }
-    // Apps Script con el código de antes no conoce esta acción: se dice qué falta
-    if (!j.ok && /Acción no válida/i.test(j.error || "")) return fallo("Apps Script todavía tiene la versión anterior. Reemplaza el código con el zip nuevo y publica una versión nueva (Implementar → Gestionar implementaciones → editar → Versión nueva).");
-    if (!j.ok) return fallo(j.error || "No se pudo cambiar.", j.sesion ? { sesion: true } : null);
-    if (datos) { datos.sync_auto = j.estado || {}; guardarLS(); }
-    return ok(j.estado || {});
+    if (typeof on !== "boolean") return ok((datos && datos.sync_auto) || {});
+    const e = await rpc("sync_auto_poner", { p_token: tk, p_on: on });
+    if (datos) { datos.sync_auto = e || {}; guardarLS(); }
+    return ok(e || {});
   }
   // Fotos del WMS de los lotes con prioridad: [sku, módulo, [urls]] (de la más nueva a la más vieja)
   function conFotos(inv) { if (inv) inv.fotos = (datos && datos.fotos) || []; return inv; }

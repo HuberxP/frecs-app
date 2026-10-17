@@ -122,6 +122,9 @@ let llamadasSb = 0, sinRed = false;
   else { respSync = { ok: true, filas: 10, modulos: 383, supabase: { filas: 10 } }; await sy.page.waitForTimeout(500); await sy.page.click("#cfOk"); await sy.page.waitForTimeout(1200); if (!pedidos.some(p => p.forzar === true)) errores.push("⟳ forzar no se envió"); }
   await sy.page.screenshot({ path: "/tmp/w_sync.png" });
   await sy.page.evaluate(() => { if (modalAbierto()) cerrarModal(true); });
+  // Al tocar una notificación se abre en la sección (?ir=repgen)
+  await sy.page.goto("http://127.0.0.1:8766/?ir=repgen"); await sy.page.waitForTimeout(1500);
+  if (!(await sy.page.evaluate(() => S.vista === "repgen")) || /ir=/.test(sy.page.url())) errores.push("notificaciones: ?ir=repgen no abre Reportes generados: " + await sy.page.evaluate(() => S.vista));
   // --- Sincronización automática: switch en el perfil del administrador (la hace Supabase cada 30–45 min) ---
   {
     psql("update frecs_config set valor = '{}' where clave = 'sync_auto';", "postgres");
@@ -980,6 +983,9 @@ let llamadasSb = 0, sinRed = false;
         speechSynthesis.speak = u => window.__dichos.push(u.text); speechSynthesis.cancel = () => {};
       });
       await P.evaluate(() => $("#userChip").click()); await P.waitForSelector("#pfV");
+      // 🔔 Notificaciones: el switch está en el perfil (cada equipo)
+      await P.waitForSelector("#pfPN #pfN", { timeout: 5000 }).catch(() => {});
+      if (!(await P.$("#pfPN #pfN")) || !/Notificaciones en este equipo/.test(await P.textContent("#pfPN").catch(() => ""))) errores.push("notificaciones: el perfil no tiene el switch");
       await P.waitForTimeout(300); await P.click("#pfV"); await P.waitForTimeout(1200);
       if (!(await P.evaluate(() => S.usuario.prefs && S.usuario.prefs.voz === true))) errores.push("voz: el switch no quedó guardado");
       await P.evaluate(() => cerrarModal(true));

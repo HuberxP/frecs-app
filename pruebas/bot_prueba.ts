@@ -1,6 +1,6 @@
 // Prueba del bot en Supabase (función frecs-bot) con: PostgreSQL local (como Supabase),
 // un Telegram falso y un Apps Script falso. Correr:  deno run -A pruebas/bot_prueba.ts
-const P_SB = 8791, P_TG = 8792, P_AS = 8793, P_WMS = 8794;
+const P_SB = 8791, P_TG = 8792, P_AS = 8793, P_WMS = 8794, P_PUSH = 8795;
 const psql = async (sql: string, rol = "service_role") => {
   const cmd = new Deno.Command("su", { args: ["postgres", "-c", "psql -p 5439 -d frecs -At -v ON_ERROR_STOP=1 -q"], stdin: "piped", stdout: "piped", stderr: "piped" });
   const p = cmd.spawn();
@@ -79,6 +79,14 @@ Deno.serve({ port: P_WMS, onListen() {} }, async req => {
     return new Response(JSON.stringify({ records_filtered: invFalso.length, results: invFalso.slice(pg.start, pg.start + pg.length) }), { headers: { "Content-Type": "application/json" } });
   }
   return new Response("no", { status: 404 });
+});
+
+// --- Servicio de push falso (como el de Chrome / Apple): guarda lo que llega; /viejo responde 410 ---
+const pushes: { ruta: string; headers: Headers; body: Uint8Array }[] = [];
+Deno.serve({ port: P_PUSH, onListen() {} }, async req => {
+  const ruta = new URL(req.url).pathname;
+  pushes.push({ ruta, headers: req.headers, body: new Uint8Array(await req.arrayBuffer()) });
+  return new Response("", { status: ruta === "/viejo" ? 410 : 201 });
 });
 
 Deno.env.set("SUPABASE_URL", `http://127.0.0.1:${P_SB}`);
@@ -171,6 +179,39 @@ for (const d of ["PDFPOCOS", "PDFCONSO", "PDFCONSO2", "PDFRESUMEN", "PDFRETORNAB
   const est = JSON.parse(await psql("select valor from frecs_config where clave = 'sync_auto'", "postgres"));
   ok(est.ok === true && /ubicaciones/.test(est.msg) && est.ult, "queda cómo le fue a la última automática");
   await psql(`update frecs_config set valor = '{}' where clave = 'sync_auto'`, "postgres");
+}
+
+// 🔔 Notificaciones al celular: claves en el Vault, aviso cifrado de módulo vacío y de prueba
+{
+  const nodeCrypto = await import("node:crypto");
+  const ece = (await import("npm:http_ece@1.2.0")).default;
+  await psql("delete from vault.secrets where name = 'frecs_push'; update push_subs set activo = false;", "postgres");
+  const pag = (c: unknown) => manejar(new Request("http://x/", { method: "POST", body: JSON.stringify(c) })).then(r => r.json());
+  const k1 = await pag({ accion: "push_clave" }), k2 = await pag({ accion: "push_clave" });
+  ok(k1.ok && /^[A-Za-z0-9_-]{80,}$/.test(k1.clave) && k1.clave === k2.clave, "la clave pública de las notificaciones se crea una vez y se reutiliza");
+  ok((await psql("select count(*) from vault.secrets where name = 'frecs_push'", "postgres")) === "1", "las claves quedan en el Vault");
+  // Un celular de Ana María y uno viejo de Huber (ya no existe: el servicio responde 410)
+  const ua = nodeCrypto.createECDH("prime256v1"); ua.generateKeys(); const auth = nodeCrypto.randomBytes(16);
+  await psql(`insert into push_subs (usuario, endpoint, p256dh, auth) values ('Ana María', 'http://127.0.0.1:${P_PUSH}/ana', '${ua.getPublicKey().toString("base64url")}', '${auth.toString("base64url")}'),
+    ('Huber', 'http://127.0.0.1:${P_PUSH}/viejo', '${ua.getPublicKey().toString("base64url")}', '${auth.toString("base64url")}') on conflict (endpoint) do update set activo = true, p256dh = excluded.p256dh, auth = excluded.auth;`, "postgres");
+  const { Buffer } = await import("node:buffer");
+  const leer = (b: Uint8Array) => JSON.parse(ece.decrypt(Buffer.from(b), { version: "aes128gcm", privateKey: ua, authSecret: auth }).toString());
+  const tkH = JSON.parse(await psql("select ingresar('Huber','1234')::text;", "anon")).token;
+  const mR = await psql("select modulo from wms_base where coalesce(estibas,0) > 0 and modulo not in (select modulo from reportes_modulo where estado = 'PENDIENTE') order by modulo limit 1", "postgres");
+  const rc = JSON.parse(await psql(`select reporte_crear(${lit(tkH)}, ${lit([{ tipo: "VACIO", modulo: mR, sku_sistema: "2222", producto_sistema: "Pony" }])})::text;`, "anon"));
+  pushes.length = 0;
+  const r1 = await pag({ accion: "push_reporte", secreto: "secreto-bot", id: rc.creados[0] });
+  const pa = pushes.find(x => x.ruta === "/ana");
+  ok(r1.ok && r1.enviados === 1 && !!pa && pa.headers.get("content-encoding") === "aes128gcm" && /^vapid t=.+, k=/.test(pa.headers.get("authorization") || ""), "el aviso de vacío llega cifrado (aes128gcm + VAPID) a los demás");
+  const msj = pa ? leer(pa.body) : {};
+  ok(new RegExp(`${mR} reportado vacío`).test(msj.t) && /Reportó Huber/.test(msj.b) && msj.u === "./?ir=repgen", "se descifra con la clave del celular: " + JSON.stringify(msj));
+  ok(!pushes.some(x => x.ruta === "/viejo"), "a quien reportó no le llega su propio aviso");
+  ok((await pag({ accion: "push_reporte", secreto: "malo", id: rc.creados[0] })).ok === false, "sin el secreto no manda avisos");
+  // Prueba desde el perfil: solo a esa persona; la suscripción vieja (410) se apaga
+  pushes.length = 0;
+  const rp = await pag({ accion: "push_prueba", token: tkH });
+  ok(!rp.ok && pushes.some(x => x.ruta === "/viejo") && (await psql("select activo from push_subs where endpoint like '%/viejo'", "postgres")) === "f", "si el celular ya no existe (410), la suscripción se apaga");
+  await psql(`delete from reportes_modulo where id = ${rc.creados[0]}; update push_subs set activo = false;`, "postgres");
 }
 
 // Limbo paso a paso (la memoria del bot queda en Supabase entre mensajes)

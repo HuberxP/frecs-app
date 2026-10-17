@@ -725,6 +725,7 @@ $("#userChip").onclick = () => {
     <div class="ficha"><span>Rol</span><b>${h(rolTxt(u.rol))}</b>${u.correo ? `<span>Correo</span><b>${h(u.correo)}</b>` : `<span>Correo</span><b class="muted">No disponible (cuenta Gmail)</b>`}</div>
     ${S.sync ? `<div class="ficha sync-f"><span>🔄 Última sincronización con el WMS</span><b>${h(S.sync.bot)}</b><span>📦 Último movimiento en el WMS</span><b>${h(S.sync.wms)}</b></div>` : ""}
     ${u.rol === "administrador" ? `<div id="pfSA"></div>` : ""}
+    <div id="pfPN"></div>
     <label class="sw-fila"><span><b>🔊 Leer en voz alta</b><br><span class="small muted">Al consultar un producto o un módulo dice cuál es el módulo de consumo o de cuál debería salir</span></span><span class="sw"><input type="checkbox" id="pfV" ${typeof vozOn === "function" && vozOn() ? "checked" : ""} ${typeof vozDisponible === "function" && !vozDisponible() ? "disabled" : ""}><i></i></span></label>
     ${esVerif() ? "" : `<label class="sw-fila"><span><b>Sugerencias del WMS</b><br><span class="small muted">En validaciones: cuántas cajas tiene el WMS y el aviso cuando tiene menos</span></span><span class="sw"><input type="checkbox" id="pfW" ${verWms() ? "checked" : ""}><i></i></span></label>`}
     <details class="card" style="margin-top:14px"><summary>Cambiar mi PIN</summary>
@@ -733,6 +734,7 @@ $("#userChip").onclick = () => {
       <button class="btn" id="cpB" style="margin-top:10px">Guardar PIN</button></details>
     <div class="modal-actions"><button class="btn danger" id="lgOut">Cerrar sesión</button><button class="btn" data-x>Cerrar</button></div>`);
   if ($("#pfSA", c)) pintarSyncAuto($("#pfSA", c));
+  if (typeof pintarPush === "function") pintarPush($("#pfPN", c));
   const sv = $("#pfV", c);
   if (sv) sv.onchange = async () => {
     const v = sv.checked; sv.disabled = true;
@@ -4908,6 +4910,67 @@ function vozProducto(c) {
 }
 
 // =====================================================================
+// 🔔 NOTIFICACIONES AL CELULAR (switch en el perfil, por cada equipo)
+// Llegan aunque la app esté cerrada: ⬜ cuando alguien reporta un módulo vacío y ⏳ una vez al día
+// con los lotes que llegaron a su límite para bloquearlos. En iPhone solo funciona con la app
+// instalada en la pantalla de inicio (Compartir → Agregar a inicio).
+// =====================================================================
+const pushPosible = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const esIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const instalada = () => (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+const b64aBytes = b => { const s = atob((b + "===".slice((b.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+async function pushActual() {
+  if (!pushPosible()) return null;
+  try { const reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
+}
+async function pushPrender() {
+  if (!pushPosible()) throw new Error(esIos() && !instalada() ? "En iPhone, primero instala la app: Compartir → Agregar a inicio, y ábrela desde ahí." : "Este navegador no recibe notificaciones.");
+  const permiso = await Notification.requestPermission();
+  if (permiso !== "granted") throw new Error("El celular no dio permiso para las notificaciones. Actívalo en los ajustes del navegador para esta página.");
+  const reg = await navigator.serviceWorker.ready;
+  const clave = await api("webPushClave");
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64aBytes(clave) });
+  await api("webPushSuscribir", sub.toJSON());
+  return sub;
+}
+async function pushApagar() {
+  const sub = await pushActual();
+  if (!sub) return;
+  try { await api("webPushQuitar", sub.endpoint); } catch (e) { /* igual se quita de este equipo */ }
+  await sub.unsubscribe().catch(() => {});
+}
+// La fila del perfil
+async function pintarPush(box) {
+  if (!box) return;
+  const sub = await pushActual();
+  const nota = !pushPosible() ? (esIos() && !instalada() ? "En iPhone: instala la app (Compartir → Agregar a inicio) y ábrela desde ahí para prenderlas." : "Este navegador no las recibe.") : "";
+  box.innerHTML = `<label class="sw-fila"><span><b>🔔 Notificaciones en este equipo</b><br><span class="small muted">⬜ Módulo reportado vacío (al momento) · ⏳ lotes que llegaron a su límite para bloquear (6 a. m.)${nota ? `<br><b>${h(nota)}</b>` : ""}</span>
+    ${sub ? `<br><button type="button" class="link" id="pfNp">Enviar una de prueba</button>` : ""}</span>
+    <span class="sw"><input type="checkbox" id="pfN" ${sub ? "checked" : ""} ${pushPosible() ? "" : "disabled"}><i></i></span></label>`;
+  const ch = $("#pfN", box);
+  ch.onchange = async () => {
+    const v = ch.checked; ch.disabled = true;
+    try { if (v) { await pushPrender(); toast("🔔 Notificaciones prendidas en este equipo", "ok", 3500); } else { await pushApagar(); toast("Notificaciones apagadas en este equipo", "ok", 3000); } }
+    catch (e) { toast(e.message, "bad", 8000); }
+    if (box.isConnected) pintarPush(box);
+  };
+  const pr = $("#pfNp", box);
+  if (pr) pr.onclick = async () => { pr.disabled = true; try { await api("webPushProbar"); toast("Enviada: debería llegarte en unos segundos", "ok", 4000); } catch (e) { toast(e.message, "bad", 7000); } pr.disabled = false; };
+}
+// Al tocar una notificación se abre la sección que dice (?ir=repgen · ?ir=fechas); si la app ya estaba
+// abierta, el service worker le avisa y se cambia de sección ahí mismo
+function vistaInicial() {
+  let v = "";
+  try { const q = new URLSearchParams(location.search); v = q.get("ir") || ""; if (v) history.replaceState(null, "", location.pathname + location.hash); } catch (e) { v = ""; }
+  return v && VISTAS[v] && (typeof vistaPermitida !== "function" || vistaPermitida(v)) ? v : ls.get("vista", "inicio");
+}
+if (typeof navigator !== "undefined" && navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", e => {
+  const v = e.data && e.data.ir;
+  if (v && S.usuario && VISTAS[v] && (typeof vistaPermitida !== "function" || vistaPermitida(v))) ir(v);
+});
+
+// =====================================================================
 // ADMINISTRACIÓN (solo administrador; el servidor también lo revisa)
 // =====================================================================
 VISTAS.usuarios = async (el, p, vigente) => {
@@ -5408,7 +5471,7 @@ async function arrancar(yaPintado, forzarRepintar) {
     } else { toast("No se pudo conectar: " + e.message, "bad", 8000); return; }
   }
   pintarUsuario(); pintarNav();
-  ir(ls.get("vista", "inicio"));
+  ir(vistaInicial());
   procesarCola();
 }
 
@@ -5426,7 +5489,7 @@ if (window.FRECS_WEB) FRECS_WEB.ajustar();
     S.usuario = u; S.grupoTg = ls.get("grupoTg", "") === "1"; S.cat = ls.getJ("cat", null); S.turno = ls.getJ("turno", null); S.rep = ls.getJ("rep", []); S.vistasRol = ls.getJ("vistasRol", {}); S.pocosVig = ls.getJ("pocosVig", []); S.tpcLista = ls.getJ("tpcLista", []); S.marcas = ls.getJ("marcas", []); S.ajustes = ls.getJ("ajustes", []); S.bloqueos = ls.getJ("bloqueos", []); S.revisiones = ls.getJ("revisiones", []);
     S.inv = inv.filas; S.ocup = inv.ocupacion || {}; S.sync = inv.sync; S.fotos = inv.fotos || []; pintarSync();
     pintarUsuario(); pintarNav();
-    ir(ls.get("vista", "inicio"));
+    ir(vistaInicial());
     arrancar(true);
     return;
   }

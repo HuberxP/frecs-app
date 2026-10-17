@@ -502,6 +502,18 @@
       if (fn === "webLogout") { try { await rpc("salir", { p_token: args[0] }); } catch (e) {} datos = null; try { localStorage.removeItem(CLAVE_LS); } catch (e) {} return ok(true); }
       if (fn === "webSincronizar") return await sincronizar(args[0], args[1] === true, ok, fallo);
       if (fn === "webSyncAuto") return await syncAuto(args[0], args[1], ok, fallo);
+      // 🔔 Notificaciones: la clave pública y la prueba las da la función del bot; suscribirse, Supabase
+      if (fn === "webPushClave" || fn === "webPushProbar") {
+        if (!URL_BOT) return fallo("Falta la conexión con Supabase.");
+        let r;
+        try { r = await fetch(URL_BOT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(fn === "webPushClave" ? { accion: "push_clave" } : { accion: "push_prueba", token: args[0] }) }); }
+        catch (e) { const er = new Error("NetworkError: no se pudo conectar"); er.red = true; throw er; }
+        let j = null; try { j = await r.json(); } catch (e) { return fallo("La función de Supabase no respondió bien."); }
+        if (!j.ok) return fallo(j.error || "No se pudo.", j.sesion ? { sesion: true } : null);
+        return ok(fn === "webPushClave" ? j.clave : j);
+      }
+      if (fn === "webPushSuscribir") return ok(await rpc("push_suscribir", { p_token: args[0], p_sub: args[1] || {} }));
+      if (fn === "webPushQuitar") return ok(await rpc("push_quitar", { p_token: args[0], p_endpoint: String(args[1] || "") }));
       if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
       if (["webReportes", "webReporteCrear", "webReporteCerrar"].includes(fn)) return await reportes(fn, args, ok);
       // Rotulación de módulos (funciones de Supabase)

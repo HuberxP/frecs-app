@@ -15,11 +15,16 @@
 //   · { accion: "alerta", secreto }                           → alerta de las 6 a.m. y 2 p.m. (pg_cron)
 //   · { accion: "wms_sync", token, forzar }                    → sincronizar con el WMS desde la página
 //   · { accion: "wms_sync", secreto, auto: true }              → la automática (pg_cron, sb_wms_tic)
+//   · { accion: "push_clave" }                                 → clave pública de las notificaciones
+//   · { accion: "push_prueba", token }                         → notificación de prueba a esa persona
+//   · { accion: "push_reporte", secreto, id }                  → aviso de módulo vacío (lo dispara la base)
+//   · { accion: "push_vencer", secreto }                       → lotes por vencer (pg_cron, 6:05 a. m.)
 // Secretos de la función: TELEGRAM_TOKEN. El resto viene de frecs_config (sb_bot_config).
 // =====================================================================
 import { crearMotor } from "./motor.js";
 import { htmlAPdf } from "./pdf.ts";
 import { sincronizarWms } from "./wms.ts";
+import { clavesPush, enviarPush, pushReporte, pushVencer } from "./push.ts";
 
 const URL_SB = (Deno.env.get("SUPABASE_URL") || "").replace(/\/+$/, "");
 const CLAVE = Deno.env.get("SB_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -267,6 +272,25 @@ export async function manejar(req: Request): Promise<Response> {
     const forzar = cuerpo.forzar === true;
     if (forzar && !["validador", "administrador"].includes(u.rol)) return respuesta({ ok: false, error: "Solo el rotador o el administrador pueden forzar la sincronización." });
     return respuesta(await syncWms(cfg, { forzar, por: String(u.nombre || "Página"), fotos: true }));
+  }
+  // 🔔 Notificaciones al celular
+  if (cuerpo.accion === "push_clave") {
+    try { return respuesta({ ok: true, clave: (await clavesPush(rpc)).publicKey }); }
+    catch (e) { return respuesta({ ok: false, error: (e as Error).message }); }
+  }
+  if (cuerpo.accion === "push_prueba") {
+    let u: any;
+    try { u = await rpc("mi_sesion", { p_token: String(cuerpo.token || "") }); }
+    catch (e) { const m = String((e as Error).message); return respuesta(/SESION:/.test(m) ? { ok: false, sesion: true, error: m.replace(/^.*SESION:\s*/, "") } : { ok: false, error: m }); }
+    const subs = await rpc("sb_push_subs", { p_usuario: u.nombre });
+    if (!subs.length) return respuesta({ ok: false, error: "No hay notificaciones prendidas para ti." });
+    const r = await enviarPush(rpc, subs, { titulo: "🔔 Frecs!", cuerpo: `Hola ${String(u.nombre).split(" ")[0]}: así te llegarán los avisos.`, url: "./", tag: "prueba" });
+    return respuesta({ ok: r.enviados > 0, enviados: r.enviados, error: r.enviados ? undefined : "El servicio de notificaciones no aceptó el aviso." });
+  }
+  if (cuerpo.accion === "push_reporte" || cuerpo.accion === "push_vencer") {
+    if (!cfg.bot_secreto || cuerpo.secreto !== cfg.bot_secreto) return respuesta({ ok: false, error: "No autorizado" }, 401);
+    try { return respuesta(Object.assign({ ok: true }, cuerpo.accion === "push_reporte" ? await pushReporte(rpc, Number(cuerpo.id)) : await pushVencer(rpc))); }
+    catch (e) { return respuesta({ ok: false, error: (e as Error).message }); }
   }
   return respuesta({ ok: false, error: "Acción no válida." }, 400);
 }

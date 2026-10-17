@@ -886,10 +886,11 @@ let llamadasSb = 0, sinRed = false;
   const colsAntes = await P.evaluate(() => { const g = $("#view .grid"); return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0; });
   await P.click("#vistaBtn"); await P.waitForTimeout(200);
   const colsLista = await P.evaluate(() => { const g = $("#view .grid"); return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0; });
-  if (!(colsAntes > 1 && colsLista === 1) || (await P.evaluate(() => localStorage.getItem("frecs_vista"))) !== "lista") errores.push(`vista en lista: no cambió (${colsAntes} → ${colsLista})`);
-  await P.screenshot({ path: "/tmp/w_vista_lista.png" });
+  // Por defecto ya arranca en lista; el botón pasa a cuadrícula (se recuerda) y vuelve a lista
+  if (!(colsAntes === 1 && colsLista > 1) || (await P.evaluate(() => localStorage.getItem("frecs_vista"))) !== "cuadricula") errores.push(`vista: por defecto debe ser lista y el botón pasar a cuadrícula (${colsAntes} → ${colsLista})`);
   await P.click("#vistaBtn"); await P.waitForTimeout(200);
-  if (await P.evaluate(() => document.documentElement.dataset.vista === "lista")) errores.push("vista en lista: no vuelve a cuadrícula");
+  await P.screenshot({ path: "/tmp/w_vista_lista.png" });
+  if (!(await P.evaluate(() => document.documentElement.dataset.vista === "lista"))) errores.push("vista: no vuelve a lista");
   await P.evaluate(() => ir("inicio")); await P.waitForTimeout(700);
   if (!(await P.$('#nav a[data-v="pocos"] .nav-n'))) errores.push("pocos: el menú no marca los vigilados con 1 estiba o menos");
   await P.screenshot({ path: "/tmp/w_inicio_pocos.png" });
@@ -936,6 +937,7 @@ let llamadasSb = 0, sinRed = false;
   }
   // --- Módulos en consumo por canal ---
   if (!(await P.evaluate(() => vistaPermitida("enconsumo", "verificador") && vistaPermitida("enconsumo", "opm") && vistaPermitida("enconsumo", "lector")))) errores.push("consumo canal: no lo ven todos los roles");
+  q("update marcas_consumo set quitado_en = now(), cierre = 'MANUAL' where quitado_en is null"); await P.evaluate(() => api("webMarcas").then(guardarMarcas));
   await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
   const modM = await P.$eval("#sr [data-marcar]", b => b.dataset.marcar.split("|")[1]).catch(() => "");
   if (!modM) errores.push("consumo canal: la tarjeta no tiene «Marcar consumo»");
@@ -953,7 +955,11 @@ let llamadasSb = 0, sinRed = false;
     if (ni >= 0) {
       await P.waitForTimeout(450); await P.click(`.mc-can [data-c="${C[ni]}"]`); await P.waitForTimeout(500);
       if (!/No está disponible/.test(await P.textContent(".modal-card").catch(() => ""))) errores.push("consumo canal: no avisa que no cumple");
-      await P.waitForTimeout(500); await P.click("#cfOk"); await P.waitForTimeout(900);
+      // Nota opcional del marcado forzado
+      if (!(await P.$("#mfN"))) errores.push("forzado: la confirmación no tiene el cuadro de nota");
+      await P.fill("#mfN", "nota del forzado web").catch(() => {});
+      await P.waitForTimeout(500); await P.click("#mfOk"); await P.waitForTimeout(900);
+      if (q(`select coalesce(nota,'') from marcas_consumo where sku='2222' and modulo='${modM}' and forzado and quitado_en is null`) !== "nota del forzado web") errores.push("forzado: la nota no quedó guardada");
     }
     const filas = q(`select string_agg(canal || ':' || forzado || ':' || marcado_por, ',' order by canal) from marcas_consumo where sku='2222' and modulo='${modM}' and quitado_en is null`);
     const esper = [ci >= 0 ? `${C[ci]}:false:Huber` : null, ni >= 0 ? `${C[ni]}:true:Huber` : null].filter(Boolean).sort().join(",");
@@ -977,7 +983,7 @@ let llamadasSb = 0, sinRed = false;
       await P.evaluate(() => cerrarModal(true));
       await P.evaluate(() => { S.ultToque = Date.now(); ir("stock", { sku: "2222" }); }); await P.waitForTimeout(900);
       let dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
-      if (!/^Huber\. /.test(dicho) || !/módulo de consumo es el /i.test(dicho) || !dicho.includes(modM.replace(/^([A-Z]+)(\d+)/, "$1 $2")) || !/Vence el \d{1,2} de [a-z]+ de \d{4}/.test(dicho) || /FEFO/.test(dicho)) errores.push("voz: al consultar el SKU no dice nombre, módulo de consumo, ubicación y fecha: " + dicho);
+      if (/^Huber\. /.test(dicho) || !/Hay un módulo de consumo marcado por Huber, para /.test(dicho) || !dicho.includes(modM.replace(/^([A-Z]+)(\d+)/, "$1 $2")) || !/Vence el \d{1,2} de [a-z]+ de \d{4}/.test(dicho) || /FEFO/.test(dicho)) errores.push("voz: al consultar el SKU no dice (sin saludo) quién marcó el módulo de consumo, para qué canal, ubicación y fecha: " + dicho);
       if (!(await P.$("#sr [data-voz-rep]"))) errores.push("voz: no está el botón 🔊 para volver a escuchar");
       // La pantalla se repinta sola (sin tocar): no repite
       const n0 = await P.evaluate(() => window.__dichos.length);
@@ -985,7 +991,7 @@ let llamadasSb = 0, sinRed = false;
       if ((await P.evaluate(() => window.__dichos.length)) !== n0) errores.push("voz: repite cuando la pantalla se actualiza sola");
       await P.evaluate(m => { S.ultToque = Date.now(); ir("modulo", { mod: m }); }, modM); await P.waitForTimeout(900);
       dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
-      if (!/este es el módulo de consumo/.test(dicho) || !/pasillo|zona|carpa|picking/.test(dicho)) errores.push("voz: al consultar el módulo no dice que es el de consumo y dónde: " + dicho);
+      if (!/este es el módulo de consumo, marcado por Huber/.test(dicho) || !/pasillo|zona|carpa|picking/.test(dicho)) errores.push("voz: al consultar el módulo no dice que es el de consumo y dónde: " + dicho);
       // Sin marca: dice el que debería ser según fefo (una palabra), con su ubicación y fecha
       await P.evaluate(() => { S.ultToque = Date.now(); ir("stock", { sku: "3617" }); }); await P.waitForTimeout(900);
       dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
@@ -1011,6 +1017,7 @@ let llamadasSb = 0, sinRed = false;
         await P.evaluate(m => { S.ultToque = Date.now(); ir("modulo", { mod: m }); }, mB); await P.waitForTimeout(900);
         dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
         if (!/hay dos fechas de este producto/.test(dicho) || !/probablemente está tapando la fecha corta/.test(dicho)) errores.push("tapado: la voz no lo dice: " + dicho);
+        if (!/Ojo, prueba tapado\./.test(dicho)) errores.push("voz: no lee la observación del WMS empezando con «Ojo»: " + dicho);
         console.log("voz (tapado): " + dicho);
         // Si la corta se cargó de última, debería estar adelante
         q(`update wms_base set carga = now() + interval '1 hour' where id=${idB}`);
@@ -1018,6 +1025,36 @@ let llamadasSb = 0, sinRed = false;
         if ((await P.evaluate(a => (tapadoDe(a[0], a[1]) || {}).nivel, [sB, mB])) !== "adelante") errores.push("tapado: con la corta cargada de última no dice que debería estar adelante");
         q(`delete from wms_base where obs='PRUEBA TAPADO'`); q(`update wms_base set carga = ${cargaB ? `'${cargaB}'` : "null"} where id=${idB}`);
         await P.evaluate(() => cargarInv(true));
+      }
+      // Información de producto: nombre con su empaque, el SKU dígito por dígito y el estibado
+      await P.evaluate(() => { S.ultToque = Date.now(); ir("producto", { sku: "2222" }); }); await P.waitForTimeout(900);
+      dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
+      if (!/^pony malta pet 330 cc por 24 unidades\. Su S K U es: 2, 2, 2, 2\./.test(dicho) || !/Su estibado es \d+ bandejas por estiba\./.test(dicho)) errores.push("voz: información de producto mal dicha: " + dicho);
+      console.log("voz (producto): " + dicho);
+      if (!/cajas o bandejas por plancha/.test(await P.textContent("#br"))) errores.push("producto: la plancha no aclara que va en cajas o bandejas");
+      // PNC cuarentena: bloqueado, pero sale para T1 (con su etiqueta); el módulo acompañado muestra el otro producto;
+      // lo marcado forzado sale en «Disponible» con su nota
+      {
+        q(`insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+           select '2222', producto, 'A98', 2, 192, 0, current_date + 400, 400, 'PNC CUARENTENA', 'A98', now(), 'PET', 96, 'PRUEBA CUAR', false, now() from sku where sku = '2222';
+           insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+           select '1428', producto, 'A98', 1, 50, 0, current_date + 300, 300, 'DISPONIBLE', '', now(), 'LATA', 50, 'PRUEBA CUAR', false, now() from sku where sku = '1428';`);
+        await P.evaluate(() => cargarInv(true));
+        await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);
+        await P.click('#sf button[data-f="T1"]'); await P.waitForTimeout(400);
+        const cardT1 = await P.evaluate(() => { const c = [...document.querySelectorAll("#sr .inv")].find(x => x.querySelector(".mod-chip").textContent.trim() === "A98"); return c ? c.innerHTML : ""; });
+        if (!/t-cuar/.test(cardT1)) errores.push("PNC cuarentena: no sale para T1 con su etiqueta");
+        if (!/acomp/.test(cardT1) || !/1428/.test(cardT1)) errores.push("módulo acompañado: la tarjeta no muestra el otro producto del módulo");
+        await P.screenshot({ path: "/tmp/w_cuar_t1.png" });
+        await P.click('#sf button[data-f="DISP"]'); await P.waitForTimeout(400);
+        if (await P.evaluate(() => [...document.querySelectorAll("#sr .inv .mod-chip")].some(x => x.textContent.trim() === "A98"))) errores.push("PNC cuarentena: sale en Disponible sin estar marcado");
+        q(`insert into marcas_consumo (sku, producto, modulo, canal, forzado, marcado_por, nota) values ('2222', 'x', 'A98', 'T2', true, 'Huber', 'nota prueba forzado')`);
+        await P.evaluate(() => api("webMarcas").then(guardarMarcas)); await P.evaluate(() => repintar()); await P.waitForTimeout(700);
+        await P.click('#sf button[data-f="DISP"]').catch(() => {}); await P.waitForTimeout(400);
+        const cardF = await P.evaluate(() => { const c = [...document.querySelectorAll("#sr .inv")].find(x => x.querySelector(".mod-chip").textContent.trim() === "A98"); return c ? c.textContent : ""; });
+        if (!/Forzado T2/.test(cardF) || !/nota prueba forzado/.test(cardF)) errores.push("forzado: no sale en Disponible con su nota: " + cardF.slice(0, 200));
+        q(`delete from marcas_consumo where modulo = 'A98'; delete from wms_base where obs = 'PRUEBA CUAR';`);
+        await P.evaluate(() => api("webMarcas").then(guardarMarcas)); await P.evaluate(() => cargarInv(true));
       }
       await P.evaluate(() => api("webPref", "voz", false).then(p => { S.usuario.prefs = p; }));
       await P.evaluate(() => ir("stock", { sku: "2222" })); await P.waitForTimeout(700);

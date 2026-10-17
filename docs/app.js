@@ -137,7 +137,10 @@ const verWms = () => !!(S.usuario && S.usuario.prefs && S.usuario.prefs.wmsSug =
 const CANALES = { T1: "T1", T2: "T2 · PK", KA: "KA" };
 const canalAct = () => { const c = S.usuario && S.usuario.prefs && S.usuario.prefs.canal; return CANALES[c] ? c : ""; };
 // ¿Esa ubicación sirve para el canal? Disponible y con los días mínimos del canal
-const cumpleCanal = (i, c) => !!(i && i.disp && i[c || canalAct()]);
+// PNC cuarentena: bloqueado en el WMS, pero T1 es el único canal que sí lo puede despachar
+const esCuar = i => !!i && /^PNC\s*CUARENTENA/i.test(String(i.est || "").trim());
+const dispEn = (i, c) => !!i && (i.disp || (c === "T1" && esCuar(i)));
+const cumpleCanal = (i, c) => { c = c || canalAct(); return !!(i && dispEn(i, c) && i[c]); };
 // En T2 (PK) primero lo que dice «reempaque» en la observación del WMS (prioridad reempaque)
 const reempPrimero = (a, b) => (b.reemp ? 1 : 0) - (a.reemp ? 1 : 0);
 function pintarCanal() {
@@ -406,6 +409,7 @@ document.addEventListener("click", e => {
 });
 
 // Tarjetas en cuadrícula (unas al lado de otras) o en lista (una debajo de otra, como en el celular). Se recuerda en este equipo.
+// Por defecto en lista (PC y tablet); solo queda en cuadrícula si la persona la escoge («cuadricula»).
 function ponerVista(v) {
   const lista = v === "lista";
   if (lista) document.documentElement.dataset.vista = "lista"; else delete document.documentElement.dataset.vista;
@@ -413,12 +417,12 @@ function ponerVista(v) {
   if (b) { b.textContent = lista ? "▦" : "▤"; b.title = lista ? "Ver las tarjetas una al lado de otra" : "Ver las tarjetas en lista"; b.setAttribute("aria-label", b.title); b.setAttribute("aria-pressed", lista); }
   $$("[data-vista-tog] .txt").forEach(t => { t.textContent = lista ? "Ver tarjetas una al lado de otra" : "Ver tarjetas en lista"; });
 }
-try { ponerVista(localStorage.getItem("frecs_vista") || ""); } catch (e) { ponerVista(""); }
+try { ponerVista(localStorage.getItem("frecs_vista") === "cuadricula" ? "" : "lista"); } catch (e) { ponerVista("lista"); }
 document.addEventListener("click", e => {
   if (!e.target.closest("#vistaBtn, [data-vista-tog]")) return;
   e.preventDefault();
   const v = document.documentElement.dataset.vista === "lista" ? "" : "lista";
-  ponerVista(v); try { localStorage.setItem("frecs_vista", v); } catch (x) {}
+  ponerVista(v); try { localStorage.setItem("frecs_vista", v || "cuadricula"); } catch (x) {}
 });
 
 let modalBusy = false, modalOnClose = null;
@@ -1009,6 +1013,14 @@ $("#syncBtn").onclick = async () => {
   } finally { b.disabled = false; b.innerHTML = t; pintarRecordatorio(); }
 };
 
+// Quedan pocos: uno por línea; si son muchos, los primeros y un botón para ver el listado completo
+function pocosSyncHtml(pocos) {
+  const li = x => `<li><span class="sku">${h(x.sku)}</span> ${h(x.prod)} · <b>${x.agotado ? "agotado" : `${x.mods.length === 1 ? x.mods[0].m : x.mods.length + " módulos"} · ${fm(x.tot.e)} est.`}</b></li>`;
+  const MAX = 5;
+  return `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length})
+    <ul class="sp-l">${pocos.slice(0, MAX).map(li).join("")}</ul>
+    ${pocos.length > MAX ? `<details class="sp-mas"><summary class="btn sm">📋 Ver listado completo (${pocos.length})</summary><ul class="sp-l">${pocos.slice(MAX).map(li).join("")}</ul></details>` : ""}</div>`;
+}
 // Resultado de la sincronización en una ventana (con Aceptar), con datos para saber si se puede confiar
 function avisoSync(r, antes, err) {
   if (err) {
@@ -1033,7 +1045,7 @@ function avisoSync(r, antes, err) {
     ${alerta ? `<div class="note warn" style="margin-top:12px">${alerta}</div>` : ""}
     ${movViejo ? `<div class="note warn" style="margin-top:12px">El último movimiento del WMS tiene más de 24 h: puede que nadie haya actualizado o que el WMS no esté al día.</div>` : ""}
     ${r && r.fotos && r.fotos.conFoto ? `<div class="note" style="margin-top:12px">📷 ${r.fotos.conFoto} foto${r.fotos.conFoto > 1 ? "s" : ""} nueva${r.fotos.conFoto > 1 ? "s" : ""} de productos con prioridad.</div>` : ""}
-    ${pocos.length ? `<div class="note warn sync-pocos" style="margin-top:12px">🔔 <b>Quedan pocos</b> (${pocos.length}): ${pocos.slice(0, 5).map(x => `<span class="sku">${h(x.sku)}</span> ${h(x.prod)} <b>${x.agotado ? "agotado" : `${x.mods.length === 1 ? x.mods[0].m : x.mods.length + " módulos"} · ${fm(x.tot.e)} est.`}</b>`).join(" · ")}${pocos.length > 5 ? ` · y ${pocos.length - 5} más` : ""}</div>` : ""}
+    ${pocos.length ? pocosSyncHtml(pocos) : ""}
     ${antes && antes.mano && puede("validador") ? `<div class="note" style="margin-top:12px">✍️ Lo anotado a mano (${antes.mano}) quedó guardado. Si el WMS todavía no lo tiene, vuelve a aplicarlo.</div>` : ""}
     <div class="modal-actions">${antes && antes.mano && puede("validador") ? `<button class="btn" data-reaplicar>♻️ Volver a aplicar</button>` : ""}<button class="btn primary" data-x>Aceptar</button></div></div>`);
 }
@@ -1252,6 +1264,7 @@ function invCard(i, o) {
       : `<span class="tag t-nocumple" title="Mínimo ${h(mn || "?")} días">⛔ No cumple ${h(CANALES[cn])}${!i.disp ? " (bloqueado)" : ` · ${i.d === 9999 ? "sin fecha" : i.d + " d"} de ${h(mn || "?")}`}</span>`);
   }
   if (i.carpa && o.carpa !== false) tags.push(`<span class="tag">⛺ Carpa</span>`);
+  if (esCuar(i)) tags.unshift(`<span class="tag t-cuar" title="Bloqueado por PNC cuarentena: solo puede salir por T1">🟠 PNC cuarentena · solo T1</span>`);
   // Estibas del módulo respecto a lo que le cabe (como en Consumo) y si es el único módulo con el producto
   if (o.ocup && S.ocup[i.m] && S.ocup[i.m].capTot) { const oc = S.ocup[i.m]; tags.unshift(oc.usadas >= oc.capTot ? `<span class="tag t-lleno" title="Estibas en el módulo / capacidad">Lleno ${fm(oc.usadas)}/${fm(oc.capTot)}</span>` : `<span class="tag t-inc" title="Estibas en el módulo / capacidad">Incompleto ${fm(oc.usadas)}/${fm(oc.capTot)}</span>`); }
   if (o.unico) tags.unshift(`<span class="tag t-unico">⚠️ Único módulo</span>`);
@@ -1279,6 +1292,7 @@ function invCard(i, o) {
     ${o.canales === false || i.T1 === undefined ? "" : canalesHtml(i)}
     ${tags.length ? `<div class="tags">${tags.join("")}</div>` : ""}
     ${obs}
+    ${o.acomp ? acompHtml(i) : ""}
     ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
     ${i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : ""}
     ${(() => { const r = typeof revisionDe === "function" ? revisionDe(i.m) : null; return r ? `<div class="act act-mano">✍️ Actualizado a mano: ${h(r.que)} · @${h(r.por)} · ${h(fechaCorta(r.en))}</div>` : ""; })()}
@@ -1286,6 +1300,18 @@ function invCard(i, o) {
   </article>`;
 }
 
+// Otros productos en el mismo módulo (al consultar un producto, para saber con qué está acompañado)
+function acompHtml(i) {
+  const g = {};
+  (S.inv || []).filter(x => x.m === i.m && x.s !== i.s && x.fis).forEach(x => {
+    const y = g[x.s] = g[x.s] || { s: x.s, p: x.p, e: 0, c: 0, u: 0, v: "", vf: "", bloq: 0, emp: x.emp };
+    y.e += x.e || 0; y.c += x.c || 0; y.u += x.u || 0; if (!x.disp) y.bloq++;
+    if (x.v && (!y.v || tV(x.v) < tV(y.v))) { y.v = x.v; y.vf = x.vf; }
+  });
+  const l = Object.values(g);
+  if (!l.length) return "";
+  return `<div class="acomp"><div class="acomp-t">👥 También en ${h(i.m)}:</div>${l.map(y => `<div class="acomp-i"><b>${skuTxt(y.s, y.p)}</b> · ${fm(Math.round(y.e * 10) / 10)} est · ${fm(y.c)} ${h(String(y.emp || "cajas").toLowerCase())}${y.vf ? ` · vence ${h(y.vf)}` : ""}${y.bloq ? ` · <span class="pill bad">BLOQ</span>` : ""}</div>`).join("")}</div>`;
+}
 function listaInv(el, cfg) {
   const LOTE = 60;
   let limite = LOTE, filtro = "";
@@ -1314,8 +1340,9 @@ const ordPrioVence = (a, b) => prio(a, b) || (tV(a.v) - tV(b.v));
 // Mismo criterio de Consumo (pony gasto): disponibles de bodega primero (KA / PREV y bloqueados al final),
 // 1) prioridad · 2) fecha más corta · 3) con la misma fecha, el módulo incompleto · 4) el que tiene menos estibas en su módulo
 const ocupMod = m => { const o = S.ocup[m]; return o && o.capTot ? o : null; };
-const ordConsumo = (a, b) => {
-  const g = i => (!i.disp ? 2 : (i.esOp || repVacio(i.m)) ? 1 : 0);
+// Con canal T1, lo de PNC cuarentena cuenta como disponible (es lo único que lo puede despachar)
+const ordConsumoC = canal => (a, b) => {
+  const g = i => (!dispEn(i, canal) ? 2 : (i.esOp || repVacio(i.m)) ? 1 : 0);
   if (g(a) !== g(b)) return g(a) - g(b);
   if (prio(a, b)) return prio(a, b);
   const t = tV(a.v) - tV(b.v); if (t) return t;
@@ -1326,6 +1353,7 @@ const ordConsumo = (a, b) => {
   if (ua !== ub) return ua - ub;
   return cmpMod(a, b);
 };
+const ordConsumo = ordConsumoC("");
 
 // =====================================================================
 // INICIO
@@ -1416,7 +1444,9 @@ VISTAS.stock = async (el, p, vigente) => {
     if (!fis.length) { r.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="prod" style="font-weight:700;font-size:17px">${skuTxt(sku, ficha.prod)}</div></div>` + vacio("No hay existencias físicas.", "⚠️"); if (typeof vozStock === "function") vozStock(sku, ficha.prod, filtro); return; }
     const visibles = fis.filter(i => verKA || !i.esOp);
     const tot = visibles.filter(i => i.disp).reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
-    const lis = visibles.filter(i => (filtro === "DISP" ? i.disp : filtro === "ALL" ? true : cumpleCanal(i, filtro))).sort((a, b) => (filtro === "T2" && reempPrimero(a, b)) || ordConsumo(a, b));
+    // Lo marcado forzado también sale en «Disponible» y en su canal (con su etiqueta ⚠️ Forzado)
+    const fz = (i, c) => typeof forzadoEn === "function" && forzadoEn(i, c);
+    const lis = visibles.filter(i => (filtro === "DISP" ? i.disp || fz(i) : filtro === "ALL" ? true : cumpleCanal(i, filtro) || fz(i, filtro))).sort((a, b) => (filtro === "T2" && reempPrimero(a, b)) || ordConsumoC(filtro)(a, b));
     // Canal sin nada que cumpla: sí existe, pero no cumple; se muestra dónde está
     const esCanal = !!CANALES[filtro], noCumple = esCanal && !lis.length ? visibles.filter(i => i.disp).sort(ordConsumo) : [];
     const minC = esCanal ? Math.max(0, ...fis.map(i => +((i.min || {})[filtro]) || 0)) : 0;
@@ -1428,8 +1458,8 @@ VISTAS.stock = async (el, p, vigente) => {
         <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
-      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, unico: i.m === unico && i.disp, fefo: i.disp && !i.esOp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>`
-        : noCumple.length ? `<div class="note warn no-cumple">⛔ <b>Sí hay este producto, pero no cumple los requisitos de ${h(CANALES[filtro])}</b>${minC ? ` (mínimo ${minC} días)` : ""}. Esto es lo que hay en bodega:</div><div class="grid">${noCumple.map(i => invCard(i, { producto: false, ocup: true })).join("")}</div>`
+      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, acomp: true, unico: i.m === unico && i.disp, fefo: dispEn(i, filtro) && !i.esOp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>`
+        : noCumple.length ? `<div class="note warn no-cumple">⛔ <b>Sí hay este producto, pero no cumple los requisitos de ${h(CANALES[filtro])}</b>${minC ? ` (mínimo ${minC} días)` : ""}. Esto es lo que hay en bodega:</div><div class="grid">${noCumple.map(i => invCard(i, { producto: false, ocup: true, acomp: true })).join("")}</div>`
         : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
@@ -1452,11 +1482,15 @@ VISTAS.stock = async (el, p, vigente) => {
 // =====================================================================
 // INFORMACIÓN DE PRODUCTO (hoja Sku)
 // =====================================================================
+// La plancha va en cajas o bandejas, no en el empaque del producto (sixpacks / fourpacks)
+const empDe = c => String((c && (c.empE || c.emp)) || "Cajas");
+const planchaEt = c => `Plancha <small class="muted">(cajas o bandejas por plancha${/^(sixpacks|fourpacks)$/i.test(empDe(c)) ? `, no ${empDe(c).toLowerCase()}` : ""})</small>`;
+const cantEstTxt = c => c.cantEst ? `${c.cantEst} ${empDe(c).toLowerCase()}` : "";
 function fichaHtml(c, conStock) {
   const cajas = conStock ? (S.inv || []).filter(i => i.s === c.sku && i.fis && i.disp).reduce((a, i) => a + i.c, 0) : null;
   return `<article class="card"><div style="font-weight:700;font-size:15.5px">${skuTxt(c.sku, c.prod)}</div>
-    <div class="ficha"><span>Cubicaje</span><b>${h(c.cub || "N/A")}</b><span>Piso</span><b>${h(c.piso || "N/A")}</b><span>Plancha</span><b>${h(c.plancha || "N/A")}</b>
-    <span>Cant x estiba</span><b>${h(c.cantEst || "N/A")}</b><span>Presentación</span><b>${h(c.pres || "N/A")}</b></div>
+    <div class="ficha"><span>Cubicaje</span><b>${h(c.cub || "N/A")}</b><span>Piso</span><b>${h(c.piso || "N/A")}</b><span>${planchaEt(c)}</span><b>${h(c.plancha || "N/A")}</b>
+    <span>Cant x estiba</span><b>${h(cantEstTxt(c) || "N/A")}</b><span>Presentación</span><b>${h(c.pres || "N/A")}</b></div>
     ${conStock ? `<div class="row sb" style="margin-top:10px"><span class="small muted">Disponible WMS: <b>${fm(cajas)}</b> cajas</span><button class="btn sm" data-sku="${h(c.sku)}">Ver stock →</button></div>` : ""}</article>`;
 }
 // Producto en una fila desplegable (colores intercalados): cerrada muestra SKU, nombre, presentación y lo disponible
@@ -1465,8 +1499,8 @@ function filaProducto(c, opts) {
   const cajas = (S.inv || []).filter(i => i.s === c.sku && i.fis && i.disp).reduce((a, i) => a + i.c, 0);
   const ab = abierto(opts.grupo || "pf", c.sku);
   const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
-  const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], ["Plancha", c.plancha], ["Cant x estiba", c.cantEst]]
-    .concat(opts.todo ? [["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
+  const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Cant x estiba", cantEstTxt(c)]]
+    .concat(opts.todo ? [["Empaque", c.empE || c.emp], ["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
   return `<article class="pf plegable ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="${opts.grupo || "pf"}|${h(c.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
       <div class="pf-t"><div class="pf-n">${skuTxt(c.sku, c.prod)}</div><div class="pf-s">${c.pres ? `<span>${h(c.pres)}</span>` : ""}${opts.todo ? "" : `<span>Disponible <b>${fm(cajas)}</b> cj</span>`}</div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
@@ -1481,15 +1515,15 @@ function detalleProducto(c) {
   const sum = l => l.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
   const t = sum(disp), mods = new Set(bod.map(i => i.m));
   const cn = canalAct(), min = (fis[0] && fis[0].min) || {};
-  const canalFila = k => { const ok = bod.filter(i => cumpleCanal(i, k)); const cj = ok.reduce((a, i) => a + i.c, 0);
+  const canalFila = k => { const ok = fis.filter(i => !i.esOp && cumpleCanal(i, k)); const cj = ok.reduce((a, i) => a + i.c, 0);
     return `<div class="dp-can ${ok.length ? "si" : "no"} ${cn === k ? "act" : ""}"><b>${CANALES[k]}</b><span>${ok.length ? `✅ ${fm(cj)} cj en ${new Set(ok.map(i => i.m)).size} mód.` : "⛔ Nada cumple"}</span><small>Mínimo ${v(min[k] || c[k.toLowerCase()])} días</small></div>`; };
   const g = (tit, campos) => `<div class="dp-g"><div class="dp-gt">${tit}</div><div class="pf-campos">${campos.map(([t2, x]) => `<div><span>${t2}</span><b>${v(x)}</b></div>`).join("")}</div></div>`;
   return `<article class="card dp-card">
-    <div class="dp-cab"><div><div class="dp-n">${skuTxt(c.sku, c.prod)}</div>${c.pres ? `<div class="sub">${h(c.pres)}</div>` : ""}</div>
+    <div class="dp-cab"><div><div class="dp-n">${skuTxt(c.sku, c.prod)}${typeof botonVoz === "function" ? botonVoz() : ""}</div>${c.pres ? `<div class="sub">${h(c.pres)}</div>` : ""}</div>
       <div class="dp-acc"><button class="btn sm primary" data-sku="${h(c.sku)}">📡 Ver stock</button>${puede("administrador") ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}</div></div>
-    <div class="dp-stock">${fis.length ? `<div class="dp-k"><span>Disponible</span><b>${fm(t.c)}</b><small>cajas · ${fm(t.e)} estibas</small></div><div class="dp-k"><span>Módulos de bodega</span><b>${fm(mods.size)}</b><small>${mods.size === 1 ? "⚠️ único módulo" : "con producto disponible"}</small></div><div class="dp-k"><span>Bloqueado</span><b>${fm(fis.length - disp.length)}</b><small>ubicaciones</small></div>` : `<div class="note">Sin existencias físicas en bodega.</div>`}</div>
+    <div class="dp-stock">${fis.length ? `<div class="dp-k"><span>Disponible</span><b>${fm(t.c)}</b><small>cajas · ${fm(t.e)} estibas</small></div><div class="dp-k"><span>Módulos de bodega</span><b>${fm(mods.size)}</b><small>${mods.size === 1 ? "⚠️ único módulo" : "con producto disponible"}</small></div><div class="dp-k"><span>Bloqueado</span><b>${fm(fis.length - disp.length)}</b><small>ubicaciones</small></div>` : `<div class="note bad">Sin existencias físicas en bodega.</div>`}</div>
     ${fis.length ? `<div class="dp-cans">${["T1", "T2", "KA"].map(canalFila).join("")}</div>` : ""}
-    ${g("📦 Estiba y presentación", [["Presentación", c.pres], ["Cant x estiba", c.cantEst], ["Cubicaje", c.cub], ["Piso", c.piso], ["Plancha", c.plancha], ["Est. por cara", c.estCara]])}
+    ${g("📦 Estiba y presentación", [["Presentación", c.pres], ["Cant x estiba", cantEstTxt(c)], ["Empaque", empDe(c)], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Est. por cara", c.estCara]])}
     ${g("🚦 Reglas", [["Vida útil", c.vida ? c.vida + " días" : ""], ["Mínimo (pocos)", c.minimo || "10 (general)"], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]])}
   </article>`;
 }
@@ -1503,6 +1537,7 @@ VISTAS.producto = async (el, p, vigente) => {
   const inp = $("#bq", el);
   const pintar = () => {
     const c = sku && S.cat.find(x => x.sku === sku);
+    if (c && typeof vozProducto === "function") vozProducto(c);
     $("#br", el).innerHTML = c ? detalleProducto(c) : (sku ? vacio("Ese producto ya no está en la hoja Sku.", "❌") : `<div class="muted small dp-ayuda">👆 Escribe y escoge un producto de la lista para ver toda su información.</div>`);
   };
   const escoger = c => { sku = c.sku; ls.set("ultProd", sku); inp.value = `${c.sku} · ${c.prod}`; pintar(); };
@@ -3378,14 +3413,15 @@ function pintarPre(el) {
 // CONSUMO / PONY GASTO
 // =====================================================================
 VISTAS.consumo = async (el, p, vigente) => {
-  const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null)]);
+  const [lis] = await Promise.all([api("webConsumo"), cargarCat().catch(() => null), cargarInv().catch(() => null)]);
   if (!vigente()) return;
   // La lista, el nombre y el orden se cambian en Administración › Lista de consumo; el módulo a consumir
-  // lo escogen aquí a mano el rotador y el administrador («Elegir» / «volver a automático»)
+  // lo escogen aquí a mano el rotador y el administrador («Elegir» / «volver a automático»).
+  // «Elegir» marca el módulo en consumo para un canal (T1, T2 o KA) y lo marcado en consumo sale aquí
   const esc = puede("validador");
   // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
-      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
+      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${typeof tagsMarcas === "function" ? " " + tagsMarcas(x.sku, l.m).join("") : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
@@ -3402,7 +3438,7 @@ VISTAS.consumo = async (el, p, vigente) => {
       ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
   const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
   const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
-    <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. ${esc ? "Toca «Elegir» para cambiar el módulo: el elegido se resalta y se queda en su puesto. " : "El módulo lo escoge el rotador o el administrador. "}KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
+    <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. ${esc ? "Toca «Elegir» para cambiar el módulo: escoges el canal (T1, T2 o KA), queda marcado en consumo y se ve también al consultar el stock. " : "El módulo lo escoge el rotador o el administrador. "}KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
     <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label></div>
     <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
       <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
@@ -3420,7 +3456,8 @@ VISTAS.consumo = async (el, p, vigente) => {
   el.onclick = async e => {
     if (e.target.closest("[data-lista]")) return ir("consumolista");
     const s = e.target.closest("[data-el]");
-    if (s) { try { await api("webConsumoElegir", s.dataset.sku, s.dataset.el); toast(`Módulo ${s.dataset.el} elegido para consumo`, "ok"); ir("consumo"); } catch (er) { toast(er.message, "bad", 6000); } return; }
+    // Elegir = marcar el módulo en consumo para un canal (con la validación de días del canal); Pony y las marcas van juntos
+    if (s) { if (typeof modalMarcar === "function") modalMarcar(s.dataset.sku, s.dataset.el); else { try { await api("webConsumoElegir", s.dataset.sku, s.dataset.el); ir("consumo"); } catch (er) { toast(er.message, "bad", 6000); } } return; }
     const a = e.target.closest("[data-auto]");
     if (a) { try { await api("webConsumoElegir", a.dataset.auto, ""); toast("Volvió al cálculo automático", "ok"); ir("consumo"); } catch (er) { toast(er.message, "bad"); } }
   };
@@ -3792,7 +3829,7 @@ VISTAS.repgen = async (el, p, vigente) => {
   const fecha = t => h(fechaCorta(t));
   const tarjeta = r => {
     const pend = r.estado === "PENDIENTE", mio = norm(r.por) === yo;
-    const cierre = r.estado === "COMPLETADO" ? (r.cierre === "WMS" ? `<div class="rep-cierre ok">🔄 Confirmado por el WMS (sincronización) · ${fecha(r.cerroEn)}</div>` : `<div class="rep-cierre ok">✅ Completado por <b>${h(r.cerroPor)}</b> · ${fecha(r.cerroEn)}</div>`)
+    const cierre = r.estado === "COMPLETADO" ? (r.cierre === "WMS" ? `<div class="rep-cierre ok">🔄 Solucionado al sincronizar el WMS · ${fecha(r.cerroEn)}</div>` : `<div class="rep-cierre ok">✅ Completado por <b>${h(r.cerroPor)}</b> · ${fecha(r.cerroEn)}</div>`)
       : r.estado === "ANULADO" ? `<div class="rep-cierre muted">✖ Anulado por ${h(r.cerroPor)} · ${fecha(r.cerroEn)}</div>` : "";
     return `<article class="card rep-card ${r.tipo === "VACIO" ? "t-v" : "t-c"} ${pend ? "pend" : "cerrado"}">
       <div class="row sb"><span class="row" style="gap:8px">${modChip(r.m)}<span class="pill ${r.tipo === "VACIO" ? "rv-p" : "rc-p"}">${r.tipo === "VACIO" ? "⬜ Vacío" : "⚠️ Conflicto"}</span></span>
@@ -3870,6 +3907,8 @@ function modalNuevaRot() {
   };
 }
 
+// Estibas a rotular por defecto: las configuradas en Capacidad de bodega = caras del módulo × 8 (se rotula retornable)
+const rotCap = m => { const o = (S.ocup || {})[String(m || "").toUpperCase()]; return o && o.caras ? o.caras * 8 : null; };
 // Lo que el sistema sabe de un producto en un módulo: estibas (suma de sus lotes) y el vencimiento más próximo
 function rotDatos(x, sku) {
   const ls2 = x.lotes.filter(l => l.s === sku);
@@ -3882,7 +3921,7 @@ async function vistaRotulo(el, id, vigente) {
   if (!vigente()) return;
   let rot = r, form = null;   // form: { m, sku, prod, vence, est, estSis, x }
   const mods = modulosConProducto(inv);
-  const fila = (it, k) => `<div class="rot-row ${it.rotulado ? "hecho" : ""}" data-id="${it.id}">
+  const fila = (it, k) => `<div class="rot-row ${it.rotulado ? "hecho" : ""} ${it.impreso ? "impreso" : ""}" data-id="${it.id}">
       <span class="rot-k">${k + 1}</span>
       <div class="rot-info"><div class="rot-l1">${modChip(it.m)} <b class="rot-est">${it.est === null || it.est === undefined ? "—" : fm(it.est)} est.</b>${it.estSis !== null && it.estSis !== undefined && Number(it.est) !== Number(it.estSis) ? ` <span class="small muted" title="Lo que calculó el sistema">(sistema ${fm(it.estSis)})</span>` : ""}</div>
         <div class="rot-l2">${it.sku ? skuTxt(it.sku, it.prod) : `<span class="muted">${h(it.prod || "Sin producto")}</span>`}</div>
@@ -3908,9 +3947,9 @@ async function vistaRotulo(el, id, vigente) {
       ${!form.x ? `<div class="note warn" style="margin-top:8px">El aplicativo no tiene producto en ${h(form.m)}: escoge el producto.</div>` : ""}
       <div style="margin-top:10px">${campoAuto("roP", "Producto: nombre o SKU", form.sku ? `${form.sku} · ${form.prod}` : "")}</div>
       <div class="grid2 rot-campos"><label class="field"><span>Vencimiento</span><input type="date" id="roV" value="${h(form.vence)}"></label>
-        <label class="field"><span>Estibas${form.estSis !== null ? ` <span class="muted small">(sistema: ${fm(form.estSis)})</span>` : ""}</span><input type="text" inputmode="decimal" id="roE" value="${form.est === null ? "" : h(form.est)}" placeholder="—"></label></div>
+        <label class="field"><span>Estibas${rotCap(form.m) !== null ? ` <span class="muted small">(capacidad: ${fm(rotCap(form.m) / 8)} caras × 8)</span>` : ""}${form.estSis !== null ? ` <span class="muted small">(sistema: ${fm(form.estSis)})</span>` : ""}</span><input type="text" inputmode="decimal" id="roE" value="${form.est === null ? "" : h(form.est)}" placeholder="—"></label></div>
       <div class="fin-acc"><button type="button" class="btn sm b-rojo" data-cancel>✖ Cancelar</button><button type="button" class="btn b-verde" id="roOk">＋ Agregar a la lista</button></div>`;
-    autoSku($("#roP", f), c => { form.sku = c.sku; form.prod = c.prod; if (form.x && form.x.lotes.some(l => l.s === c.sku)) { const d = rotDatos(form.x, c.sku); form.vence = d.vence; form.est = d.est; form.estSis = d.est; } pintarForm(); });
+    autoSku($("#roP", f), c => { form.sku = c.sku; form.prod = c.prod; if (form.x && form.x.lotes.some(l => l.s === c.sku)) { const d = rotDatos(form.x, c.sku); form.vence = d.vence; form.est = d.est; form.estSis = d.est; } if (rotCap(form.m) !== null) form.est = rotCap(form.m); pintarForm(); });
   };
   const elegirModulo = (m, x) => {
     form = { m: m, x: x || null, sku: "", prod: "", vence: "", est: null, estSis: null };
@@ -3919,6 +3958,7 @@ async function vistaRotulo(el, id, vigente) {
       const skus = [...new Set(x.lotes.map(l => l.s))].map(s => rotDatos(x, s)).sort((a, b) => b.est - a.est);
       Object.assign(form, skus[0], { estSis: skus[0].est });
     }
+    if (rotCap(m) !== null) form.est = rotCap(m);
     pintarForm();
   };
   el.innerHTML = `<div class="vh"><div><h1>🏷️ Rotulación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))}</h1><div class="sub">Abierta por <b>${h(rot.por)}</b></div></div>
@@ -3941,7 +3981,7 @@ async function vistaRotulo(el, id, vigente) {
     if (e.target.closest("[data-cancel]")) { form = null; pintarForm(); $("#roQ", el).focus(); return; }
     const us = e.target.closest("[data-usar]"); if (us) { $("#roQ", el).value = ""; $("#roN", el).innerHTML = ""; elegirModulo(us.dataset.usar, null); return; }
     const s = e.target.closest(".rot-skus [data-sku]");
-    if (s && form) { Object.assign(form, rotDatos(form.x, s.dataset.sku)); form.estSis = form.est; pintarForm(); return; }
+    if (s && form) { Object.assign(form, rotDatos(form.x, s.dataset.sku)); form.estSis = form.est; if (rotCap(form.m) !== null) form.est = rotCap(form.m); pintarForm(); return; }
     if (e.target.closest("#roOk") && form) {
       const v = $("#roV", el).value, est = $("#roE", el).value.trim().replace(",", ".");
       if (!form.sku) { toast("Escoge el producto.", "warn"); $("#roP", el).focus(); return; }
@@ -3970,6 +4010,7 @@ async function vistaRotulo(el, id, vigente) {
     const mk = e.target.closest("[data-mk]"); if (!mk) return;
     const row = mk.closest(".rot-row[data-id]"), v = mk.checked;
     mk.closest(".rot-chk").classList.toggle("on", v);
+    if (mk.dataset.mk === "impreso") row.classList.toggle("impreso", v);
     try { rot = await api("webRotMarcar", rot.id, [+row.dataset.id], mk.dataset.mk, v); pintarLista(); }
     catch (er) { mk.checked = !v; mk.closest(".rot-chk").classList.toggle("on", !v); toast(er.message, "bad"); }
   };
@@ -4107,14 +4148,16 @@ VISTAS.actualizacion = async (el, p, vigente) => {
 // o sola cuando, al sincronizar, ese producto ya no está en el módulo. Todos los roles la ven.
 // =====================================================================
 const puedeMarcar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
-// S.marcas: [id, sku, producto, módulo, canal, forzado, días, mínimo, por, en]
-const marcaObj = r => ({ id: r[0], sku: r[1], prod: r[2], m: r[3], canal: r[4], forzado: !!r[5], dias: r[6], min: r[7], por: r[8], en: r[9] });
+// S.marcas: [id, sku, producto, módulo, canal, forzado, días, mínimo, por, en, nota]
+const marcaObj = r => ({ id: r[0], sku: r[1], prod: r[2], m: r[3], canal: r[4], forzado: !!r[5], dias: r[6], min: r[7], por: r[8], en: r[9], nota: r[10] || "" });
+// Lotes con marca forzada: salen en «Disponible» (y en el canal marcado) aunque no cumplan o estén bloqueados
+const forzadoEn = (i, canal) => typeof marcasDe === "function" && marcasDe(i.s, i.m).some(x => x.forzado && (!canal || x.canal === canal));
 const marcasTodas = () => (S.marcas || []).map(marcaObj);
 const marcasDe = (sku, m) => marcasTodas().filter(x => x.sku === String(sku) && x.m === String(m)).sort((a, b) => a.canal.localeCompare(b.canal));
 function guardarMarcas(lista) { S.marcas = Array.isArray(lista) ? lista : []; ls.setJ("marcas", S.marcas); if (S.usuario) pintarNav(); }
 // Etiquetas para las tarjetas
 function tagsMarcas(sku, m) {
-  return marcasDe(sku, m).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}">⚠️ Forzado ${h(x.canal)}</span>` : ""}`);
+  return marcasDe(sku, m).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}${x.nota ? " · Nota: " + h(x.nota) : ""}">⚠️ Forzado ${h(x.canal)}${x.nota ? ` · 📝 ${h(x.nota.length > 60 ? x.nota.slice(0, 58) + "…" : x.nota)}` : ""}</span>` : ""}`);
 }
 const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}" title="Marcar módulo en consumo">🚚 ${marcasDe(i.s, i.m).length ? "Marcado" : "Marcar"}</button>` : "";
 // Ventana: escoger el canal (o quitar el que ya está)
@@ -4129,7 +4172,7 @@ function modalMarcar(sku, m) {
       <p class="small muted">¿Para qué canal se está cargando de este módulo? Puede estar en varios.</p>
       <div class="mc-cans">${["T1", "T2", "KA"].map(c => { const mk = ya.find(x => x.canal === c), ok = cumpleCanal(i, c), mn = (i.min || {})[c];
         return `<div class="mc-can ${mk ? "on" : ""} ${ok ? "si" : "no"}"><div><b>${h(CANALES[c])}</b><div class="small">${ok ? `✅ Cumple (mínimo ${h(mn)} días)` : `⛔ No cumple${!i.disp ? " (bloqueado)" : ` · mínimo ${h(mn)} días`}`}</div>
-          ${mk ? `<div class="small">Marcado por <b>${h(mk.por)}</b> · ${h(fechaCorta(mk.en))}${mk.forzado ? ` <span class="tag t-forz">⚠️ Forzado</span>` : ""}</div>` : ""}</div>
+          ${mk ? `<div class="small">Marcado por <b>${h(mk.por)}</b> · ${h(fechaCorta(mk.en))}${mk.forzado ? ` <span class="tag t-forz">⚠️ Forzado</span>` : ""}</div>${mk.nota ? `<div class="small">📝 ${h(mk.nota)}</div>` : ""}` : ""}</div>
           ${mk ? `<button class="btn sm del" data-q="${h(mk.id)}">Quitar</button>` : `<button class="btn sm ${ok ? "primary" : "warn"}" data-c="${c}">Marcar</button>`}</div>`; }).join("")}</div>
       <div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`;
   };
@@ -4143,19 +4186,40 @@ function modalMarcar(sku, m) {
       try { guardarMarcas(await api("webMarcaQuitar", b.dataset.q)); toast("Se quitó de consumo", "ok"); repintarModal(); repintar(); } catch (er) { b.disabled = false; toast(er.message, "bad", 6000); }
       return;
     }
-    const canal = b.dataset.c, ok = cumpleCanal(i, canal), mn = (i.min || {})[canal];
-    if (!ok) {
-      const motivo = !i.disp ? "está <b>bloqueado</b> en el WMS" : `vence en <b>${i.d === 9999 ? "?" : i.d} días</b> y ${h(CANALES[canal])} pide <b>${h(mn)}</b>`;
-      cerrarModal(true);
-      if (!(await confirmar(`⛔ No está disponible para ${CANALES[canal]}`, `${h(m)} · ${skuTxt(sku, i.p)} ${motivo}.<br><br>¿Marcarlo de todas formas? Quedará con la etiqueta <b>⚠️ Marcado forzado</b>.`, "Marcar forzado", true))) return;
-    }
+    const canal = b.dataset.c;
+    if (!cumpleCanal(i, canal)) cerrarModal(true);
     if (b.isConnected) b.disabled = true;
-    try {
-      guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn) }));
-      toast(`${m} en consumo para ${CANALES[canal]}${ok ? "" : " (forzado)"}`, ok ? "ok" : "warn", 3500);
-      if (c.isConnected) repintarModal(); repintar();
-    } catch (er) { if (b.isConnected) b.disabled = false; toast(er.message, "bad", 6000); }
+    const hecho = await marcarCanal(sku, m, canal, i);
+    if (hecho) { if (c.isConnected) repintarModal(); repintar(); }
+    else if (b.isConnected) b.disabled = false;
   };
+}
+// Marca un módulo en consumo para un canal con la validación de siempre: si la fecha no cumple los días
+// mínimos (o está bloqueado) avisa y deja marcarlo forzado, con una nota opcional. i = el lote que manda
+// (el que vence primero). Devuelve true si quedó marcado.
+async function marcarCanal(sku, m, canal, i) {
+  const ok = cumpleCanal(i, canal), mn = (i.min || {})[canal];
+  let nota = "";
+  if (!ok) {
+    const motivo = !i.disp ? "está <b>bloqueado</b> en el WMS" : `vence en <b>${i.d === 9999 ? "?" : i.d} días</b> y ${h(CANALES[canal])} pide <b>${h(mn)}</b>`;
+    const r = await confirmarForzado(`⛔ No está disponible para ${CANALES[canal]}`, `${h(m)} · ${skuTxt(sku, i.p)} ${motivo}.<br><br>¿Marcarlo de todas formas? Quedará con la etiqueta <b>⚠️ Marcado forzado</b>.`);
+    if (!r) return false;
+    nota = r.nota;
+  }
+  try {
+    guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn), nota: nota }));
+    toast(`${m} en consumo para ${CANALES[canal]}${ok ? "" : " (forzado)"}`, ok ? "ok" : "warn", 3500);
+    return true;
+  } catch (er) { toast(er.message, "bad", 6000); return false; }
+}
+// Confirmación del marcado forzado con nota opcional: resuelve { nota } o null si cancela
+function confirmarForzado(titulo, texto) {
+  return new Promise(res => {
+    const c = abrirModal(`<h3>${h(titulo)}</h3><p class="muted">${texto}</p>
+      <label class="field"><span>Nota (opcional): por qué se marca forzado</span><textarea id="mfN" rows="2" maxlength="300" placeholder="Ej.: lo pidió el supervisor, cliente lo acepta…"></textarea></label>
+      <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn danger" id="mfOk">Marcar forzado</button></div>`, { onClose: () => res(null) });
+    $("#mfOk", c).onclick = () => { const nota = $("#mfN", c).value.trim(); modalOnClose = null; cerrarModal(true); res({ nota: nota }); };
+  });
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-marcar]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m] = b.dataset.marcar.split("|"); modalMarcar(s, m); }, true);
 
@@ -4183,7 +4247,7 @@ VISTAS.enconsumo = async (el, p, vigente) => {
         <div class="prod">${skuTxt(x.sku, x.prod)}</div>
         ${x.lotes.length ? `${qty(x.tot.e, x.tot.c, x.tot.u)}<div class="vence">Vence <b>${h(x.vf)}</b>${x.d !== null && x.d !== 9999 ? ` · ${x.d} días` : ""}</div>` : `<div class="muted small">El WMS ya no muestra el producto aquí (se quita en la próxima sincronización).</div>`}
         <div class="mc-act act-${h(x.niv)}">${ACT_EMO[x.niv]} Actualizado en el WMS ${h(haceTxt(x.hrs))}</div>
-        <div class="small muted">Marcado por <b>${h(x.por)}</b> · ${h(fechaCorta(x.en))}${x.forzado && x.min !== null ? ` · tenía ${h(x.dias)} d (pide ${h(x.min)})` : ""}</div>
+        <div class="small muted">Marcado por <b>${h(x.por)}</b> · ${h(fechaCorta(x.en))}${x.forzado && x.min !== null ? ` · tenía ${h(x.dias)} d (pide ${h(x.min)})` : ""}</div>${x.nota ? `<div class="small">📝 ${h(x.nota)}</div>` : ""}
         <div class="row"><button class="btn sm" data-sku="${h(x.sku)}">📡 Ver stock</button>${vistaPermitida("repvacio") ? `<button class="btn sm" data-vacio="${h(x.m)}" title="Reportar ${h(x.m)} como vacío (se quita de consumo)">⬜ Reportar vacío</button>` : ""}</div></article>`;
     const fams = {};
     lis.forEach(x => { const f = famDe(x.sku, x.prod); (fams[f] = fams[f] || []).push(x); });
@@ -4678,8 +4742,40 @@ S.ultToque = 0;
 ["pointerdown", "keydown"].forEach(ev => document.addEventListener(ev, () => { S.ultToque = Date.now(); }, true));
 // «I16» → «I 16», «KA12» → «KA 12» (la voz lo lee mejor)
 const modVoz = m => String(m || "").replace(/^([A-Za-z]+)\s*(\d+)/, "$1 $2");
-// Nombre corto para decir: sin «X 24», «330CC» → «330 cc», en minúsculas
-const prodVoz = p => String(p || "").replace(/\s+x\s*\d+.*$/i, "").replace(/(\d)\s*cc\b/gi, "$1 cc").toLowerCase().trim();
+// Nombre para decir: sin lo que va desde «X 24», con las abreviaturas dichas completas («TW» → twist-off,
+// «NR» → no retornable, «RB» → retornable, «BRR» → barril, «2.0L» → 2 litros) y el empaque según el X del
+// nombre: X6 → «sixpack», X4 → «fourpack», X1 → «por uno», el resto → «por 30 unidades»
+const ABREV_VOZ = [[/\bclub col\b/gi, "club colombia"], [/\btw\b/gi, "twist-off"], [/\bnr\b/gi, "no retornable"], [/\b(rb|rn)\b/gi, "retornable"],
+  [/\bbrrl?\b/gi, "barril"], [/\bbot\b/gi, "botella"]];
+function nombreVoz(p) {
+  let t = String(p || "").replace(/\s*x\s*\d{1,3}(?!\d).*$/i, "");
+  t = t.replace(/(\d+)(?:[.,](\d+))?\s*l\b/gi, (a, e, d) => { const dec = d && +d ? "," + d : ""; return `${e}${dec} ${e === "1" && !dec ? "litro" : "litros"}`; });
+  t = t.replace(/(\d)\s*cc\b/gi, "$1 cc");
+  ABREV_VOZ.forEach(([re, x]) => { t = t.replace(re, x); });
+  return t.toLowerCase().replace(/\s+/g, " ").trim();
+}
+function unidadesVoz(p) {
+  const m = String(p || "").match(/x\s*(\d{1,3})(?!\d)/ig);
+  if (!m) return "";
+  const n = parseInt(m[m.length - 1].replace(/\D/g, ""), 10);
+  return n === 6 ? "sixpack" : n === 4 ? "fourpack" : n === 1 ? "por uno" : `por ${n} unidades`;
+}
+const prodVoz = p => { const u = unidadesVoz(p); return nombreVoz(p) + (u ? (/pack$/.test(u) ? ", " : " ") + u : ""); };
+// Observaciones del WMS del producto en ese módulo: «Ojo, mal rotuladas.»
+// (y si es PNC cuarentena, que solo sale por T1)
+function obsVoz(sku, m) {
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.m === String(m) && i.fis);
+  const os = [...new Set(l.filter(i => i.obs).map(i => String(i.obs).replace(/\s+/g, " ").trim()).filter(Boolean))];
+  return (l.some(esCuar) ? " Ojo, es PNC cuarentena: solo sale por T1." : "") +
+    os.slice(0, 2).map(o => ` Ojo, ${o.substring(0, 140).replace(/[.\s]+$/, "").toLowerCase()}.`).join("");
+}
+// Quién lo marcó y para qué canal: «por Juan, para T1» · «por Juan, para T1 y T2» · «por Juan, para T1, y por Ana, para T2»
+const quienVoz = x => String(x.por || "alguien").replace(/^@/, "");
+function porVoz(l) {
+  const g = {};
+  l.forEach(x => (g[quienVoz(x)] = g[quienVoz(x)] || []).push(x.canal));
+  return Object.keys(g).map(q => `por ${q}, para ${listaVoz(g[q])}`).join(", y ");
+}
 let vozVoz = null;
 function vozElegir() {
   if (vozVoz || !vozDisponible()) return vozVoz;
@@ -4712,8 +4808,8 @@ document.addEventListener("click", e => { if (e.target.closest("[data-voz-rep]")
 
 // El primero en FEFO de un producto (lo disponible en bodega, sin KA / PREV ni reportados vacíos; con canal, lo que cumple)
 function primeroFefo(sku, canal) {
-  const l = (S.inv || []).filter(i => i.s === String(sku) && i.fis && i.disp && !i.esOp && !repVacio(i.m) && (!canal || cumpleCanal(i, canal)));
-  return l.sort((a, b) => (canal === "T2" && reempPrimero(a, b)) || ordConsumo(a, b))[0] || null;
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.fis && dispEn(i, canal) && !i.esOp && !repVacio(i.m) && (!canal || cumpleCanal(i, canal)));
+  return l.sort((a, b) => (canal === "T2" && reempPrimero(a, b)) || ordConsumoC(canal)(a, b))[0] || null;
 }
 const marcasProd = sku => typeof marcasTodas === "function" ? marcasTodas().filter(x => x.sku === String(sku)) : [];
 const listaVoz = l => l.length <= 1 ? l.join("") : l.slice(0, -1).join(", ") + " y " + l[l.length - 1];
@@ -4746,48 +4842,69 @@ function tapadoVoz(sku, m) {
   return ` Ojo: en el ${modVoz(m)} hay ${n} fechas de este producto: ${listaVoz(fs)}. ` + (t.nivel === "probable" ? "La fecha larga se cargó después: probablemente está tapando la fecha corta."
     : t.nivel === "posible" ? "Posiblemente la fecha larga está tapando la corta." : "La fecha corta se cargó de última: debería estar adelante.");
 }
-const saludoVoz = () => S.usuario && S.usuario.nombre ? S.usuario.nombre.split(" ")[0] + ". " : "";
 
-// Stock por SKU: el módulo de consumo marcado (dónde está y cuándo vence) o, si no hay, el que debería ser según fefo
+// Stock por SKU: el módulo de consumo marcado (quién lo marcó, para qué canal, dónde está y cuándo vence)
+// o, si no hay, el que debería ser según fefo; y lo que diga la observación del WMS
 function vozStock(sku, prod, filtro) {
   if (!vozOn()) { S.vozTxt = ""; return; }
   const canal = CANALES[filtro] ? filtro : "";
   const mk = marcasProd(sku).filter(x => (S.inv || []).some(i => i.s === x.sku && i.m === x.m && i.fis));
-  let t = saludoVoz() + prodVoz(prod) + ". ";
+  let t = prodVoz(prod) + ". ";
   if (mk.length) {
     const porMod = {};
-    mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x.canal));
+    mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x));
     const mods = Object.keys(porMod);
-    t += mods.length === 1 ? `El módulo de consumo es ${ubicVoz(mods[0])}, para ${listaVoz(porMod[mods[0]])}. ${venceVoz(sku, mods[0])}${tapadoVoz(sku, mods[0])}`
-      : `Los módulos de consumo son: ` + mods.map(m => `${ubicVoz(m)}, para ${listaVoz(porMod[m])}. ${venceVoz(sku, m)}${tapadoVoz(sku, m)}`).join(" Y ");
+    const info = m => `${venceVoz(sku, m)}${obsVoz(sku, m)}${tapadoVoz(sku, m)}`;
+    t += mods.length === 1 ? `Hay un módulo de consumo marcado ${porVoz(porMod[mods[0]])}: ${ubicVoz(mods[0])}. ${info(mods[0])}`
+      : `Hay ${mods.length} módulos de consumo marcados. ` + mods.map(m => `${ubicVoz(m)}, marcado ${porVoz(porMod[m])}. ${info(m)}`).join(" ");
   } else {
     const p = primeroFefo(sku, canal);
-    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}${tapadoVoz(sku, p.m)}`
+    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}${obsVoz(sku, p.m)}${tapadoVoz(sku, p.m)}`
       : `No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
   }
-  hablar(t.trim(), `stock|${sku}|${filtro}`);
+  hablar(t.replace(/\s+/g, " ").trim(), `stock|${sku}|${filtro}`);
 }
 
-// Por módulo: si este módulo está marcado en consumo; si no, el de consumo marcado o el que debería ser según fefo
+// Por módulo: si este módulo está marcado en consumo; si no, el de consumo marcado o el que debería ser según fefo.
+// De cada producto se dice también lo que tenga este módulo: 2 fechas (tapado) y la observación del WMS.
 function vozModulo(q, lis) {
   if (!vozOn()) { S.vozTxt = ""; return; }
   const skus = [...new Set((lis || []).map(i => i.s))];
-  const cab = `${saludoVoz()}Módulo ${modVoz(q)}${lugarVoz(q) ? ", " + lugarVoz(q) : ""}. `;
+  const cab = `Módulo ${modVoz(q)}${lugarVoz(q) ? ", " + lugarVoz(q) : ""}. `;
   if (!skus.length) { hablar(cab + "Está vacío.", `mod|${q}`); return; }
-  // Lo que se dice de cada producto y, si en ESTE módulo hay 2 fechas de él, también eso
-  const frases = skus.slice(0, 3).map(s => { const f = fraseMod(s); return /Ojo: en el/.test(f) || !tapadoVoz(s, q) ? f : f + tapadoVoz(s, q); });
+  const frases = skus.slice(0, 3).map(s => {
+    const f = fraseMod(s);
+    return f.txt + (f.mod === q ? "" : tapadoVoz(s, q) + obsVoz(s, q));
+  });
   hablar((cab + frases.join(" ") + (skus.length > 3 ? ` Y ${skus.length - 3} productos más.` : "")).replace(/\s+/g, " ").trim(), `mod|${q}`);
+  // txt: lo que se dice · mod: el módulo del que se dijo la fecha, el tapado y la observación
   function fraseMod(s) {
     const pre = prodVoz((lis.find(i => i.s === s) || {}).p) + ": ";
+    const info = m => `${venceVoz(s, m)}${obsVoz(s, m)}${tapadoVoz(s, m)}`;
     const aqui = typeof marcasDe === "function" ? marcasDe(s, q) : [];
-    if (aqui.length) return `${pre}este es el módulo de consumo, para ${listaVoz(aqui.map(x => x.canal))}. ${venceVoz(s, q)}${tapadoVoz(s, q)}`;
-    const otros = [...new Set(marcasProd(s).map(x => x.m))].filter(m => m !== q && (S.inv || []).some(i => i.s === s && i.m === m && i.fis));
-    if (otros.length) return `${pre}no es el de consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(ubicVoz))}. ${venceVoz(s, otros[0])}${tapadoVoz(s, otros[0])}`;
+    if (aqui.length) return { mod: q, txt: `${pre}este es el módulo de consumo, marcado ${porVoz(aqui)}. ${info(q)}` };
+    const mk = marcasProd(s).filter(x => x.m !== q && (S.inv || []).some(i => i.s === s && i.m === x.m && i.fis));
+    if (mk.length) {
+      const porMod = {}; mk.forEach(x => (porMod[x.m] = porMod[x.m] || []).push(x));
+      const otros = Object.keys(porMod);
+      return { mod: otros[0], txt: `${pre}no es el de consumo. ${otros.length > 1 ? "Los módulos de consumo son" : "El módulo de consumo es"} ${listaVoz(otros.map(m => `${ubicVoz(m)}, marcado ${porVoz(porMod[m])}`))}. ${info(otros[0])}` };
+    }
     const p = primeroFefo(s);
-    if (!p) return `${pre}no hay producto disponible en bodega.`;
-    return p.m === q ? `${pre}no hay módulo de consumo marcado. Según fefo, este debería ser el de consumo. ${venceVoz(s, q)}${tapadoVoz(s, q)}`
-      : `${pre}no hay módulo de consumo marcado. Según fefo, el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(s, p.m)}${tapadoVoz(s, p.m)}`;
+    if (!p) return { mod: "", txt: `${pre}no hay producto disponible en bodega.` };
+    return p.m === q ? { mod: q, txt: `${pre}no hay módulo de consumo marcado. Según fefo, este debería ser el de consumo. ${info(q)}` }
+      : { mod: p.m, txt: `${pre}no hay módulo de consumo marcado. Según fefo, el de consumo debería ser ${ubicVoz(p.m)}. ${info(p.m)}` };
   }
+}
+
+// Información de producto: nombre, el SKU dígito por dígito y el estibado con su empaque
+// «Pony malta go 2 litros, sixpack. Su S K U es: 3, 6, 5, 9. Su estibado es 60 sixpacks por estiba.»
+function vozProducto(c) {
+  if (!vozOn() || !c) { S.vozTxt = ""; return; }
+  const n = String(c.cantEst || "").trim().replace(".", ",");
+  const emp = String(c.empE || c.emp || "cajas").toLowerCase();
+  let t = `${prodVoz(c.prod)}. Su S K U es: ${String(c.sku).split("").join(", ")}.`;
+  if (/^\d+(,\d+)?$/.test(n)) t += ` Su estibado es ${n} ${emp} por estiba.`;
+  hablar(t, `prod|${c.sku}`);
 }
 
 // =====================================================================
@@ -4834,8 +4951,9 @@ function modalUsuario(u, alGuardar) {
 // ---------- Productos (hoja Sku) ----------
 const SKU_CAMPOS_UI = [
   ["sku", "SKU", "numeric"], ["prod", "Producto"], ["pres", "Presentación"], ["cub", "Cubicaje"], ["piso", "Piso"], ["plancha", "Plancha"], ["cantEst", "Cant x estiba", "numeric"],
-  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"], ["vida", "Vida útil (días)", "numeric"]
+  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"], ["vida", "Vida útil (días)", "numeric"], ["emp", "Empaque (en qué se cuenta la estiba)"]
 ];
+const EMPAQUES_UI = ["Sixpacks", "Fourpacks", "Cajas", "Bandejas", "Barriles"];
 VISTAS.skus = async (el, p, vigente) => {
   await cargarCat(true);
   if (!vigente()) return;
@@ -4865,15 +4983,18 @@ VISTAS.skus = async (el, p, vigente) => {
   pintar();
 };
 // Grupos de la ventana de edición (más compacta: etiquetas y cuadros pequeños)
-const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "estCara"]], ["Reglas", ["vida", "minimo", "t1", "t2", "ka"]]];
+const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "emp", "estCara"]], ["Reglas", ["vida", "minimo", "t1", "t2", "ka"]]];
 function modalSku(c, alGuardar) {
-  const campo = k => { const [, t, im] = SKU_CAMPOS_UI.find(x => x[0] === k); return `<label class="field ${k === "prod" || k === "ctx" ? "ancho" : ""}"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`; };
+  const campo = k => { const [, t, im] = SKU_CAMPOS_UI.find(x => x[0] === k);
+    if (k === "emp") { const v = (c && c.emp) || (c && c.empE) || "", ops = EMPAQUES_UI.includes(v) || !v ? EMPAQUES_UI : EMPAQUES_UI.concat(v);
+      return `<label class="field"><span>${h(t)}</span><select data-k="emp"><option value="">Según el nombre</option>${ops.map(o => `<option ${o === v ? "selected" : ""}>${h(o)}</option>`).join("")}</select></label>`; }
+    return `<label class="field ${k === "prod" || k === "ctx" ? "ancho" : ""}"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`; };
   const m = abrirModal(`<div class="m-sku"><h3>${c ? `✎ ${h(c.sku)}` : "Nuevo producto"}</h3>
     ${SKU_GRUPOS.map(([g, ks]) => `<div class="msk-g"><div class="msk-t">${g}</div><div class="msk-c">${ks.map(campo).join("")}</div></div>`).join("")}
-    <p class="small muted" style="margin:6px 0 0">Vida útil: días que dura desde la producción hasta vencer (para la fecha de envasado). Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
+    <p class="small muted" style="margin:6px 0 0">Empaque: con qué se cuenta «Cant x estiba» y cómo lo dice la voz (X6 = sixpacks, X4 = fourpacks, retornables = cajas, Pony = bandejas, barril = barriles). Vida útil: días que dura desde la producción hasta vencer (para la fecha de envasado). Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="skOk">Guardar</button></div></div>`);
   $("#skOk", m).onclick = async () => {
-    const obj = {}; $$("input[data-k]", m).forEach(i => obj[i.dataset.k] = i.value.trim());
+    const obj = {}; $$("[data-k]", m).forEach(i => obj[i.dataset.k] = i.value.trim());
     const btn = $("#skOk", m); ocupado(btn, true);
     try { S.cat = await api("webSkuGuardar", c ? c.sku : "", obj); ls.setJ("cat", S.cat); ocupado(btn, false); cerrarModal(true); toast("Producto guardado", "ok"); alGuardar(); }
     catch (e) { ocupado(btn, false); toast(e.message, "bad", 6000); }

@@ -156,7 +156,7 @@
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
       return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
         cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
-        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")) };
+        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")), empaque: nul(v("Empaque")) };
     } },
     Capacidad_Bodega: { tabla: "capacidad_bodega", pk: "modulo", clave: f => f.modulo,
       fila: r => ({ modulo: txt(r[0]).toUpperCase(), caras: Math.round(num(r[1]) || 0), capacidad: num(r[2]) === null ? null : Math.round(num(r[2])) }) },
@@ -517,7 +517,14 @@
       if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }
       // Módulos en consumo por canal (verificador, rotador o administrador): la lista fresca de las activas
       const MARCA = { webMarcaPoner: a => ["marca_poner", { p_item: a[1] || {} }], webMarcaQuitar: a => ["marca_quitar", { p_id: Number(a[1]) }], webMarcas: a => ["marcas_listar", {}] };
-      if (MARCA[fn]) { const [f, p] = MARCA[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p)); if (datos) { datos.marcas = v; guardarLS(); } return ok(v); }
+      if (MARCA[fn]) {
+        // Pony gasto va con las marcas: si el producto está en la lista de consumo, se vuelve a traer
+        const skuM = fn === "webMarcaPoner" ? String((args[1] || {}).sku || "") : fn === "webMarcaQuitar" ? String((((datos && datos.marcas) || []).find(r => String(r[0]) === String(args[1])) || [])[1] || "") : "";
+        const [f, p] = MARCA[fn](args); const v = await rpc(f, Object.assign({ p_token: args[0] }, p));
+        if (datos) { datos.marcas = v; guardarLS(); }
+        if (skuM && datos && (datos.consumo || []).some(r => String(r[0]) === skuM)) { await cadena; await cargarDatos(args[0], true); }
+        return ok(v);
+      }
       // Ajustes sin WMS (WMS caído): cambian el inventario en Supabase (la página lo vuelve a traer con webInventario)
       const AJ = { webAjusteSacar: a => ["ajuste_sacar", { p_item: a[1] || {} }], webAjustePoner: a => ["ajuste_poner", { p_item: a[1] || {} }],
         webAjusteDeshacer: a => ["ajuste_deshacer", { p_id: Number(a[1]) }], webAjusteFijar: a => ["ajuste_fijar", { p_item: a[1] || {} }], webAjustes: a => ["ajustes_listar", {}] };

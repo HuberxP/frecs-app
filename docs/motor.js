@@ -1241,14 +1241,35 @@ function normalizarFechaWMS(t) {
   return String(t).trim();
 }
 
-function obtenerTipoEmpaque(nombreProducto) {
-  if (!nombreProducto) return "Cajas";
-  let n = " " + normalizarTexto(String(nombreProducto).toLowerCase()) + " ";
-  if (/(?:[\s_]|^)x\s*4(?:[\s_]|$)/.test(n)) return "Fourpacks";
-  if (/(?:[\s_]|^)x\s*6(?:[\s_]|$)/.test(n)) return "Sixpacks";
-  if (/(?:[\s_]|^)x\s*12(?:[\s_]|$)/.test(n)) return "Decenas";
-  if (/(?:[\s_]|^)x\s*1(?:[\s_]|$)/.test(n)) return "Unidades";
+// ---------------------------------------------------------
+// EMPAQUE: en qué se cuenta la estiba («Cant x Estibas» de Sku)
+// Columna Empaque de Sku; vacía = la regla: X6 → Sixpacks · X4 → Fourpacks · barril → Barriles ·
+// Pony → Bandejas · el resto → Cajas
+// ---------------------------------------------------------
+const EMPAQUES = ["Sixpacks", "Fourpacks", "Cajas", "Bandejas", "Barriles", "Unidades"];
+// Unidades del paquete según el nombre («… X30» → 30, «30Lx1» → 1); null si no tiene
+function unidadesPaquete_(nombre) {
+  const m = String(nombre || "").match(/x\s*(\d{1,3})(?!\d)/ig);
+  return m ? parseInt(m[m.length - 1].replace(/\D/g, ""), 10) : null;
+}
+function empaqueRegla_(nombre, pres) {
+  const n = String(nombre || ""), u = unidadesPaquete_(n);
+  if (u === 6) return "Sixpacks";
+  if (u === 4) return "Fourpacks";
+  if (/barril/i.test(String(pres || "")) || /\b(brr|brrl|barril)\b/i.test(n) || u === 1) return "Barriles";
+  if (/\bpony\b/i.test(n)) return "Bandejas";
   return "Cajas";
+}
+// Con el SKU usa la columna Empaque; sin SKU busca el producto por nombre
+function obtenerTipoEmpaque(nombreProducto, sku) {
+  let c = null;
+  try {
+    c = sku ? skuInfo_(sku) : null;
+    if (!c && nombreProducto) { const k = String(nombreProducto).trim().toLowerCase(); c = catalogoSku_().find(x => String(x.prod).trim().toLowerCase() === k) || null; }
+  } catch (e) { c = null; }
+  if (c && c.emp) return c.emp;
+  if (!nombreProducto && !c) return "Cajas";
+  return empaqueRegla_(nombreProducto || (c && c.prod), c && c.pres);
 }
 
 // Cantidades con nombre completo (vertical, para el bot)
@@ -1328,10 +1349,18 @@ const SKU_CAMPOS = {
   pres: ["presentacion"], usuario: ["usuario"], ctx: ["contexto"],
   minimo: ["minimo", "minimoestibas"], t1: ["t1"], t2: ["t2"], ka: ["ka"],
   estCara: ["estibasporcara", "estibasxcara", "porcara"],
-  vida: ["vidautil", "vidautildias", "diasvidautil", "vidautil(dias)"]
+  vida: ["vidautil", "vidautildias", "diasvidautil", "vidautil(dias)"],
+  emp: ["empaque", "tipoempaque", "unidadestiba"]
 };
-const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util" };
+const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util", emp: "Empaque" };
 
+// «sixpack», «SIXPACKS» → «Sixpacks»; lo que no está en la lista queda como lo escribieron
+function empaqueNorm_(v) {
+  const t = String(v === null || v === undefined ? "" : v).trim();
+  if (!t) return "";
+  const k = normalizarTexto(t).toLowerCase().replace(/[^a-z]/g, "").replace(/s$/, "");
+  return EMPAQUES.find(e => e.toLowerCase().replace(/s$/, "") === k) || t;
+}
 function claveEncabezado_(t) { return normalizarTexto(String(t || "")).toLowerCase().replace(/[^a-z0-9ñ]/g, ""); }
 
 let _SKU = null;
@@ -1347,7 +1376,7 @@ function leerSku_() {
     if (idx !== -1) cols[k] = idx;
   });
   // Columnas nuevas que faltan: se agregan al final con su encabezado
-  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida"].filter(k => cols[k] === undefined);
+  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida", "emp"].filter(k => cols[k] === undefined);
   if (faltan.length && cols.sku !== undefined) {
     let col = sh.getLastColumn();
     faltan.forEach(k => { sh.getRange(1, col + 1).setValue(SKU_ENCABEZADOS[k]).setFontWeight("bold"); cols[k] = col; col++; });
@@ -1365,7 +1394,8 @@ function leerSku_() {
       fila: j + 1, idHoja: String(val(r, "id")), sku: sku, prod: String(val(r, "prod")), cub: String(val(r, "cub")), piso: String(val(r, "piso")),
       plancha: String(val(r, "plancha")), cantEst: String(val(r, "cantEst")), pres: String(val(r, "pres")),
       usuario: String(val(r, "usuario")), ctx: String(val(r, "ctx")),
-      minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara")), vida: num(val(r, "vida"))
+      minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara")), vida: num(val(r, "vida")),
+      emp: empaqueNorm_(val(r, "emp"))
     };
     if (!mapa[sku]) { mapa[sku] = o; lista.push(o); }
   }
@@ -2873,7 +2903,7 @@ function buscarFichaTecnicaPaginada(termino, pagina) {
   matches.slice(ini, ini + lim).forEach((c, idx) => {
     msj += `*${ini + idx + 1}.* ${skuProdMd_(c.sku, c.prod)}\n` +
       `Cubicaje: ${escapeMd(c.cub || "N/A")}\nPiso: ${escapeMd(c.piso || "N/A")}\nPlancha: ${escapeMd(c.plancha || "N/A")}\n` +
-      `Cant x estiba: ${escapeMd(c.cantEst || "N/A")} ${obtenerTipoEmpaque(c.prod).toLowerCase()}\nPresentación: ${escapeMd(c.pres || "N/A")}\n${SEP_}`;
+      `Cant x estiba: ${escapeMd(c.cantEst || "N/A")} ${obtenerTipoEmpaque(c.prod, c.sku).toLowerCase()}\nPresentación: ${escapeMd(c.pres || "N/A")}\n${SEP_}`;
   });
   return { text: msj, markup: generarBotoneraPaginacion(`SRCH|${cbKey(termino)}`, pagina, matches.length, lim) };
 }
@@ -2882,7 +2912,8 @@ function buscarFichaTecnicaPaginada(termino, pagina) {
 // 2. ADMINISTRAR LA HOJA SKU (solo administrador)
 // ---------------------------------------------------------
 // vida: días de vida útil (de la producción al vencimiento), para la calculadora de envasado
-const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara", "vida"];
+// emp: en qué se cuenta la estiba (Sixpacks, Fourpacks, Cajas, Bandejas, Barriles); vacío = la regla del nombre
+const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara", "vida", "emp"];
 const SKU_NUMERICOS = ["minimo", "t1", "t2", "ka", "estCara", "vida"];
 
 function validarSku_(obj) {
@@ -2897,6 +2928,7 @@ function validarSku_(obj) {
     o[k] = n;
   });
   if (!o.ctx) o.ctx = normalizarTexto(o.prod.toLowerCase());
+  o.emp = empaqueNorm_(o.emp) || empaqueRegla_(o.prod, o.pres);
   return o;
 }
 
@@ -5056,7 +5088,8 @@ function sbFilasSku_() {
   return sbSinRepetir_(catalogoSku_().map(c => ({
     sku: c.sku, id_hoja: sbTxt_(c.idHoja),
     producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
-    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara, vida_util: c.vida
+    presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara, vida_util: c.vida,
+    empaque: c.emp || empaqueRegla_(c.prod, c.pres)
   })), x => x.sku);
 }
 function sbFilasCanales_(omitir) {
@@ -5149,7 +5182,7 @@ function sbBajarMaestros_(tablas) {
       if (sk.sh) {
         const ancho = sk.sh.getLastColumn();
         const campos = { id: "id_hoja", sku: "sku", prod: "producto", cub: "cubicaje", piso: "piso", plancha: "plancha", cantEst: "cant_x_estiba",
-          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util" };
+          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util", emp: "empaque" };
         const enBase = new Set();
         m.sku.forEach(x => {
           enBase.add(String(x.sku));
@@ -5814,7 +5847,7 @@ function inventarioPayload_() {
       prio: i.prio, tpc: i.tpc, reemp: i.reempaque, fis: i.tieneFisico,
       T1: c2.T1, T2: c2.T2, KA: c2.KA, min: c2.min,
       esKA: z === "KA", esPK: z === "PREV" || i.pick, esOp: esZonaOperativa(i), carpa: z === "CARPA",
-      ret: esProductoRetornable(i.fam, i.p, i.s), vida: vidaUtilInfo(i.d).clave, emp: obtenerTipoEmpaque(i.p)
+      ret: esProductoRetornable(i.fam, i.p, i.s), vida: vidaUtilInfo(i.d).clave, emp: obtenerTipoEmpaque(i.p, i.s)
     };
   });
   const d = { filas: filas, ocupacion: tablaOcupacion_(inv), generado: ahora_() };
@@ -5825,7 +5858,7 @@ function inventarioPayload_() {
 function webInventario(tk) { return webAuth_(tk, L_, () => inventarioPayload_()); }
 
 function catalogoWeb_() {
-  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida }));
+  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres) }));
 }
 function webCatalogo(tk) { return webAuth_(tk, L_, () => catalogoWeb_()); }
 function webCanales(tk) { return webAuth_(tk, L_, () => ({ reglas: canalesListar_(), defecto: POCOS_DEFECTO })); }

@@ -828,7 +828,10 @@ let llamadasSb = 0, sinRed = false;
   if (!(await P.isVisible(".buscador .ac-list .ac-item"))) errores.push("información de producto: al escribir no sale la lista");
   if (await P.$(".dp-card")) errores.push("información de producto: carga el producto antes de escogerlo");
   await P.click(".buscador .ac-list .ac-item"); await P.waitForTimeout(300);
-  if (!(await P.$(".dp-card .dp-cans")) || !(await P.$(".dp-card .pf-campos"))) errores.push("información de producto: al escoger no muestra la ficha completa");
+  if (!(await P.$(".dp-card .pf-campos .dp-est")) || !(await P.$(".dp-card [data-sku]"))) errores.push("información de producto: al escoger no muestra la ficha (con «Cant x estiba» resaltada y «Ver stock»)");
+  if (await P.$(".dp-card .dp-stock, .dp-card .dp-cans")) errores.push("información de producto: todavía muestra el stock");
+  // Sin existencias físicas: aviso en rojo
+  if (!(await P.evaluate(() => { const c = S.cat.find(x => !(S.inv || []).some(i => i.s === x.sku && i.fis)); if (!c) return true; const d = document.createElement("div"); d.innerHTML = detalleProducto(c); return !!d.querySelector(".note.bad"); }))) errores.push("información de producto: sin existencias no sale el aviso rojo");
   await P.screenshot({ path: "/tmp/w_producto.png" });
   await P.click(".dp-card [data-ed]"); await P.waitForTimeout(300);
   if (!(await P.$(".m-sku .msk-g"))) errores.push("editar producto: no abrió la ventana compacta");
@@ -1037,7 +1040,7 @@ let llamadasSb = 0, sinRed = false;
       // Información de producto: nombre con su empaque, el SKU dígito por dígito y el estibado
       await P.evaluate(() => { S.ultToque = Date.now(); ir("producto", { sku: "2222" }); }); await P.waitForTimeout(900);
       dicho = await P.evaluate(() => window.__dichos.slice(-1)[0] || "");
-      if (!/^pony malta pet 330 cc por 24 unidades\. Su S K U es: 2, 2, 2, 2\./.test(dicho) || !/Su estibado es \d+ bandejas por estiba\./.test(dicho)) errores.push("voz: información de producto mal dicha: " + dicho);
+      if (!/^pony malta pet 330 cc por 24 unidades\. Su S K U es: 22, 22\./.test(dicho) || !/Su estibado es \d+ bandejas por estiba\./.test(dicho)) errores.push("voz: información de producto mal dicha: " + dicho);
       console.log("voz (producto): " + dicho);
       if (!/cajas o bandejas por plancha/.test(await P.textContent("#br"))) errores.push("producto: la plancha no aclara que va en cajas o bandejas");
       // PNC cuarentena: bloqueado, pero sale para T1 (con su etiqueta); el módulo acompañado muestra el otro producto;

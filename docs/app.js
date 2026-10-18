@@ -1509,23 +1509,17 @@ function filaProducto(c, opts) {
     <div class="pl-cuerpo"><div class="pf-campos">${campos.map(([t, x]) => `<div><span>${t}</span><b>${v(x)}</b></div>`).join("")}</div>
       <div class="pf-acc">${opts.todo ? "" : `<button class="btn sm" data-sku="${h(c.sku)}">📡 Ver stock</button>`}${opts.editar ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}${opts.borrar ? `<button class="btn sm del" data-bo="${h(c.sku)}" title="Borrar" aria-label="Borrar">${ICO_DEL}</button>` : ""}</div></div></article>`;
 }
-// Toda la información de un producto (al escogerlo de la lista)
+// Toda la información de un producto (al escogerlo de la lista). El stock se ve en «Ver stock»;
+// aquí solo se avisa en rojo si no hay existencias físicas en bodega.
 function detalleProducto(c) {
   const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
-  const fis = (S.inv || []).filter(i => i.s === c.sku && i.fis), disp = fis.filter(i => i.disp);
-  const bod = disp.filter(i => !i.esOp);
-  const sum = l => l.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 });
-  const t = sum(disp), mods = new Set(bod.map(i => i.m));
-  const cn = canalAct(), min = (fis[0] && fis[0].min) || {};
-  const canalFila = k => { const ok = fis.filter(i => !i.esOp && cumpleCanal(i, k)); const cj = ok.reduce((a, i) => a + i.c, 0);
-    return `<div class="dp-can ${ok.length ? "si" : "no"} ${cn === k ? "act" : ""}"><b>${CANALES[k]}</b><span>${ok.length ? `✅ ${fm(cj)} cj en ${new Set(ok.map(i => i.m)).size} mód.` : "⛔ Nada cumple"}</span><small>Mínimo ${v(min[k] || c[k.toLowerCase()])} días</small></div>`; };
-  const g = (tit, campos) => `<div class="dp-g"><div class="dp-gt">${tit}</div><div class="pf-campos">${campos.map(([t2, x]) => `<div><span>${t2}</span><b>${v(x)}</b></div>`).join("")}</div></div>`;
+  const fis = (S.inv || []).filter(i => i.s === c.sku && i.fis);
+  const g = (tit, campos) => `<div class="dp-g"><div class="dp-gt">${tit}</div><div class="pf-campos dp-campos">${campos.map(([t2, x, cls]) => `<div class="${cls || ""}"><span>${t2}</span><b>${v(x)}</b></div>`).join("")}</div></div>`;
   return `<article class="card dp-card">
     <div class="dp-cab"><div><div class="dp-n">${skuTxt(c.sku, c.prod)}${typeof botonVoz === "function" ? botonVoz() : ""}</div>${c.pres ? `<div class="sub">${h(c.pres)}</div>` : ""}</div>
       <div class="dp-acc"><button class="btn sm primary" data-sku="${h(c.sku)}">📡 Ver stock</button>${puede("administrador") ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}</div></div>
-    <div class="dp-stock">${fis.length ? `<div class="dp-k"><span>Disponible</span><b>${fm(t.c)}</b><small>cajas · ${fm(t.e)} estibas</small></div><div class="dp-k"><span>Módulos de bodega</span><b>${fm(mods.size)}</b><small>${mods.size === 1 ? "⚠️ único módulo" : "con producto disponible"}</small></div><div class="dp-k"><span>Bloqueado</span><b>${fm(fis.length - disp.length)}</b><small>ubicaciones</small></div>` : `<div class="note bad">Sin existencias físicas en bodega.</div>`}</div>
-    ${fis.length ? `<div class="dp-cans">${["T1", "T2", "KA"].map(canalFila).join("")}</div>` : ""}
-    ${g("📦 Estiba y presentación", [["Presentación", c.pres], ["Cant x estiba", cantEstTxt(c)], ["Empaque", empDe(c)], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Est. por cara", c.estCara]])}
+    ${fis.length ? "" : `<div class="note bad dp-sin">Sin existencias físicas en bodega.</div>`}
+    ${g("📦 Estiba y presentación", [["Cant x estiba", cantEstTxt(c), "dp-est"], ["Presentación", c.pres], ["Empaque", empDe(c)], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Est. por cara", c.estCara]])}
     ${g("🚦 Reglas", [["Vida útil", c.vida ? c.vida + " días" : ""], ["Mínimo (pocos)", c.minimo || "10 (general)"], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]])}
   </article>`;
 }
@@ -4898,13 +4892,22 @@ function vozModulo(q, lis) {
   }
 }
 
-// Información de producto: nombre, el SKU dígito por dígito y el estibado con su empaque
+// El SKU en grupos, como se dice: 12026 → «12, 0, 26» (doce, cero, veintiséis) · 2222 → «22, 22» · 365 → «3, 65».
+// Un grupo que empieza en cero se dice cifra por cifra (06 → «0, 6»)
+function skuVoz(sku) {
+  const d = String(sku || "").replace(/\D/g, "");
+  const tam = d.length === 5 ? [2, 1, 2] : d.length === 4 ? [2, 2] : d.length === 3 ? [1, 2] : d.length <= 2 ? [d.length] : Array(Math.ceil(d.length / 2)).fill(2);
+  const g = []; let k = 0;
+  tam.forEach(n => { const x = d.slice(k, k + n); k += n; if (!x) return; if (x.length > 1 && x[0] === "0") g.push(...x.split("")); else g.push(String(+x)); });
+  return g.join(", ");
+}
+// Información de producto: nombre, el SKU en grupos y el estibado con su empaque
 // «Pony malta go 2 litros, sixpack. Su S K U es: 3, 6, 5, 9. Su estibado es 60 sixpacks por estiba.»
 function vozProducto(c) {
   if (!vozOn() || !c) { S.vozTxt = ""; return; }
   const n = String(c.cantEst || "").trim().replace(".", ",");
   const emp = String(c.empE || c.emp || "cajas").toLowerCase();
-  let t = `${prodVoz(c.prod)}. Su S K U es: ${String(c.sku).split("").join(", ")}.`;
+  let t = `${prodVoz(c.prod)}. Su S K U es: ${skuVoz(c.sku)}.`;
   if (/^\d+(,\d+)?$/.test(n)) t += ` Su estibado es ${n} ${emp} por estiba.`;
   hablar(t, `prod|${c.sku}`);
 }

@@ -1409,6 +1409,14 @@
   .dp-can.act { box-shadow: 0 0 0 2px var(--cyan); }
   .dp-g { margin-top: 10px; } .dp-gt { font-weight: 750; font-size: 13px; margin-bottom: 6px; color: var(--muted); }
   .dp-ayuda { padding: 14px 4px; }
+  .dp-sin { margin: 12px 0 2px; }
+  /* Cada dato con su borde; «Cant x estiba» resaltada con otro borde */
+  .dp-campos { border-top: 0; gap: 8px; padding-top: 0; }
+  .dp-campos > div { border: 1px solid var(--line2); border-radius: 10px; padding: 7px 10px; background: var(--bg2); }
+  .dp-campos > div.dp-est { border: 2px solid var(--brand, #39ff88); background: rgba(57,255,136,.08); }
+  .dp-campos > div.dp-est b { font-size: 15px; }
+  html[data-tema="claro"] .dp-campos > div { background: #f7f9fc; }
+  html[data-tema="claro"] .dp-campos > div.dp-est { border-color: #15a058; background: #eafaf0; }
   @media (max-width: 480px) { .dp-cans { grid-template-columns: 1fr; } }
 
   /* ---------- Alerta de pocos (productos vigilados) ---------- */

@@ -258,3 +258,54 @@ export async function sincronizarWms(rpc: Rpc, o: { forzar?: boolean; por: strin
   if (o.fotos) { try { fotos = await fotosPrioridad(mods, s, cfg, rpc); } catch (e) { console.warn("fotos:", (e as Error).message); } }
   return { ok: true, filas: conProducto, fisicas: conProducto, modulos: mods.length, total, peticiones: s.peticiones, fotos };
 }
+
+// ---------- solo lo que cambió (cada 2 a 4 minutos) ----------
+// 1) ¿Qué módulos tienen algo actualizado desde la última revisión? (respuesta casi vacía si nada cambió)
+// 2) Esos módulos se piden completos (la consulta 1 solo trae los lotes que cambiaron)
+// 3) En la base se cambian solo esos módulos; el resto queda igual
+const MARGEN_MS = 90 * 1000;   // se repasa un poco hacia atrás para no perder nada entre una y otra
+const urlFiltro = (cfg: Cfg, filtros: unknown[], start: number, length: number) =>
+  `${cfg.inventarios_url}?activo=true&origen=WMS&cd_id=${encodeURIComponent(String(cfg.cd_id))}` +
+  `&filters=${encodeURIComponent(JSON.stringify([{ campo: "bodega__tipo", operador: "=", valor: "WMS", type: "text" }].concat(filtros as any)))}` +
+  `&search=${encodeURIComponent(JSON.stringify({ search: "" }))}` +
+  `&paging=${encodeURIComponent(JSON.stringify({ start, length }))}`;
+async function todasLasPaginas(s: Sesion, cfg: Cfg, filtros: unknown[]) {
+  let out: any[] = [], total: number | null = null, start = 0;
+  for (let p = 0; p < MAX_PAGINAS; p++) {
+    const d = await s.get(urlFiltro(cfg, filtros, start, PAGINA));
+    const tf = parseInt(d.records_filtered, 10); if (!isNaN(tf)) total = tf;
+    out = out.concat(d.results); start += d.results.length;
+    if (!d.results.length || (total !== null ? out.length >= total : d.results.length < PAGINA)) break;
+  }
+  if (total !== null && out.length !== total) throw new Error(`El WMS reporta ${total} módulos pero llegaron ${out.length}.`);
+  return out;
+}
+export async function cambiosWms(rpc: Rpc) {
+  const cfg: Cfg = (await rpc("sb_wms_config")) || {};
+  if (!cfg.login_url || !cfg.inventarios_url || !cfg.usuario || !cfg.clave) throw new Error("Falta la conexión al WMS en Supabase.");
+  const s = new Sesion(cfg, rpc);
+  const desde = String((await rpc("sb_wms_delta_desde")) || "");
+  const t0 = Date.now();
+  const desdeMs = Math.min(Date.parse(desde) || t0 - 10 * 60000, t0) - MARGEN_MS;
+  const desdeIso = new Date(desdeMs).toISOString().replace(/\.\d+Z$/, "Z");
+  const cambiaron = await todasLasPaginas(s, cfg, [{ campo: "inventarios__fecha_ultima_actualizacion", operador: ">=", valor: desdeIso, type: "datetime" }]);
+  const hasta = new Date(t0).toISOString();
+  if (!cambiaron.length) return { ok: true, n: 0, modulos: [], hasta, peticiones: s.peticiones };
+  // Los módulos completos (por nombre, de a 60)
+  const nombres = [...new Set(cambiaron.map(m => String(m.nombre || "")).filter(Boolean))];
+  let completos: any[] = [];
+  for (let k = 0; k < nombres.length; k += 60) completos = completos.concat(await todasLasPaginas(s, cfg, [{ campo: "nombre", operador: "in", valor: nombres.slice(k, k + 60), type: "text" }]));
+  const mods = unificar(completos);
+  const nuevos = aplanar(mods), cambiados = new Set(mods.map(m => m.nombre));
+  // Lo demás queda como está en la base
+  const act = (await rpc("sb_wms_actual")) || {};
+  const filas = (act.filas || []).filter((r: any) => !cambiados.has(r.modulo)).concat(nuevos.filas);
+  const filasMod = (act.modulos || []).filter((r: any) => !cambiados.has(r.modulo)).concat(nuevos.filasMod);
+  const conProducto = filas.filter((r: any) => Number(r.estibas) > 0 || Number(r.cajas) > 0 || Number(r.unidades) > 0).length;
+  const antes = act.ultimo_movimiento ? Date.parse(act.ultimo_movimiento) : 0;
+  await rpc("sb_reemplazar_wms", {
+    p_filas: filas, p_modulos: filasMod,
+    p_estado: { ultima_sync: new Date().toISOString(), ultimo_movimiento: new Date(Math.max(antes || 0, nuevos.maxMov || 0) || Date.now()).toISOString(), filas: conProducto, modulos: filasMod.length, por: "Cambios" }
+  });
+  return { ok: true, n: cambiados.size, modulos: [...cambiados], hasta, peticiones: s.peticiones };
+}

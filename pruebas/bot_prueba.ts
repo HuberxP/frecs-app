@@ -51,7 +51,7 @@ Deno.serve({ port: P_AS, onListen() {} }, async req => {
 });
 
 // --- WMS falso (login + inventario por páginas, armado con lo que hay en wms_base) ---
-const wms = { logins: 0, gets: 0, heads: [] as Headers[], falla: 0, rechazo: 0, token: "" };
+const wms = { logins: 0, gets: 0, heads: [] as Headers[], falla: 0, rechazo: 0, token: "", deltas: 0, porNombre: 0 };
 const jwt = (exp: number) => "h." + btoa(JSON.stringify({ exp })).replace(/=+$/, "") + ".f";
 let invFalso: any[] = [];
 async function armarInvFalso() {
@@ -76,7 +76,13 @@ Deno.serve({ port: P_WMS, onListen() {} }, async req => {
     if (wms.rechazo) { wms.rechazo--; return new Response('{"detail":"token"}', { status: 401 }); }
     if (req.headers.get("authorization") !== "Bearer " + wms.token) return new Response('{"detail":"token"}', { status: 401 });
     const pg = JSON.parse(u.searchParams.get("paging") || "{}");
-    return new Response(JSON.stringify({ records_filtered: invFalso.length, results: invFalso.slice(pg.start, pg.start + pg.length) }), { headers: { "Content-Type": "application/json" } });
+    // Filtros como el WMS real: por fecha de actualización (solo trae los lotes que cambiaron) o por nombre (módulos completos)
+    const fs = JSON.parse(u.searchParams.get("filters") || "[]");
+    const fAct = fs.find((f: any) => f.campo === "inventarios__fecha_ultima_actualizacion"), fNom = fs.find((f: any) => f.campo === "nombre");
+    let lista = invFalso;
+    if (fAct) { wms.deltas++; lista = invFalso.map(m => Object.assign({}, m, { inventarios: m.inventarios.filter((i: any) => i.fecha_ultima_actualizacion && Date.parse(i.fecha_ultima_actualizacion) >= Date.parse(fAct.valor)) })).filter(m => m.inventarios.length); }
+    if (fNom) { wms.porNombre++; lista = invFalso.filter(m => fNom.valor.includes(m.nombre)); }
+    return new Response(JSON.stringify({ records_filtered: lista.length, results: lista.slice(pg.start, pg.start + pg.length) }), { headers: { "Content-Type": "application/json" } });
   }
   return new Response("no", { status: 404 });
 });
@@ -178,6 +184,28 @@ for (const d of ["PDFPOCOS", "PDFCONSO", "PDFCONSO2", "PDFRESUMEN", "PDFRETORNAB
   ok(tg.slice(a0).some(x => /volvió a responder/.test(x.text || "")), "cuando vuelve a funcionar, avisa una vez");
   const est = JSON.parse(await psql("select valor from frecs_config where clave = 'sync_auto'", "postgres"));
   ok(est.ok === true && /ubicaciones/.test(est.msg) && est.ult, "queda cómo le fue a la última automática");
+  // Solo lo que cambió: un lote de un módulo con 2 productos cambia en el WMS; se trae el módulo completo y se cambia solo ese
+  {
+    const [mC, idC] = (await psql("select modulo || '|' || min(id) from wms_base where coalesce(estibas,0) > 0 group by modulo having count(*) >= 2 order by modulo limit 1", "postgres")).split("|");
+    const otros0 = await psql(`select count(*) from wms_base where modulo <> '${mC}'`, "postgres");
+    const filasMod = await psql(`select count(*) from wms_base where modulo = '${mC}'`, "postgres");
+    await armarInvFalso();
+    const viejo = new Date(Date.now() - 6 * 3600e3).toISOString();
+    invFalso.forEach(m => m.inventarios.forEach((i: any) => { i.fecha_ultima_actualizacion = viejo; }));
+    const modF = invFalso.find(m => m.nombre === mC); modF.inventarios[0].total_estibas = 77; modF.inventarios[0].fecha_ultima_actualizacion = new Date(Date.now() - 120000).toISOString();
+    await psql(`update frecs_config set valor = (coalesce(valor::jsonb, '{}'::jsonb) || jsonb_build_object('ddesde', to_char((now() - interval '5 minutes') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))::text where clave = 'sync_auto'`, "postgres");
+    wms.deltas = 0; wms.porNombre = 0;
+    const rc = await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "wms_cambios", secreto: "secreto-bot" }) })).then(r => r.json());
+    ok(rc.ok && rc.n === 1 && rc.modulos[0] === mC && wms.deltas === 1 && wms.porNombre === 1, `cambios: pregunta qué cambió y trae completo solo ${mC}: ` + JSON.stringify(rc));
+    ok((await psql(`select count(*) from wms_base where modulo = '${mC}'`, "postgres")) === filasMod && (await psql(`select count(*) from wms_base where modulo = '${mC}' and estibas = 77`, "postgres")) === "1", "el módulo queda completo (no solo el lote que cambió) y con el dato nuevo");
+    ok((await psql(`select count(*) from wms_base where modulo <> '${mC}'`, "postgres")) === otros0 && (await psql("select por from sync_estado where id = 1", "postgres")) === "Cambios", "lo demás queda igual");
+    const est = JSON.parse(await psql("select valor from frecs_config where clave = 'sync_auto'", "postgres"));
+    ok(est.dok === true && est.dn === 1 && new RegExp(mC).test(est.dmsg) && Date.parse(est.ddesde) > Date.now() - 60000, "queda hasta dónde revisó y qué cambió: " + est.dmsg);
+    wms.deltas = 0; wms.porNombre = 0;
+    const rv = await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "wms_cambios", secreto: "secreto-bot" }) })).then(r => r.json());
+    ok(rv.ok && rv.n === 0 && wms.deltas === 1 && wms.porNombre === 0, "si nada cambió, una sola consulta liviana y no toca la base");
+    ok((await manejar(new Request("http://x/", { method: "POST", body: JSON.stringify({ accion: "wms_cambios", secreto: "malo" }) }))).status === 401, "los cambios sin el secreto no corren");
+  }
   await psql(`update frecs_config set valor = '{}' where clave = 'sync_auto'`, "postgres");
 }
 

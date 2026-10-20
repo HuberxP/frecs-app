@@ -99,7 +99,10 @@ const modChip = m => `<span class="mod-chip">${h(m)}</span>`;
 // Ícono de borrar (rojo en toda la página)
 const ICO_DEL = `<svg class="ico-del" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>`;
 // Cantidades con nombre completo: "Estibas: 3 | Cajas: 120 | Unidades: 0"
-const qty = (e, c, u, emp) => `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
+// Estibas y cajas; si no hay estibas (picking, sueltos), cajas y unidades
+const qty = (e, c, u, emp) => (Number(e) || 0) > 0
+  ? `<span class="qty">Estibas: <b>${fm(e)}</b><span class="sep">|</span>${h(emp || "Cajas")}: <b>${fm(c)}</b></span>`
+  : `<span class="qty">${h(emp || "Cajas")}: <b>${fm(c)}</b><span class="sep">|</span>Unidades: <b>${fm(u)}</b></span>`;
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 const puedeSincronizar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // Verificador: solo estas pantallas
@@ -121,7 +124,9 @@ const ROL_LISTA = ["verificador", "opm", "lector", "validador", "administrador"]
 const SIEMPRE_ADMIN = new Set(["usuarios", "vistasrol"]);
 function itemNav(id) { for (const g of NAV) { const i = g.items.find(x => x.id === id); if (i) return [g, i]; } return [null, null]; }
 function rolAlcanza(id, rol) { const [g, i] = itemNav(id); if (!i) return true; const r = i.rol || g.rol; return !r || (ROLES[rol] || 0) >= (ROLES[r] || 1); }
-const vistaDefecto = (id, rol) => ROLES_VERIF.has(rol) ? VERIF_VISTAS.has(id) : rolAlcanza(id, rol);
+// El OPM además ve los reempaques, los tapacódigos y las prioridades de consumo
+const OPM_VISTAS = new Set(["prioridades", "tpc", "reempaque"]);
+const vistaDefecto = (id, rol) => ROLES_VERIF.has(rol) ? (VERIF_VISTAS.has(id) || (rol === "opm" && OPM_VISTAS.has(id))) : rolAlcanza(id, rol);
 function vistaPermitida(id, rol, cfg) {
   rol = rol || (S.usuario && S.usuario.rol); if (!rol) return false;
   if (rol === "administrador" && SIEMPRE_ADMIN.has(id)) return true;
@@ -755,16 +760,17 @@ $("#userChip").onclick = () => {
 };
 
 // Sincronización automática con el WMS (solo el administrador): Automático / Manual
-// Supabase la hace cada 30 a 45 minutos, a una hora distinta cada vez; la manual sigue funcionando igual.
+// Supabase revisa los cambios cada 2 a 4 minutos y trae todo cada 2 a 3 horas; la manual sigue funcionando igual.
 const horaSA = iso => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; const hoy = new Date(), man = new Date(Date.now() + 864e5);
   const dia = d.toDateString() === hoy.toDateString() ? "hoy" : d.toDateString() === man.toDateString() ? "mañana" : d.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit" });
   return `${dia} ${d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}`; };
 function pintarSyncAuto(box) {
   const e = S.syncAuto || {};
   box.innerHTML = `<label class="sw-fila sa-fila"><span><b>🔄 Sincronizar con el WMS: ${e.on ? "Automático" : "Manual"}</b><br><span class="small muted">${e.on
-      ? `Cada 30 a 45 minutos, a una hora distinta cada vez.${e.prox ? ` Próxima: <b>${h(horaSA(e.prox))}</b>.` : ""}`
+      ? `Revisa los cambios cada 2 a 4 minutos y trae todo el inventario cada 2 a 3 horas, a una hora distinta cada vez.${e.prox ? ` Próxima completa: <b>${h(horaSA(e.prox))}</b>.` : ""}`
       : "Solo cuando alguien toca ⟳ Sincronizar o usa /sincronizar."}</span>
-    ${e.ult ? `<br><span class="small ${e.ok ? "muted" : "sa-mal"}">Última automática: ${h(horaSA(e.ult))} · ${e.ok ? "✅" : "❌"} ${h(e.msg || "")}</span>` : ""}</span>
+    ${e.on && e.dult ? `<br><span class="small ${e.dok ? "muted" : "sa-mal"}">Últimos cambios: ${h(horaSA(e.dult))} · ${e.dok ? "✅" : "❌"} ${h(e.dmsg || "")}</span>` : ""}
+    ${e.ult ? `<br><span class="small ${e.ok ? "muted" : "sa-mal"}">Última completa: ${h(horaSA(e.ult))} · ${e.ok ? "✅" : "❌"} ${h(e.msg || "")}</span>` : ""}</span>
     <span class="sw"><input type="checkbox" id="pfSAc" ${e.on ? "checked" : ""}><i></i></span></label>`;
   const ch = $("#pfSAc", box);
   ch.onchange = async () => {
@@ -1266,6 +1272,11 @@ function invCard(i, o) {
       : `<span class="tag t-nocumple" title="Mínimo ${h(mn || "?")} días">⛔ No cumple ${h(CANALES[cn])}${!i.disp ? " (bloqueado)" : ` · ${i.d === 9999 ? "sin fecha" : i.d + " d"} de ${h(mn || "?")}`}</span>`);
   }
   if (i.carpa && o.carpa !== false) tags.push(`<span class="tag">⛺ Carpa</span>`);
+  // Recién salido de línea: varios módulos llenándose con la misma fecha
+  const md = i.fis && i.disp && !i.esOp && i.v ? enModulacion(i.s, i.v) : null;
+  if (md && md.mods.includes(i.m)) tags.unshift(i.m === md.primero
+    ? `<span class="tag t-mod1" title="Mismo producto y fecha en ${h(md.mods.join(", "))}, ingresados hoy: este se creó primero en el WMS">🏭 Primero en ingresar (de ${md.mods.length} con la misma fecha)</span>`
+    : `<span class="tag t-mod" title="Misma fecha que ${h(md.primero)}, que se creó antes en el WMS">🏭 Modulando · el primero es ${h(md.primero)}</span>`);
   if (esCuar(i)) tags.unshift(`<span class="tag t-cuar" title="Bloqueado por PNC cuarentena: solo puede salir por T1">🟠 PNC cuarentena · solo T1</span>`);
   // Estibas del módulo respecto a lo que le cabe (como en Consumo) y si es el único módulo con el producto
   if (o.ocup && S.ocup[i.m] && S.ocup[i.m].capTot) { const oc = S.ocup[i.m]; tags.unshift(oc.usadas >= oc.capTot ? `<span class="tag t-lleno" title="Estibas en el módulo / capacidad">Lleno ${fm(oc.usadas)}/${fm(oc.capTot)}</span>` : `<span class="tag t-inc" title="Estibas en el módulo / capacidad">Incompleto ${fm(oc.usadas)}/${fm(oc.capTot)}</span>`); }
@@ -1342,12 +1353,35 @@ const ordPrioVence = (a, b) => prio(a, b) || (tV(a.v) - tV(b.v));
 // Mismo criterio de Consumo (pony gasto): disponibles de bodega primero (KA / PREV y bloqueados al final),
 // 1) prioridad · 2) fecha más corta · 3) con la misma fecha, el módulo incompleto · 4) el que tiene menos estibas en su módulo
 const ocupMod = m => { const o = S.ocup[m]; return o && o.capTot ? o : null; };
+// Fecha de creación en el WMS (carga) → milisegundos y día en Bogotá
+const tCargaMs = s0 => { if (!s0) return 0; const x = String(s0).trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"); const t = Date.parse(x); return isNaN(t) ? 0 : t; };
+const diaCarga = i => { const t = tCargaMs(i && i.carga); return t ? new Date(t - 5 * 3600e3).toISOString().slice(0, 10) : ""; };
+// Módulos que se están llenando: mismo producto y misma fecha, disponibles, en 2 o más módulos de bodega
+// ingresados al WMS el mismo día. Devuelve { primero, mods } o null
+function enModulacion(sku, v) {
+  const l = (S.inv || []).filter(i => i.s === String(sku) && i.v === v && i.fis && i.disp && !i.esOp && i.carga);
+  const porDia = {};
+  l.forEach(i => { const d = diaCarga(i); if (d) (porDia[d] = porDia[d] || []).push(i); });
+  const ayer = new Date(Date.now() - 29 * 3600e3).toISOString().slice(0, 10);   // hoy o ayer (Bogotá)
+  for (const d of Object.keys(porDia).sort().reverse()) {
+    if (d < ayer) break;
+    const g = porDia[d], mods = [...new Set(g.map(i => i.m))];
+    if (mods.length < 2) continue;
+    const pri = g.slice().sort((a, b) => tCargaMs(a.carga) - tCargaMs(b.carga))[0];
+    return { primero: pri.m, mods: mods.sort((a, b) => a === pri.m ? -1 : b === pri.m ? 1 : cmpMod({ m: a }, { m: b })), dia: d };
+  }
+  return null;
+}
 // Con canal T1, lo de PNC cuarentena cuenta como disponible (es lo único que lo puede despachar)
 const ordConsumoC = canal => (a, b) => {
   const g = i => (!dispEn(i, canal) ? 2 : (i.esOp || repVacio(i.m)) ? 1 : 0);
   if (g(a) !== g(b)) return g(a) - g(b);
   if (prio(a, b)) return prio(a, b);
   const t = tV(a.v) - tV(b.v); if (t) return t;
+  // Recién salido de línea: misma fecha e ingresados al WMS el mismo día → el primero creado va primero
+  // (el incompleto con la misma fecha se está modulando: no por eso va antes)
+  const da = diaCarga(a), db = diaCarga(b);
+  if (da && da === db) { const ca = tCargaMs(a.carga), cb = tCargaMs(b.carga); if (ca !== cb) return ca - cb; }
   const oa = ocupMod(a.m), ob = ocupMod(b.m);
   const ia = oa ? oa.usadas < oa.capTot : false, ib = ob ? ob.usadas < ob.capTot : false;
   if (ia !== ib) return ia ? -1 : 1;
@@ -1460,7 +1494,7 @@ VISTAS.stock = async (el, p, vigente) => {
         <div class="st-tot">${qty(tot.e, tot.c, tot.u, fis[0].emp)}</div></div>
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
-      ${LEYENDA}${lis.length ? `<div class="grid">${(() => { let n = 0; return lis.map(i => invCard(i, { producto: false, ocup: true, acomp: true, unico: i.m === unico && i.disp, fefo: dispEn(i, filtro) && !i.esOp && !repVacio(i.m) ? ++n : 0 })).join(""); })()}</div>`
+      ${LEYENDA}${avisoModulacion(sku)}${lis.length ? listaConsumoPrimero(lis, filtro, unico) : ""}${lis.length ? ""
         : noCumple.length ? `<div class="note warn no-cumple">⛔ <b>Sí hay este producto, pero no cumple los requisitos de ${h(CANALES[filtro])}</b>${minC ? ` (mínimo ${minC} días)` : ""}. Esto es lo que hay en bodega:</div><div class="grid">${noCumple.map(i => invCard(i, { producto: false, ocup: true, acomp: true })).join("")}</div>`
         : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
@@ -1480,6 +1514,32 @@ VISTAS.stock = async (el, p, vigente) => {
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.defaultPrevented) consultar(); });
   pintar();
 };
+
+// Stock por SKU: primero los módulos marcados en consumo (del canal escogido, o de cualquiera en
+// Disponible / Todos), cada uno con su puesto FEFO; después los demás en orden FEFO con su número
+function listaConsumoPrimero(lis, filtro, unico) {
+  let n = 0;
+  const conN = lis.map(i => ({ i, n: dispEn(i, filtro) && !i.esOp && !repVacio(i.m) ? ++n : 0 }));
+  const canal = CANALES[filtro] ? filtro : "";
+  const marcado = i => typeof marcasDe === "function" && marcasDe(i.s, i.m).some(x => !canal || x.canal === canal);
+  const card = x => invCard(x.i, { producto: false, ocup: true, acomp: true, unico: x.i.m === unico && x.i.disp, fefo: x.n });
+  const cons = conN.filter(x => marcado(x.i)), resto = conN.filter(x => !marcado(x.i));
+  if (!cons.length) return `<div class="grid">${resto.map(card).join("")}</div>`;
+  return `<h3 class="st-sec">🚚 En consumo${canal ? " para " + h(CANALES[canal]) : ""}</h3><div class="grid">${cons.map(card).join("")}</div>` +
+    (resto.length ? `<h3 class="st-sec">📋 Los demás, en orden FEFO</h3><div class="grid">${resto.map(card).join("")}</div>` : "");
+}
+// Aviso: módulos llenándose con la misma fecha y ninguno marcado → ¿cuál se empezó primero?
+function avisoModulacion(sku) {
+  const vs = [...new Set((S.inv || []).filter(i => i.s === String(sku) && i.fis && i.disp && i.v).map(i => i.v))];
+  return vs.map(v => {
+    const md = enModulacion(sku, v); if (!md) return "";
+    if (typeof marcasDe === "function" && md.mods.some(m => marcasDe(sku, m).length)) return "";
+    const lt = (S.inv || []).find(i => i.s === String(sku) && i.m === md.primero && i.v === v);
+    return `<div class="note warn st-modu">🏭 <b>Se están llenando ${h(md.mods.join(", "))}</b> con la misma fecha (${h(lt ? lt.vf : v)}), ingresados al WMS el mismo día.
+      Sugerido para consumo: <b>${h(md.primero)}</b>, el primero que se creó en el WMS. ¿Es el que se empezó primero?
+      ${typeof puedeMarcar === "function" && puedeMarcar() ? `<div class="row" style="margin-top:6px;gap:6px">${md.mods.map(m => `<button class="btn sm ${m === md.primero ? "primary" : ""}" data-marcar="${h(sku)}|${h(m)}">🚚 Marcar ${h(m)}</button>`).join("")}</div>` : ""}</div>`;
+  }).join("");
+}
 
 // =====================================================================
 // INFORMACIÓN DE PRODUCTO (hoja Sku)
@@ -4855,7 +4915,9 @@ function vozStock(sku, prod, filtro) {
       : `Hay ${mods.length} módulos de consumo marcados. ` + mods.map(m => `${ubicVoz(m)}, marcado ${porVoz(porMod[m])}. ${info(m)}`).join(" ");
   } else {
     const p = primeroFefo(sku, canal);
-    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}${obsVoz(sku, p.m)}${tapadoVoz(sku, p.m)}`
+    const md = p && typeof enModulacion === "function" ? enModulacion(sku, p.v) : null;
+    const modu = md && md.primero === p.m ? ` Ojo: se están llenando ${md.mods.length} módulos con la misma fecha; este fue el primero en ingresar al WMS. Confirma cuál se empezó primero y márcalo.` : "";
+    t += p ? `No hay módulo de consumo marcado. Según fefo, ${canal ? `para ${canal} ` : ""}el de consumo debería ser ${ubicVoz(p.m)}. ${venceVoz(sku, p.m)}${modu}${obsVoz(sku, p.m)}${tapadoVoz(sku, p.m)}`
       : `No hay ${canal ? `nada que cumpla ${canal}` : "producto disponible"} en bodega.`;
   }
   hablar(t.replace(/\s+/g, " ").trim(), `stock|${sku}|${filtro}`);
@@ -4981,7 +5043,7 @@ VISTAS.usuarios = async (el, p, vigente) => {
   if (!vigente()) return;
   const pintar = lis2 => {
     el.innerHTML = cab("👥 Usuarios y PIN", "Quién entra al dashboard y qué puede hacer", `<button class="btn primary" data-a="nuevo">＋ Nuevo usuario</button>`) +
-      `<div class="note ayuda">Roles: <b>verificador</b> solo ve Stock, Información de producto y Por módulo, y reporta módulos vacíos o con conflicto · <b>opm</b> igual que el verificador; es el que surte PK (T2), T1 o KA y usa el switch 🚦 de canal · <b>lector</b> solo consulta · <b>rotador</b> abre y cierra turnos, valida, hace la entrega, la conciliación y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku, los canales, la lista de consumo y la alerta de pocos.</div>
+      `<div class="note ayuda">Roles: <b>verificador</b> solo ve Stock, Información de producto y Por módulo, y reporta módulos vacíos o con conflicto · <b>opm</b> igual que el verificador y además ve prioridades, tapacódigos y reempaques; es el que surte PK (T2), T1 o KA y usa el switch 🚦 de canal · <b>lector</b> solo consulta · <b>rotador</b> abre y cierra turnos, valida, hace la entrega, la conciliación y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku, los canales, la lista de consumo y la alerta de pocos.</div>
       <table class="tabla resp"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Creado</th><th></th></tr></thead><tbody>
       ${lis2.map(u => `<tr><td data-l="Nombre"><b>${h(u.nombre)}</b></td><td data-l="Rol">${h(rolTxt(u.rol))}</td><td data-l="Estado">${u.activo ? `<span class="pill ok">Activo</span>` : `<span class="pill bad">Inactivo</span>`}</td>
         <td data-l="Último acceso">${h(fechaCorta(u.ultimo) || "—")}</td><td data-l="Creado" class="small">${h(fechaCorta(u.creado))} · ${h(u.creadoPor)}</td>

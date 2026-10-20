@@ -14,7 +14,8 @@
 //   · { accion: "reporte", token, ids }                        → aviso de módulos reportados (vacío / conflicto)
 //   · { accion: "alerta", secreto }                           → alerta de las 6 a.m. y 2 p.m. (pg_cron)
 //   · { accion: "wms_sync", token, forzar }                    → sincronizar con el WMS desde la página
-//   · { accion: "wms_sync", secreto, auto: true }              → la automática (pg_cron, sb_wms_tic)
+//   · { accion: "wms_sync", secreto, auto: true }              → la completa automática (pg_cron, sb_wms_tic)
+//   · { accion: "wms_cambios", secreto }                       → solo lo que cambió (pg_cron, cada 2–4 min)
 //   · { accion: "push_clave" }                                 → clave pública de las notificaciones
 //   · { accion: "push_prueba", token }                         → notificación de prueba a esa persona
 //   · { accion: "push_reporte", secreto, id }                  → aviso de módulo vacío (lo dispara la base)
@@ -23,7 +24,7 @@
 // =====================================================================
 import { crearMotor } from "./motor.js";
 import { htmlAPdf } from "./pdf.ts";
-import { sincronizarWms } from "./wms.ts";
+import { sincronizarWms, cambiosWms } from "./wms.ts";
 import { clavesPush, enviarPush, pushReporte, pushVencer } from "./push.ts";
 
 const URL_SB = (Deno.env.get("SUPABASE_URL") || "").replace(/\/+$/, "");
@@ -111,6 +112,7 @@ async function appsScript(cfg: Record<string, string>, cuerpo: any) {
 // grupo solo cuando cambia: falló / volvió a funcionar) y pide a Apps Script la copia en las hojas.
 async function syncWms(cfg: Record<string, string>, o: { forzar?: boolean; por: string; fotos?: boolean; auto?: boolean }) {
   let r: any;
+  const inicio = new Date().toISOString();
   try { r = await sincronizarWms(rpc, o); }
   catch (e) { r = { ok: false, error: (e as Error).message }; }
   // Mientras no se haya pasado la conexión al WMS a Supabase, la manual la sigue haciendo Apps Script
@@ -120,11 +122,13 @@ async function syncWms(cfg: Record<string, string>, o: { forzar?: boolean; por: 
     if (r.porAppsScript) return r;
   }
   const msg = r.ok ? `${r.fisicas} ubicaciones` : String(r.error || "No se pudo sincronizar.");
+  // Los cambios siguen desde esta sincronización completa
+  if (r.ok) await rpc("sb_wms_delta_fin", { p: { ok: true, n: 0, msg: "tras la completa", hasta: inicio } }).catch(() => null);
   let est: any = null;
   try { est = await rpc("sb_wms_resultado", { p_auto: !!o.auto, p_ok: !!r.ok, p_msg: msg.slice(0, 300) }); } catch (e) { console.warn("resultado:", (e as Error).message); }
   if (o.auto && est && est.antes_ok !== undefined && !!est.antes_ok !== !!r.ok && cfg.bot_grupo) {
     await tgMensaje("sendMessage", { chat_id: cfg.bot_grupo, parse_mode: "Markdown", text: r.ok ? "✅ *Sincronización automática*: el WMS volvió a responder y la base quedó al día."
-      : `⚠️ *Sincronización automática*: no se pudo traer el WMS.\n${msg.replace(/[_*[\]`]/g, "")}\n\nLa base sigue con la última sincronización buena. Se vuelve a intentar sola en 30 a 45 minutos.` }).catch(() => null);
+      : `⚠️ *Sincronización automática*: no se pudo traer el WMS.\n${msg.replace(/[_*[\]`]/g, "")}\n\nLa base sigue con la última sincronización buena. Los cambios se siguen revisando cada 2 a 4 minutos y la completa se vuelve a intentar en 2 a 3 horas.` }).catch(() => null);
   }
   // Copia de respaldo en las hojas (Apps Script lee la base de Supabase, no el WMS)
   if (r.ok && cfg.bot_apps_script_url) { const p = appsScript(cfg, { accion: "wms_hojas" }).catch(e => console.warn("hojas wms:", e.message)); const er = (globalThis as any).EdgeRuntime; if (er && er.waitUntil) er.waitUntil(p); }
@@ -272,6 +276,14 @@ export async function manejar(req: Request): Promise<Response> {
     const forzar = cuerpo.forzar === true;
     if (forzar && !["validador", "administrador"].includes(u.rol)) return respuesta({ ok: false, error: "Solo el rotador o el administrador pueden forzar la sincronización." });
     return respuesta(await syncWms(cfg, { forzar, por: String(u.nombre || "Página"), fotos: true }));
+  }
+  // Solo lo que cambió en el WMS (pg_cron cada 2–4 minutos)
+  if (cuerpo.accion === "wms_cambios") {
+    if (!cfg.bot_secreto || cuerpo.secreto !== cfg.bot_secreto) return respuesta({ ok: false, error: "No autorizado" }, 401);
+    let r: any;
+    try { r = await cambiosWms(rpc); } catch (e) { r = { ok: false, error: (e as Error).message }; }
+    await rpc("sb_wms_delta_fin", { p: { ok: !!r.ok, n: r.n || 0, hasta: r.hasta || "", msg: r.ok ? (r.n ? `${r.n} módulo${r.n > 1 ? "s" : ""}: ${r.modulos.slice(0, 6).join(", ")}${r.n > 6 ? "…" : ""}` : "sin cambios") : String(r.error || "") } }).catch(e => console.warn("cambios:", e.message));
+    return respuesta(r);
   }
   // 🔔 Notificaciones al celular
   if (cuerpo.accion === "push_clave") {

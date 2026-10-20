@@ -134,8 +134,8 @@ let llamadasSb = 0, sinRed = false;
     await sy.page.waitForTimeout(500); await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1200);
     const est = JSON.parse(psql("select valor from frecs_config where clave = 'sync_auto';", "postgres") || "{}");
     const min = (Date.parse(est.prox) - Date.now()) / 60000;
-    if (est.on !== true || est.por !== "Huber" || !(min >= 29 && min <= 46)) errores.push("sync automática: no quedó prendida en Supabase con la próxima en 30–45 min: " + JSON.stringify(est));
-    if (!/Automático/.test(await sy.page.textContent("#pfSA")) || !/Próxima/.test(await sy.page.textContent("#pfSA")) || !/30 a 45 minutos/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no muestra Automático, cada 30 a 45 minutos y la próxima: " + await sy.page.textContent("#pfSA"));
+    if (est.on !== true || est.por !== "Huber" || !(min >= 119 && min <= 181) || !est.dprox) errores.push("sync automática: no quedó prendida en Supabase con la completa en 2–3 h y los cambios ya: " + JSON.stringify(est));
+    if (!/Automático/.test(await sy.page.textContent("#pfSA")) || !/Próxima/.test(await sy.page.textContent("#pfSA")) || !/cada 2 a 4 minutos/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no muestra Automático, los cambios cada 2 a 4 minutos y la próxima: " + await sy.page.textContent("#pfSA"));
     await sy.page.screenshot({ path: "/tmp/w_sync_auto.png" });
     await sy.page.click("#pfSA .sw"); await sy.page.waitForTimeout(1000);
     if (JSON.parse(psql("select valor from frecs_config where clave = 'sync_auto';", "postgres")).on !== false || !/Manual/.test(await sy.page.textContent("#pfSA"))) errores.push("sync automática: no se pudo volver a Manual");
@@ -977,6 +977,31 @@ let llamadasSb = 0, sinRed = false;
     // Al consultar el SKU, la tarjeta del módulo en consumo cambia de color (y solo esa)
     const resal = await P.$$eval("#sr .inv.en-cons", cs => cs.map(c => c.querySelector(".mod-chip").textContent.trim()));
     if (resal.length !== 1 || resal[0] !== modM) errores.push("consumo canal: la tarjeta del módulo en consumo no se resalta: " + resal);
+    // El marcado en consumo sale de primero (en su apartado) y conserva su número FEFO; luego los demás
+    {
+      const sec = await P.$$eval("#sr h3.st-sec", hs => hs.map(x => x.textContent));
+      const prim = await P.evaluate(() => { const g = document.querySelector("#sr h3.st-sec + .grid"); const c = g && g.querySelector(".inv"); return c ? [c.querySelector(".mod-chip").textContent.trim(), (c.querySelector(".fefo") || {}).textContent || ""] : null; });
+      if (!/En consumo/.test(sec[0] || "") || !prim || prim[0] !== modM || !/#\d+ FEFO/.test(prim[1])) errores.push("consumo primero: el módulo marcado no sale de primero con su número FEFO: " + JSON.stringify([sec, prim]));
+      // Estibas y cajas (sin unidades); sin estibas, cajas y unidades
+      const q1 = await P.evaluate(() => [qty(2, 100, 600), qty(0, 5, 30)].map(x => { const d = document.createElement("div"); d.innerHTML = x; return d.textContent; }));
+      if (/Unidades/.test(q1[0]) || !/Estibas/.test(q1[0]) || !/Unidades/.test(q1[1]) || /Estibas/.test(q1[1])) errores.push("cantidades: deben ser estibas y cajas (y unidades solo sin estibas): " + q1);
+      // El OPM ve prioridades, tapacódigos y reempaques; el verificador no
+      const vo = await P.evaluate(() => ["prioridades", "tpc", "reempaque"].map(v => vistaPermitida(v, "opm") && !vistaPermitida(v, "verificador")));
+      if (vo.some(x => !x)) errores.push("OPM: no ve prioridades, tapacódigos o reempaques: " + vo);
+      // Recién salido de línea: misma fecha en 2 módulos creados hoy → el primero creado se sugiere; el otro «modulando»
+      q(`insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+         select '3617', producto, 'A95', 6, 300, 0, current_date + 500, 500, 'DISPONIBLE', '', now() - interval '50 minutes', 'RETORNABLE', 50, 'PRUEBA MODU', false, now() from sku where sku = '3617';
+         insert into wms_base (sku, producto, modulo, estibas, cajas, unidades, vence, dias, estado, candado, carga, familia, cajas_por_estiba, obs, picking, actualizacion)
+         select '3617', producto, 'A94', 2, 100, 0, current_date + 500, 500, 'DISPONIBLE', '', now() - interval '20 minutes', 'RETORNABLE', 50, 'PRUEBA MODU', false, now() from sku where sku = '3617';`);
+      await P.evaluate(() => cargarInv(true)); await P.evaluate(() => ir("stock", { sku: "3617" })); await P.waitForTimeout(800);
+      const av = await P.textContent("#sr .st-modu").catch(() => "");
+      if (!/Se están llenando A95, A94/.test(av) || !/Sugerido para consumo: A95/.test(av)) errores.push("modulación: no avisa ni sugiere el primero creado: " + av);
+      const tg = await P.evaluate(() => [...document.querySelectorAll("#sr .inv")].filter(c => /A9[45]/.test(c.querySelector(".mod-chip").textContent)).map(c => c.querySelector(".mod-chip").textContent.trim() + ":" + (c.querySelector(".t-mod1") ? "1" : c.querySelector(".t-mod") ? "m" : "-")));
+      if (!tg.includes("A95:1") || !tg.includes("A94:m")) errores.push("modulación: etiquetas mal: " + tg);
+      if (await P.evaluate(() => { const a = S.inv.find(i => i.m === "A95" && i.s === "3617"), b = S.inv.find(i => i.m === "A94" && i.s === "3617"); return ordConsumo(a, b) >= 0; })) errores.push("modulación: el primero creado no va primero en el FEFO (el incompleto se está llenando)");
+      await P.screenshot({ path: "/tmp/w_modulacion.png" });
+      q(`delete from wms_base where obs = 'PRUEBA MODU'`); await P.evaluate(() => cargarInv(true));
+    }
     // 🔊 Lectura en voz alta (switch del perfil): dice el módulo de consumo al consultar el SKU y el módulo
     {
       await P.evaluate(() => {

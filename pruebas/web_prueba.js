@@ -365,13 +365,40 @@ let llamadasSb = 0, sinRed = false;
     await mv.page.evaluate(s2 => { S.abiertos.conc = { [s2]: true }; ir("conciliacion"); }, skC2); await mv.page.waitForTimeout(1500);
     const card = `.conc-card[data-row="${skC2}"]`;
     const pos = await mv.page.$$eval(`${card} .cc-zonas input`, is => is.map(i => Math.round(i.getBoundingClientRect().top)));
-    if (pos.length !== 6 || new Set(pos.slice(0, 3)).size !== 1 || new Set(pos.slice(3)).size !== 1 || pos[3] <= pos[0]) errores.push("conciliación (celular): Bodega/KA/PK no salen en una fila con su reempaque debajo: " + pos);
+    if (pos.length !== 9 || new Set(pos.slice(0, 3)).size !== 1 || new Set(pos.slice(3, 6)).size !== 1 || new Set(pos.slice(6)).size !== 1 || !(pos[0] < pos[3] && pos[3] < pos[6])) errores.push("conciliación (celular): no salen las 3 filas (original, reempaque, sixpacks sueltos): " + pos);
     const fy = await mv.page.$eval(`${card} .cc-fact input`, i => Math.round(i.getBoundingClientRect().top)).catch(() => 0);
-    if (!(fy > pos[3])) errores.push("conciliación (celular): la facturación no queda en la tercera fila");
+    if (!(fy > pos[6])) errores.push("conciliación (celular): la facturación no queda debajo de los sixpacks");
     const ancho = await mv.page.evaluate(() => document.documentElement.scrollWidth);
     if (ancho > 392) errores.push("conciliación (celular): la página se sale de lado: " + ancho);
+    // Solo 3 colores y la tarjeta abierta resaltada (gris con el borde celeste girando)
+    if (await mv.page.$("#cRes .c-sobra")) errores.push("conciliación: sigue el contador azul de +50 %");
+    const act = await mv.page.$eval(card, e => ({ act: e.classList.contains("activa"), anim: getComputedStyle(e).animationName }));
+    if (!act.act || act.anim !== "ccGiro") errores.push("conciliación: la tarjeta abierta no se resalta: " + JSON.stringify(act));
+    // Sixpacks sueltos desde la tarjeta: se guardan y se suman al total
+    await mv.page.fill(`${card} input[data-f="sixp_ka"]`, "2"); await mv.page.press(`${card} input[data-f="sixp_ka"]`, "Tab"); await mv.page.waitForTimeout(2500);
+    if (q(`select coalesce(sixp_ka::text,'') from conc_items where conc_id='${cAb}' and sku='${skC2}'`) !== "2") errores.push("conciliación: los sixpacks sueltos no se guardaron");
+    const tt = await mv.page.$eval(`${card} [data-tot]`, e => e.textContent.trim());
+    if (tt !== "21") errores.push("conciliación: los sixpacks no se suman al total en pantalla: " + tt);
+    if (!(await mv.page.$(`${card} .sixp-p`))) errores.push("conciliación: falta la etiqueta de sixpacks en la tarjeta");
     await mv.page.$eval(card, e => e.scrollIntoView()); await mv.page.screenshot({ path: "/tmp/m_conc_reemp.png" });
+    // «Estoy en» PK (le falta PK): original, reempaque y sixpacks de esa zona en la misma fila
+    await mv.page.click('#czf [data-cz="pk"]'); await mv.page.waitForTimeout(600);
+    const fila = `.cz-row[data-row="${skC2}"]`;
+    const fs2 = await mv.page.$$eval(`${fila} input[data-f]`, is => is.map(i => i.dataset.f)).catch(() => []);
+    if (fs2.join() !== "pk,reemp_pk,sixp_pk") errores.push("«Estoy en»: no salen los 3 cuadros de la zona: " + fs2);
+    await mv.page.fill(`${fila} input[data-f="reemp_pk"]`, "4"); await mv.page.press(`${fila} input[data-f="reemp_pk"]`, "Tab"); await mv.page.waitForTimeout(400);
+    await mv.page.fill(`${fila} input[data-f="sixp_pk"]`, "1"); await mv.page.press(`${fila} input[data-f="sixp_pk"]`, "Tab"); await mv.page.waitForTimeout(400);
+    await mv.page.fill(`${fila} input[data-f="sixp_pk"]`, "2"); await mv.page.press(`${fila} input[data-f="sixp_pk"]`, "Tab"); await mv.page.waitForTimeout(2500);
+    const zr = q(`select coalesce(pk::text,'') || '|' || coalesce(reemp_pk::text,'') || '|' || coalesce(sixp_pk::text,'') from conc_items where conc_id='${cAb}' and sku='${skC2}'`);
+    if (zr !== "|4|3") errores.push("«Estoy en»: reempaque y sixpacks de la zona no se guardaron (o no se sumaron): " + zr);
+    if (!(await mv.page.$(fila))) errores.push("«Estoy en»: la fila se fue antes de anotar el original");
+    const ll = await mv.page.$eval(`${fila} [data-czv="sixp_pk"]`, e => e.textContent).catch(() => "");
+    if (!/lleva 3/.test(ll)) errores.push("«Estoy en»: no muestra lo que lleva de sixpacks: " + ll);
+    const ancho2 = await mv.page.evaluate(() => document.documentElement.scrollWidth);
+    if (ancho2 > 392) errores.push("«Estoy en» (celular): la página se sale de lado: " + ancho2);
+    await mv.page.screenshot({ path: "/tmp/m_conc_zona.png" });
     await mv.ctx.close();
+    await P.evaluate(s2 => api("webConcGuardar", s2, { sixp_ka: "", reemp_pk: "", sixp_pk: "" }), skC2);
   }
   await P.evaluate(s2 => api("webConcQuitar", s2), skC2);
   if (q(`select count(*) from conc_items where conc_id='${cAb}' and sku='${skC2}'`) !== "0") errores.push("quitar de la conciliación falló");

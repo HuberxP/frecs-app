@@ -3098,7 +3098,7 @@ function pintarConc(el) {
   el = el || $("#view");
   const k = S.conc, esc = puede("validador"), hist = !!S.concId;
   const pend = k.pre.filter(x => x.estado === "PENDIENTE");
-  let html = cab("⚖️ Conciliación con facturación", "Todo en cajas. Rojo: facturación tiene de más (revisar el bloqueo del excedente) · Verde: el conteo cubre la facturación · Azul: tenemos más del 50 % por encima de lo facturado, diferencia grande que hay que revisar.");
+  let html = cab("⚖️ Conciliación con facturación", "Todo en cajas. Total = original + ♻️ reempaque + 6️⃣ sixpacks sueltos. Sin color: falta la facturación · Verde: tenemos lo mismo o más que facturación · Rojo: tenemos menos que facturación (revisar el bloqueo del excedente). La tarjeta que estás llenando se ve en gris con el borde celeste girando.");
   if (!k.conc) {
     html += `<div class="card" style="margin-bottom:14px"><p style="margin-top:0">No hay conciliación abierta.</p>
       <p class="muted small ayuda">Al abrirla escoges el turno (normalmente el 3) y se precargan los pocos, lo que escojas de la pre-conciliación (${pend.length} pendientes), los conteos de la entrega del turno anterior o los productos de una conciliación anterior.</p>
@@ -3121,7 +3121,7 @@ function pintarConc(el) {
   const tarjeta = x => tarjetaConc(x, esc);
   // En el orden en que se agregaron; cada apartado sale solo si tiene productos
   const bloque = (t, cls, lis) => lis.length ? `<section class="cc-col ${cls}"><div class="cc-col-t">${t} <span class="fam-n">${lis.length}</span></div><div class="cc-col-b">${gruposFamilia("c" + cls, lis, tarjeta)}</div></section>` : "";
-  const lista = zf ? `<div class="cz-tools"><span class="muted small">Escribe y pasa al siguiente: se guarda solo. Con <b>cj / est</b> escoges cajas o estibas; en lo ya contado, lo que escribas se <b>suma</b>.</span></div>
+  const lista = zf ? `<div class="cz-tools"><span class="muted small">Escribe y pasa al siguiente: se guarda solo. Cada producto tiene el <b>original</b>, el <b>♻️ reempaque</b> y los <b>6️⃣ sixpacks sueltos</b> de esta área (en cajas; el original de Bodega también en estibas). Donde ya hay algo (<b>＋</b>), lo que escribas se <b>suma</b>.</span></div>
       <div class="cz-lista">${gruposFamilia("cz-" + zf, k.items.filter(x => vNum(x[zf]) === "" || (S.concHechos || []).includes(x.sku)), x => filaZonaConc(x, zf))}</div>`
     : `<div class="cc-cols ${inc.length && comp.length ? "" : "una"}">${bloque("⏳ Incompletos", "cc-inc", inc)}${bloque("✅ Completos", "cc-comp", comp)}</div>`;
   html += `${esc && pend.length && !hist ? `<div class="barra-acc barra-mini"><button class="btn sm" data-a="pasarpre" title="Pasar de pre-conciliación"><span class="ic">📌</span><span class="txt">Pre-conciliación (${pend.length})</span></button></div>` : ""}
@@ -3137,10 +3137,17 @@ function pintarConc(el) {
     const z = e.target.closest("[data-cz]"); if (z) { S.concZona = z.dataset.cz; S.concHechos = []; pintarConc(); return; }
     onConcClick(e);
     // Al cerrar (o cambiar) de tarjeta, la que se completó pasa a «Completos»
-    if (e.target.closest("[data-plegar]")) setTimeout(() => reubicarConc(e.target.closest(".conc-card")), 0);
+    const pl = e.target.closest("[data-plegar]");
+    if (pl) { const card = pl.closest(".conc-card"); setTimeout(() => { if (card) S.concActiva = card.classList.contains("abierto") ? card.dataset.row : (S.concActiva === card.dataset.row ? "" : S.concActiva); marcarActivaConc(); reubicarConc(card); }, 0); }
+    if (e.target.closest('[data-a="cabrir"], [data-a="ccerrar"]')) marcarActivaConc();
   };
   const tab = $("#cTab", el);
-  if (tab) tab.addEventListener("change", onConcCampo);
+  if (tab) {
+    tab.addEventListener("change", onConcCampo);
+    // La tarjeta en la que se está escribiendo es la que se está gestionando
+    tab.addEventListener("focusin", e => { const card = e.target.closest(".conc-card.abierto"); if (card && S.concActiva !== card.dataset.row) { S.concActiva = card.dataset.row; marcarActivaConc(); } });
+  }
+  marcarActivaConc();
   const cq = $("#cq", el);
   if (cq) { cq.oninput = () => { S.concQ = cq.value; filtrarConc(el); }; filtrarConc(el); }
 }
@@ -3148,23 +3155,32 @@ const ZONAS_C = [["bodega", "Bodega"], ["ka", "KA"], ["pk", "PK"]];
 // Recalcula un producto con lo que hay en pantalla (igual que el servidor)
 // Reempaque por área: se cuenta aparte de lo original y se suma al total
 const REEMP_C = [["reemp_bodega", "bodega"], ["reemp_ka", "ka"], ["reemp_pk", "pk"]];
+// Sixpacks sueltos por área (en cajas): también aparte y también se suman al total
+const SIXP_C = [["sixp_bodega", "bodega"], ["sixp_ka", "ka"], ["sixp_pk", "pk"]];
 function concRecalc(x) {
   x.reempZonas = REEMP_C.some(([r]) => vNum(x[r]) !== "");
   if (x.reempZonas) x.reempaque = REEMP_C.reduce((a, [r]) => a + (Number(x[r]) || 0), 0);
-  x.total = (Number(x.bodega) || 0) + (Number(x.ka) || 0) + (Number(x.pk) || 0) + (x.reempZonas ? x.reempaque : 0);
+  x.sixpZonas = SIXP_C.some(([r]) => vNum(x[r]) !== "");
+  x.sixpacks = x.sixpZonas ? SIXP_C.reduce((a, [r]) => a + (Number(x[r]) || 0), 0) : "";
+  x.total = (Number(x.bodega) || 0) + (Number(x.ka) || 0) + (Number(x.pk) || 0) + (x.reempZonas ? x.reempaque : 0) + (Number(x.sixpacks) || 0);
   x.nivel = nivelConc(x.total, vNum(x.fact) === "" ? null : Number(x.fact));
   x.check = vNum(x.fact) === "" ? null : x.total >= Number(x.fact);
   x.completo = ZONAS_C.every(([z]) => vNum(x[z]) !== "");
   return x;
 }
-const resumenConc = items => `<span class="chip c-mal">✗ ${items.filter(x => x.nivel === "mal").length}</span><span class="chip c-ok">✓ ${items.filter(x => x.nivel === "ok").length}</span><span class="chip c-sobra">+50 % ${items.filter(x => x.nivel === "sobra").length}</span><span class="chip">Sin facturación ${items.filter(x => !x.nivel).length}</span>`;
+const resumenConc = items => `<span class="chip c-mal">✗ ${items.filter(x => x.nivel === "mal").length}</span><span class="chip c-ok">✓ ${items.filter(x => x.nivel === "ok").length}</span><span class="chip">Sin facturación ${items.filter(x => !x.nivel).length}</span>`;
 const faltaConcHtml = x => { const f = ZONAS_C.filter(([z]) => vNum(x[z]) === "").map(z => z[1]); return f.length ? ` <span class="z-falta">falta ${f.join(", ")}</span>` : ""; };
-// Fila rápida del modo «Falta …»: el producto y el cuadro de esa zona (cajas o estibas).
-// Si ya tiene valor, lo que se escriba se SUMA (para ir agregando a medida que se cuenta).
+// Fila rápida del modo «Estoy en …»: el producto y tres cuadros de esa zona: original, ♻️ reempaque y 6️⃣ sixpacks sueltos
+// (en cajas; el original de Bodega también en estibas). Si un cuadro ya tiene valor, lo que se escriba se SUMA.
+const CAMPOS_ZONA_C = z => [[z, "Original"], ["reemp_" + z, "♻️ Reemp."], ["sixp_" + z, "6️⃣ Sixp."]];
+const llevaZona = v => vNum(v) === "" ? "" : `lleva <b>${fm(v)}</b>`;
 function filaZonaConc(x, z) {
   const hecho = vNum(x[z]) !== "", cpe = cpeDe(x.sku);
-  return `<div class="cz-row ${hecho ? "hecho" : ""}" data-row="${h(x.sku)}" data-q="${h(x.sku + " " + x.producto)}"><div class="cz-p">${skuTxt(x.sku, x.producto)}${hecho ? `<div class="sub">Lleva <b data-czv>${fm(x[z])}</b> cajas</div>` : ""}</div>
-    <div class="cz-in">${unBtn(cpe, z === "bodega" ? "est" : "cj")}<input type="text" inputmode="numeric" data-f="${z}" data-sku="${h(x.sku)}" ${hecho ? `data-sumar="1"` : ""} value="" placeholder="${hecho ? "＋ sumar" : "cantidad"}" data-ph="${hecho ? "＋ sumar" : "cantidad"}"><span class="cz-h">${hecho ? "✓" : ""}</span></div></div>`;
+  const campo = ([f, l]) => { const ya = vNum(x[f]) !== "";
+    return `<div class="cz-in cz-${f.split("_")[0]}"><span class="cz-k">${l} <span class="cz-lleva" data-czv="${f}">${llevaZona(x[f])}</span></span>
+      <span class="cz-c">${unBtn(cpe, f === "bodega" ? "est" : "cj")}<input type="text" inputmode="numeric" data-f="${f}" data-sku="${h(x.sku)}" ${ya ? `data-sumar="1"` : ""} value="" placeholder="${ya ? "＋" : "—"}" data-ph="${ya ? "＋" : "—"}" title="${ya ? "Lo que escribas se suma" : "Cantidad"}"><span class="cz-h">${ya ? "✓" : ""}</span></span></div>`; };
+  return `<div class="cz-row ${hecho ? "hecho" : ""}" data-row="${h(x.sku)}" data-q="${h(x.sku + " " + x.producto)}"><div class="cz-p">${skuTxt(x.sku, x.producto)}</div>
+    <div class="cz-ins">${CAMPOS_ZONA_C(z).map(campo).join("")}</div></div>`;
 }
 function filtrarConc(el) {
   const q = norm(S.concQ || "").split(/\s+/).filter(x => x);
@@ -3174,8 +3190,10 @@ function filtrarConc(el) {
   filtrarGrupos(el, q.length > 0, S.concZona ? ".cz-row" : ".conc-card");
   const c = $("#cqc", el); if (c) c.textContent = q.length ? `${n} de ${filas.length}` : `${filas.length} productos`;
 }
-const nivelConc = (tot, fact) => fact === null || fact === "" ? "" : (tot < fact ? "mal" : (fact > 0 && tot > fact * 1.5 ? "sobra" : "ok"));
-const chkConc = (nivel, tot, fact) => nivel === "mal" ? `<span class="chk-no">✗ faltan ${fm(fact - tot)}</span>` : nivel === "sobra" ? `<span class="chk-sobra">✓ +${Math.round((tot / fact - 1) * 100)} %</span>` : nivel === "ok" ? `<span class="chk-ok">✓</span>` : "";
+// Solo 3 colores: sin color (falta la facturación) · verde (tenemos lo mismo o más) · rojo (tenemos menos)
+const nivelConc = (tot, fact) => fact === null || fact === "" ? "" : (tot < fact ? "mal" : "ok");
+const chkConc = (nivel, tot, fact) => nivel === "mal" ? `<span class="chk-no">✗ faltan ${fm(fact - tot)}</span>` : nivel === "ok" ? `<span class="chk-ok">✓${tot > fact ? ` +${fm(tot - fact)}` : ""}</span>` : "";
+const pillsConc = x => (Number(x.reempaque) > 0 ? ` <span class="reemp-p">♻️ ${fm(x.reempaque)}</span>` : "") + (Number(x.sixpacks) > 0 ? ` <span class="sixp-p" title="Sixpacks sueltos (cajas)">6️⃣ ${fm(x.sixpacks)}</span>` : "");
 // Cada producto es una tarjeta: cerrada muestra SKU, nombre, total y facturación con su color
 function tarjetaConc(x, esc) {
   const inp = (f, v, l) => { const d = f === "bodega" ? "est" : "cj", r = cantIni(vNum(v), cpeDe(x.sku), d);
@@ -3183,11 +3201,12 @@ function tarjetaConc(x, esc) {
   const ab = abierto("conc", x.sku);
   return `<article class="card conc-card plegable ${x.nivel || "sin"} ${ab ? "abierto" : ""}" data-row="${h(x.sku)}" data-comp="${x.completo ? 1 : 0}" data-q="${h(x.sku + " " + x.producto)}">
     <div class="pl-cab" data-plegar="conc|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${vNum(x.fact) === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span><span data-falta>${faltaConcHtml(x)}</span><span data-reemp>${Number(x.reempaque) > 0 ? ` <span class="reemp-p">♻️ ${fm(x.reempaque)}</span>` : ""}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
+      <div class="cc-tit"><div class="prod">${skuTxt(x.sku, x.producto)}</div><div class="cc-res">Total <b data-tot>${fm(x.total)}</b> · Fact <b data-fact>${vNum(x.fact) === "" ? "—" : fm(x.fact)}</b> <span data-chk>${chkConc(x.nivel, x.total, x.fact)}</span><span data-falta>${faltaConcHtml(x)}</span><span data-reemp>${pillsConc(x)}</span>${x.bloqueo ? ` <span class="pill">🔒 bloqueo</span>` : ""}<span data-tnota>${x.nota ? ` <span class="pill cc-tn" title="${h(x.nota)}">📝</span>` : ""}</span></div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo">
       <div class="cc-zonas">${inp("bodega", x.bodega, "Bodega")}${inp("ka", x.ka, "KA")}${inp("pk", x.pk, "PK")}
-        ${inp("reemp_bodega", vNum(x.reemp_bodega), "♻️ Reemp.")}${inp("reemp_ka", vNum(x.reemp_ka), "♻️ Reemp.")}${inp("reemp_pk", vNum(x.reemp_pk), "♻️ Reemp.")}</div>
+        ${inp("reemp_bodega", vNum(x.reemp_bodega), "♻️ Reemp.")}${inp("reemp_ka", vNum(x.reemp_ka), "♻️ Reemp.")}${inp("reemp_pk", vNum(x.reemp_pk), "♻️ Reemp.")}
+        ${inp("sixp_bodega", vNum(x.sixp_bodega), "6️⃣ Sixp. sueltos")}${inp("sixp_ka", vNum(x.sixp_ka), "6️⃣ Sixp. sueltos")}${inp("sixp_pk", vNum(x.sixp_pk), "6️⃣ Sixp. sueltos")}</div>
       <div class="cc-grid">${inp("fact", x.fact, "Facturación")}
         <label class="cc-bloq ${x.bloqueo ? "on" : ""}"><input type="checkbox" data-f="bloqueo" data-sku="${h(x.sku)}" ${x.bloqueo ? "checked" : ""} ${esc ? "" : "disabled"}><span>🔒 Bloqueo del excedente</span></label>
         ${esc ? `<button class="btn sm cc-sum" data-a="ccant" data-sku="${h(x.sku)}" title="Sumar o corregir (Bodega en cajas o estibas)">＋ Sumar</button><button class="btn sm icon del cc-del" data-a="qconc" data-sku="${h(x.sku)}" title="Quitar de la conciliación" aria-label="Quitar de la conciliación">${ICO_DEL}</button>` : ""}
@@ -3202,10 +3221,10 @@ function pintarConcItem(it) {
     tr.querySelector("[data-fact]").textContent = vNum(it.fact) === "" ? "—" : fm(it.fact);
     tr.querySelector("[data-chk]").innerHTML = chkConc(it.nivel, it.total, it.fact);
     tr.querySelector("[data-falta]").innerHTML = faltaConcHtml(it);
-    ["mal", "ok", "sobra", "sin"].forEach(c => tr.classList.toggle(c, (it.nivel || "sin") === c));
-    ZONAS_C.concat(REEMP_C).forEach(([z]) => { const i = tr.querySelector(`input[data-f="${z}"]`); if (i && document.activeElement !== i) mostrarCant(i, vNum(it[z])); });
+    ["mal", "ok", "sin"].forEach(c => tr.classList.toggle(c, (it.nivel || "sin") === c));
+    ZONAS_C.concat(REEMP_C, SIXP_C).forEach(([z]) => { const i = tr.querySelector(`input[data-f="${z}"]`); if (i && document.activeElement !== i) mostrarCant(i, vNum(it[z])); });
     const fi = tr.querySelector('input[data-f="fact"]'); if (fi && document.activeElement !== fi) fi.value = vNum(it.fact);
-    const re = tr.querySelector("[data-reemp]"); if (re) re.innerHTML = Number(it.reempaque) > 0 ? ` <span class="reemp-p">♻️ ${fm(it.reempaque)}</span>` : "";
+    const re = tr.querySelector("[data-reemp]"); if (re) re.innerHTML = pillsConc(it);
   }
   const items = S.conc.items;
   const r = $("#cRes"); if (r) r.innerHTML = resumenConc(items);
@@ -3216,6 +3235,13 @@ function pintarConcItem(it) {
 }
 // Una tarjeta cerrada que cambió de completo a incompleto (o al revés) pasa a su apartado sin recargar la página.
 // La que está abierta (se está escribiendo en ella) espera a que se cierre.
+// La tarjeta que se está gestionando (la abierta; si hay varias abiertas, la última que se tocó) se resalta:
+// fondo gris / blanco y el borde celeste girando
+function marcarActivaConc() {
+  const ab = $$(".conc-card.abierto");
+  ab.forEach(c => c.classList.toggle("activa", ab.length === 1 || c.dataset.row === S.concActiva));
+  $$(".conc-card.activa:not(.abierto)").forEach(c => c.classList.remove("activa"));
+}
 function reubicarConc(ancla) {
   if (S.vista !== "conciliacion" || S.concZona || !S.conc || !S.conc.conc) return;
   const mal = $$(".conc-card").filter(c => !c.classList.contains("abierto")).some(c => { const it = S.conc.items.find(x => x.sku === c.dataset.row); return it && String(it.completo ? 1 : 0) !== c.dataset.comp; });
@@ -3258,23 +3284,26 @@ function onConcCampo(e) {
   if (ub && ub.dataset.unt === "est" && n !== "") toast(`= ${fm(n)} cajas`, "", 2500);
   const row = i.closest(".cz-row");
   const valor = n === "" ? "" : String(n);
-  // Modo «Falta …» en lo ya contado: lo escrito se suma
+  // Modo «Estoy en …» en lo ya contado: lo escrito se suma (original, reempaque o sixpacks de esa zona)
+  const hz = cont && cont.querySelector(".cz-h"), lleva = row && row.querySelector(`[data-czv="${f}"]`);
   if (row && i.dataset.sumar && n !== "") {
     if (it) { it[f] = (Number(it[f]) || 0) + n; concRecalc(it); pintarConcItem(it); }
-    i.value = ""; const v = row.querySelector("[data-czv]"); if (v && it) v.textContent = fm(it[f]);
-    const hz = row.querySelector(".cz-h"); if (hz) hz.textContent = `✓ +${fm(n)}`;
+    i.value = ""; unReset(cont); if (lleva && it) lleva.innerHTML = llevaZona(it[f]);
+    if (hz) hz.textContent = `✓ +${fm(n)}`;
     const c2 = { sumar: true }; c2[f] = valor;
     guardarConcCampos(sku, c2, `Conciliación ${sku}: sumar ${f}`);
     return;
   }
   if (row) { i.value = ""; unReset(cont); } else mostrarCant(i, valor);
   if (it) { it[f] = valor === "" ? "" : Number(valor); concRecalc(it); pintarConcItem(it); }
-  // Fila del modo «Falta …»: queda marcada como hecha y desde ahí lo que se escriba se suma
+  // Fila del modo «Estoy en …»: ese cuadro queda hecho y desde ahí lo que se escriba se suma. La fila sigue a la vista
+  // (aunque el original ya esté) para poder anotar también el reempaque y los sixpacks.
   if (row && valor !== "") {
-    row.classList.add("hecho"); S.concHechos = (S.concHechos || []).concat([sku]);
-    i.dataset.sumar = "1"; i.placeholder = "＋ sumar"; i.dataset.ph = "＋ sumar";
-    const pz = row.querySelector(".cz-p"); if (pz && !pz.querySelector("[data-czv]")) pz.insertAdjacentHTML("beforeend", `<div class="sub">Lleva <b data-czv>${fm(Number(valor))}</b> cajas</div>`);
-    const hz = row.querySelector(".cz-h"); if (hz) hz.textContent = "✓";
+    if (!(S.concHechos || []).includes(sku)) S.concHechos = (S.concHechos || []).concat([sku]);
+    if (ZONAS_C.some(([z]) => z === f)) row.classList.add("hecho");
+    i.dataset.sumar = "1"; i.placeholder = "＋"; i.dataset.ph = "＋"; i.title = "Lo que escribas se suma";
+    if (lleva) lleva.innerHTML = llevaZona(Number(valor));
+    if (hz) hz.textContent = "✓";
   }
   const campos = {}; campos[f] = valor;
   guardarConcCampos(sku, campos, `Conciliación ${sku}: ${f}`);
@@ -3326,8 +3355,8 @@ async function onConcClick(e) {
     const ant = n => ({ 1: 3, 2: 1, 3: 2 })[n];
     const c = abrirModal(`<h3>Abrir conciliación</h3><p class="muted small">¿De qué turno es la conciliación? Normalmente se hace en el turno 3.</p>
       <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(horC(n))}</span></button>`).join("")}</div>
-      <label class="check"><input type="checkbox" id="caP"><span>Precargar los <b>pocos</b> (columna Minimo)</span></label>
-      <label class="check"><input type="checkbox" id="caE"><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (y usar esos conteos)</span></label>
+      <label class="check"><input type="checkbox" id="caP"><span>Precargar los <b>pocos</b> (columna Minimo): solo SKU y nombre, los valores quedan en «—» para contarlos</span></label>
+      <label class="check"><input type="checkbox" id="caE"><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (con esos conteos; lo de los pocos o copiado sigue en «—»)</span></label>
       ${(k.anteriores || []).length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><p class="muted small">Solo los productos, con los valores en blanco para contarlos.</p>${listaCopiar("caC", k.anteriores, true)}</details>` : ""}
       <h2 style="margin-top:14px">📌 Pre-conciliación (${pend.length})</h2>
       ${pend.length ? pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}"><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("") : `<p class="muted small">No hay productos anotados.</p>`}

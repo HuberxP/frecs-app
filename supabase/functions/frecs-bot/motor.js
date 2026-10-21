@@ -4477,7 +4477,7 @@ function obtenerEntregaBot() {
 // =========================================================
 const CONC_T = {
   conc: { libro: "CONC", nombre: "Conciliaciones", cab: ["ID", "Turno_ID", "Turno", "Fecha", "Estado", "Inicio", "Abierto_por", "Cierre", "Cerrado_por", "Nota", "Editado_por", "Eliminado_por"], texto: [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
-  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota", "Reempaque", "Reemp_Bodega", "Reemp_KA", "Reemp_PK"], texto: [1, 2, 3, 9, 10, 11, 12] },
+  items: { libro: "CONC", nombre: "Conc_Items", cab: ["Conc_ID", "SKU", "Producto", "Bodega", "KA", "PK", "Facturacion", "Bloqueo", "Actualizado", "Usuario", "Origen", "Nota", "Reempaque", "Reemp_Bodega", "Reemp_KA", "Reemp_PK", "Sixp_Bodega", "Sixp_KA", "Sixp_PK"], texto: [1, 2, 3, 9, 10, 11, 12] },
   pre: { libro: "CONC", nombre: "Preconciliacion", cab: ["ID", "Fecha", "Turno", "SKU", "Producto", "Motivo", "Usuario", "Estado", "Conc_ID"], texto: [1, 2, 4, 5, 6, 7, 8, 9] }
 };
 
@@ -4501,13 +4501,16 @@ const numVacio_ = v => (v === "" || v === null || v === undefined || String(v).t
 
 function concItems_(concId) {
   return tLeer_(CONC_T.items).map((r, k) => ({ fila: k + 2, concId: txt_(r[0]), sku: txt_(r[1]), producto: txt_(r[2]), bodega: numVacio_(r[3]), ka: numVacio_(r[4]), pk: numVacio_(r[5]), fact: numVacio_(r[6]), bloqueo: r[7] === true || String(r[7]).toUpperCase() === "TRUE" || String(r[7]).toUpperCase() === "SI", actualizado: txt_(r[8]), usuario: txt_(r[9]), origen: txt_(r[10]), nota: txt_(r[11]), reempaque: numVacio_(r[12]),
-      reemp_bodega: numVacio_(r[13]), reemp_ka: numVacio_(r[14]), reemp_pk: numVacio_(r[15]) }))
+      reemp_bodega: numVacio_(r[13]), reemp_ka: numVacio_(r[14]), reemp_pk: numVacio_(r[15]), sixp_bodega: numVacio_(r[16]), sixp_ka: numVacio_(r[17]), sixp_pk: numVacio_(r[18]) }))
     .filter(x => x.concId === concId)
     .map(x => {
       // Reempaque por área: se cuenta aparte de lo original y SÍ se suma al total
       x.reempZonas = x.reemp_bodega !== "" || x.reemp_ka !== "" || x.reemp_pk !== "";
       if (x.reempZonas) x.reempaque = (x.reemp_bodega || 0) + (x.reemp_ka || 0) + (x.reemp_pk || 0);
-      x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0) + (x.reempZonas ? x.reempaque : 0);
+      // Sixpacks sueltos por área (en cajas): también aparte y también se suman al total
+      x.sixpZonas = x.sixp_bodega !== "" || x.sixp_ka !== "" || x.sixp_pk !== "";
+      x.sixpacks = x.sixpZonas ? (x.sixp_bodega || 0) + (x.sixp_ka || 0) + (x.sixp_pk || 0) : "";
+      x.total = (x.bodega || 0) + (x.ka || 0) + (x.pk || 0) + (x.reempZonas ? x.reempaque : 0) + (x.sixpacks || 0);
       x.check = x.fact === "" ? null : x.total >= x.fact;
       x.nivel = nivelConc_(x.total, x.fact);
       x.diferencia = x.fact === "" ? null : x.total - x.fact;
@@ -4518,17 +4521,18 @@ function concItems_(concId) {
     });   // en el orden en que se agregaron
 }
 
-// Color de cada producto: mal (facturación tiene de más) · ok (el conteo cubre) ·
-// sobra (tenemos más del 50 % por encima de lo facturado: diferencia grande que revisar)
+// Color de cada producto (solo 3): sin color (no hay facturación) · mal / rojo (tenemos menos que
+// facturación) · ok / verde (tenemos lo mismo o más que facturación)
 function nivelConc_(total, fact) {
   if (fact === "" || fact === null || fact === undefined) return "";
-  if (total < fact) return "mal";
-  if (fact > 0 && total > fact * 1.5) return "sobra";
-  return "ok";
+  return total < fact ? "mal" : "ok";
 }
 
-// Lo contado en un área más su reempaque ("" si no se contó nada ahí)
-function conReemp_(x, z) { const a = x[z], b = x["reemp_" + z]; return a === "" && (b === "" || b === undefined) ? "" : (a || 0) + (b || 0); }
+// Lo contado en un área más su reempaque y sus sixpacks sueltos ("" si no se contó nada ahí)
+function conReemp_(x, z) {
+  const l = [x[z], x["reemp_" + z], x["sixp_" + z]];
+  return l.every(v => v === "" || v === undefined) ? "" : l.reduce((a, v) => a + (Number(v) || 0), 0);
+}
 
 function turnoAnterior_(n) { return { 1: 3, 2: 1, 3: 2 }[Number(n)] || 2; }
 
@@ -4613,8 +4617,10 @@ function concAbrirCore_(opts, usuario) {
     if (opts.entrega !== false) Object.keys(ent.mapa).forEach(s => { skus[s] = skus[s] || { producto: ent.mapa[s].producto, origen: "Entrega T" + ant }; });
     // Copia de una conciliación anterior: solo los productos (los valores quedan por contar)
     if (opts.copiar) { const d = concItemsDe_(opts.copiar); d.items.forEach(x => { skus[x.sku] = skus[x.sku] || { producto: x.producto, origen: `Copiado de T${d.c.numero} ${formatearFecha(d.c.fecha)}` }; }); }
+    // Los conteos de la entrega solo van en lo que vino de la entrega o de la pre-conciliación: lo que se
+    // carga de los pocos o de otra conciliación entra solo con SKU y nombre (los valores en «—», por contar)
     const filas = Object.keys(skus).map(s => {
-      const c = opts.entrega !== false ? (ent.mapa[s] || {}) : {};
+      const c = opts.entrega !== false && !/^(Pocos|Copiado)/.test(skus[s].origen) ? (ent.mapa[s] || {}) : {};
       return [id, s, skus[s].producto, c.bodega === undefined ? "" : c.bodega, c.ka === undefined ? "" : c.ka, c.pk === undefined ? "" : c.pk, "", false, ahora_(), usuario, skus[s].origen + (c.bodega !== undefined ? " · conteo T" + ant : "")];
     });
     tAgregar_(CONC_T.items, filas);
@@ -4666,8 +4672,9 @@ function concCopiarCore_(desdeId, usuario, concId) {
   });
 }
 
-// campos = { bodega, ka, pk, fact, bloqueo, nota, reemp_bodega, reemp_ka, reemp_pk } (solo los que cambian). El reempaque de
-// cada área se cuenta aparte y se suma al total; «Reempaque» guarda la suma de los tres. Con sumar: true, Bodega/KA/PK se suman a lo que había
+// campos = { bodega, ka, pk, fact, bloqueo, nota, reemp_bodega, reemp_ka, reemp_pk, sixp_bodega, sixp_ka, sixp_pk } (solo los que
+// cambian). El reempaque y los sixpacks sueltos de cada área se cuentan aparte y se suman al total; «Reempaque» guarda la suma
+// de los tres reempaques. Con sumar: true, lo que llega se suma a lo que había
 function concGuardarItemCore_(sku, campos, usuario, concId) {
   campos = campos || {};
   const val = v => { if (v === "" || v === null) return ""; const n = entero_(v); if (isNaN(n) || n < 0) throw new Error("Las cantidades deben ser números enteros (cajas)."); return n; };
@@ -4687,7 +4694,8 @@ function concGuardarItemCore_(sku, campos, usuario, concId) {
     if (campos.nota !== undefined) r[11] = String(campos.nota || "").trim().substring(0, 300);
     if (campos.reempaque !== undefined) r[12] = val(campos.reempaque);
     let rz = false;
-    [["reemp_bodega", 13], ["reemp_ka", 14], ["reemp_pk", 15]].forEach(([k, i]) => { if (campos[k] !== undefined) { r[i] = val(campos[k]); rz = true; } });
+    [["reemp_bodega", 13], ["reemp_ka", 14], ["reemp_pk", 15]].forEach(([k, i]) => { if (campos[k] !== undefined && !(sumar && campos[k] === "")) { r[i] = zona(i, campos[k]); rz = true; } });
+    [["sixp_bodega", 16], ["sixp_ka", 17], ["sixp_pk", 18]].forEach(([k, i]) => { if (campos[k] !== undefined && !(sumar && campos[k] === "")) r[i] = zona(i, campos[k]); });
     if (rz) { const z = [13, 14, 15].map(i => numVacio_(r[i])); r[12] = z.every(v => v === "") ? "" : z.reduce((a, v) => a + (v || 0), 0); }
     r[8] = ahora_(); r[9] = usuario;
     tEscribir_(CONC_T.items, f.fila, 1, r);
@@ -4758,23 +4766,23 @@ function construirPDFConciliacion(concId) {
   const html = pdfDoc_("CONCILIACIÓN CON FACTURACIÓN", cuerpoPDFConc_(c), { vertical: true, css: CSS_PDF_CONC });
   return { blob: htmlAPdf_(html, `Conciliacion_${c.id}.pdf`), caption: `⚖️ *Conciliación* · turno ${c.numero} · ${formatearFecha(c.fecha)}` };
 }
-const CSS_PDF_CONC = "tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px}tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}tr.sobra td{background:#dbe8ff !important}.chk{font-size:12px;font-weight:bold}.nota-p{font-size:10.5px;color:#555;font-style:italic}";
+const CSS_PDF_CONC = "tr.grupo td{background:#e8eef9 !important;color:#003399;font-size:9.5px}tr.mal td{background:#ffcccc !important}tr.ok td{background:#e2efda !important}.chk{font-size:12px;font-weight:bold}.nota-p{font-size:10.5px;color:#555;font-style:italic}";
 // El cuerpo del PDF (también lo usa la Entrega final)
-// Orden: primero lo que facturación tiene de más, luego lo que tenemos de más (+50 %), lo que cuadra y lo que no tiene facturación;
+// Orden: primero lo que tiene menos que facturación, luego lo que cuadra y lo que no tiene facturación;
 // dentro de cada uno por presentación (PET, Lata, Retornable, TW, Barril…) y nombre
-const ORDEN_NIVEL_ = { mal: 0, sobra: 1, ok: 2, "": 3 };
+const ORDEN_NIVEL_ = { mal: 0, ok: 1, "": 2 };
 function cuerpoPDFConc_(c, sinFirmas) {
   const items = concItems_(c.id).sort((a, b) => ORDEN_NIVEL_[a.nivel || ""] - ORDEN_NIVEL_[b.nivel || ""] || ordenFamilia_(a, b));
   const v = x => x === "" ? "—" : fM(x);
   const grupo = () => "";
   const suma = k => items.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  // Cada área con su reempaque debajo (se suma al total)
-  const zc = (x, z) => v(x[z]) + (Number(x["reemp_" + z]) > 0 ? `<div class="nota-p">+ ♻️ ${fM(x["reemp_" + z])}</div>` : "");
-  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${Number(x.reempaque) > 0 ? `<div class="nota-p">Reempaque: ${fM(x.reempaque)} cj${x.reempZonas ? " (sumado al total)" : ""}</div>` : ""}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${zc(x, "bodega")}</td><td>${zc(x, "ka")}</td><td>${zc(x, "pk")}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "sobra" ? "✓ +" + Math.round((x.total / x.fact - 1) * 100) + "%" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
+  // Cada área con su reempaque y sus sixpacks sueltos debajo (se suman al total)
+  const zc = (x, z) => v(x[z]) + (Number(x["reemp_" + z]) > 0 ? `<div class="nota-p">+ ♻️ Reemp. ${fM(x["reemp_" + z])}</div>` : "") + (Number(x["sixp_" + z]) > 0 ? `<div class="nota-p">+ Sixp. ${fM(x["sixp_" + z])}</div>` : "");
+  const filas = items.map(x => grupo(x) + `<tr class="${x.nivel}"><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}${Number(x.reempaque) > 0 ? `<div class="nota-p">Reempaque: ${fM(x.reempaque)} cj${x.reempZonas ? " (sumado al total)" : ""}</div>` : ""}${Number(x.sixpacks) > 0 ? `<div class="nota-p">Sixpacks sueltos: ${fM(x.sixpacks)} cj (sumado al total)</div>` : ""}${x.nota ? `<div class="nota-p">📝 ${escHtml_(x.nota)}</div>` : ""}</td><td>${zc(x, "bodega")}</td><td>${zc(x, "ka")}</td><td>${zc(x, "pk")}</td><td><b>${fM(x.total)}</b></td><td>${v(x.fact)}</td><td>${x.bloqueo ? "☑" : "☐"}</td><td class="chk">${x.nivel === "mal" ? "✗" : x.nivel === "ok" ? "✓" : ""}</td></tr>`).join("") +
     (items.length ? `<tr class="tot"><td></td><td class="izq">TOTAL</td><td>${fM(suma("bodega"))}</td><td>${fM(suma("ka"))}</td><td>${fM(suma("pk"))}</td><td>${fM(suma("total"))}</td><td>${fM(suma("fact"))}</td><td></td><td></td></tr>` : "") || `<tr><td colspan="9" class="vacio">Sin productos.</td></tr>`;
   return `<table class="info"><tr><td class="k">Conciliación</td><td><b>Turno ${c.numero} · ${formatearFecha(c.fecha)}</b></td><td class="k">Estado</td><td>${c.estado === "ABIERTA" ? "En curso" : "Cerrada"}</td></tr>
     <tr><td class="k">Abierta por</td><td>${escHtml_(c.abiertoPor)} · ${fechaCorta_(c.inicio)}</td><td class="k">Cerrada por</td><td>${c.cerradoPor ? escHtml_(c.cerradoPor) + " · " + fechaCorta_(c.cierre) : "—"}</td></tr>${c.nota ? `<tr><td class="k">Nota</td><td colspan="3">${escHtml_(c.nota)}</td></tr>` : ""}</table>
-    <p class="sm">Todo en cajas. <span style="background:#ffcccc;padding:1px 5px">✗ facturación tiene de más</span> (revisar bloqueo del excedente) · <span style="background:#e2efda;padding:1px 5px">✓ el conteo cubre la facturación</span> · <span style="background:#dbe8ff;padding:1px 5px">✓ +50 % o más: diferencia grande, revisar</span></p>
+    <p class="sm">Todo en cajas. Total = original + reempaque + sixpacks sueltos. <span style="background:#ffcccc;padding:1px 5px">✗ tenemos menos que facturación</span> (revisar bloqueo del excedente) · <span style="background:#e2efda;padding:1px 5px">✓ tenemos lo mismo o más que facturación</span> · sin color: falta la facturación</p>
     <table class="t"><thead><tr><th>SKU</th><th class="izq">Producto</th><th>Bodega</th><th>KA</th><th>PK</th><th>Total</th><th>Facturación</th><th>Bloqueo</th><th>Check</th></tr></thead><tbody>${filas}</tbody></table>
     ${sinFirmas ? "" : `<table class="firmas"><tr><td><div class="linea">Bodega</div></td><td><div class="linea">Facturación</div></td></tr></table>`}`;
 }
@@ -4821,7 +4829,7 @@ function obtenerConciliacionBot() {
   teclado[0].push({ text: "📄 PDF", callback_data: "CONCPDF" });
   let msj = `⚖️ *CONCILIACIÓN TURNO ${e.conc.numero}* · ${formatearFecha(e.conc.fecha)}\nAbierta por ${escapeMd(e.conc.abiertoPor)}\n${e.faltantes ? `❌ *${e.faltantes} con facturación de más*` : "✅ Sin faltantes"}\n${SEP_}`;
   e.items.forEach(x => {
-    msj += `${x.nivel === "mal" ? "❌" : x.nivel === "sobra" ? "🔵" : x.nivel === "ok" ? "✅" : "▫️"} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}${Number(x.reempaque) > 0 ? ` · ♻️ reempaque ${fM(x.reempaque)}` : ""}\n`;
+    msj += `${x.nivel === "mal" ? "❌" : x.nivel === "ok" ? "✅" : "▫️"} ${skuProdMd_(x.sku, x.producto)}\n   Bodega ${x.bodega === "" ? "—" : fM(x.bodega)} | KA ${x.ka === "" ? "—" : fM(x.ka)} | PK ${x.pk === "" ? "—" : fM(x.pk)} = *${fM(x.total)}*${x.fact !== "" ? ` · Fact ${fM(x.fact)}` : ""}${x.bloqueo ? " · 🔒 bloqueado" : ""}${Number(x.reempaque) > 0 ? ` · ♻️ reempaque ${fM(x.reempaque)}` : ""}${Number(x.sixpacks) > 0 ? ` · sixpacks sueltos ${fM(x.sixpacks)}` : ""}\n`;
   });
   return { text: msj, markup: { inline_keyboard: teclado } };
 }
@@ -5355,7 +5363,8 @@ function sbImportarTodo() {
     if (!sk) return omitir("conc_items", "sin SKU");
     ci.push({ conc_id: id, sku: sk, producto: sbTxt_(r[2]), bodega: sbNum_(r[3]), ka: sbNum_(r[4]), pk: sbNum_(r[5]), facturacion: sbNum_(r[6]),
       bloqueo: sbBool_(r[7]), actualizado: sbTs_(r[8]) || inicioConc[id], usuario: sbTxt_(r[9]), origen: sbTxt_(r[10]), nota: sbTxt_(r[11]),
-      reempaque: sbNum_(r[12]), reemp_bodega: sbNum_(r[13]), reemp_ka: sbNum_(r[14]), reemp_pk: sbNum_(r[15]) });
+      reempaque: sbNum_(r[12]), reemp_bodega: sbNum_(r[13]), reemp_ka: sbNum_(r[14]), reemp_pk: sbNum_(r[15]),
+      sixp_bodega: sbNum_(r[16]), sixp_ka: sbNum_(r[17]), sixp_pk: sbNum_(r[18]) });
   });
   res.conc_items = sbEnviarTabla_("conc_items", sbSinRepetir_(ci, x => x.conc_id + "|" + x.sku));
 

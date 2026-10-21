@@ -671,7 +671,7 @@
   .cc-nota input { font-size: 14px; font-weight: 500; }
   .cc-tn { padding: 0 6px; }
   /* Si el conteo cubre la facturación (verde o azul) el bloqueo del excedente no aplica: se esconde (salvo que ya estuviera marcado) */
-  .conc-card.ok .cc-bloq:not(.on), .conc-card.sobra .cc-bloq:not(.on) { display: none; }
+  .conc-card.ok .cc-bloq:not(.on) { display: none; }
   /* Entrega: tarjeta de notas naranja claro y cantidades en 0 */
   .notas-card { background: linear-gradient(0deg, rgba(255,166,77,.16), rgba(255,166,77,.16)), var(--card); border-color: rgba(255,166,77,.6); }
   .notas-card h3 { color: #ffc27a; }
@@ -1642,7 +1642,48 @@
   .vc-reemp { color: #d8b4fe; }
   .f-reemp { margin-top: 8px; } .f-reemp > span { color: #d8b4fe; }
   .cc-reempaque > span { color: #d8b4fe; }
-  html[data-tema="claro"] .reemp-p { color: #6d28d9; border-color: #8b5cf6; background: #f1eaff; } html[data-tema="claro"] .vc-reemp, html[data-tema="claro"] .f-reemp > span, html[data-tema="claro"] .cc-reempaque > span { color: #6d28d9; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .reemp-p { color: #6d28d9; border-color: #8b5cf6; background: #f1eaff; } html[data-tema="claro"] .vc-reemp, html[data-tema="claro"] .f-reemp > span, html[data-tema="claro"] .cc-reempaque > span { color: #6d28d9; }
+
+  /* ---------- Conciliación 21/10: sixpacks sueltos, solo 3 colores y la tarjeta que se está gestionando ---------- */
+  .cc-campo[class*="cc-sixp_"] > span { color: #fdba74; font-size: 11px; }
+  .cc-campo[class*="cc-sixp_"] input { min-height: 32px !important; font-size: 14px !important; border-style: dashed !important; border-color: rgba(251,146,60,.65) !important; }
+  html[data-tema="claro"] .cc-campo[class*="cc-sixp_"] > span { color: #c2410c; }
+  .sixp-p { display: inline-block; font-size: 11.5px; font-weight: 750; padding: 1px 7px; border-radius: 999px; border: 1px solid #fb923c; color: #fdba74; background: rgba(251,146,60,.14); margin-left: 4px; }
+  html[data-tema="claro"] .sixp-p { color: #9a3412; border-color: #ea580c; background: #fff1e6; }
+  .chk-ok { white-space: nowrap; }
+  /* «Estoy en …»: original, reempaque y sixpacks de esa zona en la misma fila */
+  .cz-row { flex-wrap: wrap; align-items: flex-start; }
+  .cz-row .cz-p { flex: 1 1 220px; padding-top: 4px; }
+  .cz-ins { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; flex: 1 1 100%; }
+  @media (min-width: 900px) { .cz-ins { flex: 0 1 560px; } }
+  .cz-ins .cz-in { flex-direction: column; align-items: stretch; gap: 3px; min-width: 0; }
+  .cz-ins .cz-k { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cz-ins .cz-reemp .cz-k { color: #d3b6ff; } .cz-ins .cz-sixp .cz-k { color: #fdba74; }
+  html[data-tema="claro"] .cz-ins .cz-reemp .cz-k { color: #6d28d9; } html[data-tema="claro"] .cz-ins .cz-sixp .cz-k { color: #c2410c; }
+  .cz-lleva { display: block; min-height: 15px; font-weight: 600; font-size: 11px; color: var(--muted); } .cz-lleva b { color: var(--ok); }
+  /* Cada cuadro: nombre y lo que lleva · cajas / estibas · la cantidad a todo lo ancho (el ✓ va dentro, a la derecha) */
+  .cz-ins .cz-c { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; position: relative; }
+  .cz-ins .cz-c .un-sel { justify-self: start; max-width: 100%; }
+  .cz-ins .cz-c input { width: 100%; min-width: 0; padding-right: 30px; }
+  .cz-ins .cz-reemp input { border-style: dashed; border-color: rgba(167,139,250,.6); }
+  .cz-ins .cz-sixp input { border-style: dashed; border-color: rgba(251,146,60,.65); }
+  .cz-ins .cz-h { position: absolute; right: 6px; bottom: 11px; min-width: 0; font-size: 11px; pointer-events: none; }
+  /* La tarjeta que se está gestionando (la abierta): gris / blanco con el borde celeste girando.
+     El color de facturación queda en una franja a la izquierda. */
+  @property --cc-giro { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+  .conc-card.activa, .clista .conc-card.activa {
+    --cc-act: #262d3a;
+    border: 3px solid transparent !important;
+    background: linear-gradient(var(--cc-act), var(--cc-act)) padding-box,
+      conic-gradient(from var(--cc-giro), #38bdf8, #e0f2fe 12%, #0ea5e9 25%, rgba(56,189,248,.18) 45%, rgba(56,189,248,.18) 55%, #0ea5e9 75%, #e0f2fe 88%, #38bdf8) border-box !important;
+    animation: ccGiro 2.6s linear infinite;
+    box-shadow: 0 0 0 1px rgba(56,189,248,.25), 0 6px 22px rgba(14,165,233,.22);
+  }
+  html[data-tema="claro"] .conc-card.activa { --cc-act: #ffffff; }
+  .conc-card.activa.mal { box-shadow: inset 5px 0 0 var(--bad), 0 6px 22px rgba(14,165,233,.22); }
+  .conc-card.activa.ok { box-shadow: inset 5px 0 0 var(--ok), 0 6px 22px rgba(14,165,233,.22); }
+  @keyframes ccGiro { to { --cc-giro: 360deg; } }
+  @media (prefers-reduced-motion: reduce) { .conc-card.activa { animation: none; } }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

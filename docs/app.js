@@ -3385,7 +3385,7 @@ async function onConcClick(e) {
   if (a === "ccant") { const x = k.items.find(y => y.sku === b.dataset.sku); if (x) modalConcCant(x); return; }
   if (a === "agregarc") {
     const ants = k.anteriores || [];
-    const c = abrirModal(`<h3>Agregar a la conciliación</h3><div class="buscador"><div class="bq-fila"><input type="search" id="cAdd" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div><p class="muted small">Escoge el producto de la lista. Si la entrega del turno anterior lo contó, se trae ese conteo. Si ya está, se abre para sumar.</p>
+    const c = abrirModal(`<h3>Agregar a la conciliación</h3><div class="buscador"><div class="bq-fila"><input type="search" id="cAdd" placeholder="SKU o nombre del producto…" autocomplete="off"></div></div><p class="muted small">Escoge el producto de la lista: entra en blanco («—») para que pongas los valores. Si ya está, se abre para sumar.</p>
       ${ants.length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><p class="muted small">Solo los productos, con los valores en blanco para contarlos. Los que ya están no se tocan.</p>${listaCopiar("cCp", ants, false)}<div class="cp-acc"><button class="btn sm primary" id="cCpOk">📋 Copiar</button></div></details>` : ""}
       <div class="modal-actions"><button class="btn" data-x>Cerrar</button></div>`);
     autoSku($("#cAdd", c), async p => {

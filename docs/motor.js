@@ -4614,20 +4614,18 @@ function concAbrirCore_(opts, usuario) {
   });
 }
 
+// Lo que se agrega a mano (o se pasa de la pre-conciliación) entra en blanco («—»): los valores los pone quien concilia
 function concAgregarProductosCore_(items, usuario, concId) {
   return conLock_(() => {
     const c = concParaEditar_(concId);
     const ya = new Set(concItems_(c.id).map(x => x.sku));
-    const ant = turnoAnterior_(c.numero);
-    const ent = conteosEntregaDe_(ant);
     let filas = [], omitidos = [];
     (items || []).forEach(it => {
       const sku = String(it.sku || "").trim();
       if (!/^\d+$/.test(sku)) { omitidos.push(`${sku}: SKU inválido`); return; }
       if (ya.has(sku)) { omitidos.push(`${sku}: ya está`); return; }
       ya.add(sku);
-      const e = ent.mapa[sku] || {};
-      filas.push([c.id, sku, String(it.producto || (skuInfo_(sku) || {}).prod || "SKU " + sku), e.bodega === undefined ? "" : e.bodega, e.ka === undefined ? "" : e.ka, e.pk === undefined ? "" : e.pk, "", false, ahora_(), usuario, "Usuario" + (ent.mapa[sku] ? " · conteo T" + ant : "")]);
+      filas.push([c.id, sku, String(it.producto || (skuInfo_(sku) || {}).prod || "SKU " + sku), "", "", "", "", false, ahora_(), usuario, it.preId ? "Pre-conciliación" : "Usuario"]);
     });
     tAgregar_(CONC_T.items, filas);
     // Los que vienen de pre-conciliación quedan marcados como pasados

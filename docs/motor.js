@@ -1143,7 +1143,9 @@ function zonaModulo_(m) {
 
 function esModuloCarpa(m) { return zonaModulo_(limpiarModulo(m)) === "CARPA"; }
 function esZonaKA_(m) { return zonaModulo_(m) === "KA"; }
-function esZonaPK_(i) { return zonaModulo_(i.m) === "PREV" || i.pick; }
+// Picking / Preventa: módulos PREV y lo marcado como picking en el WMS, menos KA (el WMS marca los KA como picking,
+// pero KA es su propia zona)
+function esZonaPK_(i) { const z = zonaModulo_(i.m); return z === "PREV" || (!!i.pick && z !== "KA"); }
 // KA y Picking/Preventa (zonas de surtido)
 function esZonaOperativa(i) { return esZonaKA_(i.m) || esZonaPK_(i); }
 // Bodega de almacenamiento (todo lo que no es KA, PREV, picking ni carpa)
@@ -1350,9 +1352,10 @@ const SKU_CAMPOS = {
   minimo: ["minimo", "minimoestibas"], t1: ["t1"], t2: ["t2"], ka: ["ka"],
   estCara: ["estibasporcara", "estibasxcara", "porcara"],
   vida: ["vidautil", "vidautildias", "diasvidautil", "vidautil(dias)"],
-  emp: ["empaque", "tipoempaque", "unidadestiba"]
+  emp: ["empaque", "tipoempaque", "unidadestiba"],
+  rev: ["revisado", "revisadopor"]
 };
-const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util", emp: "Empaque" };
+const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util", emp: "Empaque", rev: "Revisado" };
 
 // «sixpack», «SIXPACKS» → «Sixpacks»; lo que no está en la lista queda como lo escribieron
 function empaqueNorm_(v) {
@@ -1376,7 +1379,7 @@ function leerSku_() {
     if (idx !== -1) cols[k] = idx;
   });
   // Columnas nuevas que faltan: se agregan al final con su encabezado
-  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida", "emp"].filter(k => cols[k] === undefined);
+  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida", "emp", "rev"].filter(k => cols[k] === undefined);
   if (faltan.length && cols.sku !== undefined) {
     let col = sh.getLastColumn();
     faltan.forEach(k => { sh.getRange(1, col + 1).setValue(SKU_ENCABEZADOS[k]).setFontWeight("bold"); cols[k] = col; col++; });
@@ -1395,7 +1398,8 @@ function leerSku_() {
       plancha: String(val(r, "plancha")), cantEst: String(val(r, "cantEst")), pres: String(val(r, "pres")),
       usuario: String(val(r, "usuario")), ctx: String(val(r, "ctx")),
       minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara")), vida: num(val(r, "vida")),
-      emp: empaqueNorm_(val(r, "emp"))
+      emp: empaqueNorm_(val(r, "emp")),
+      rev: String(val(r, "rev") === null || val(r, "rev") === undefined ? "" : val(r, "rev")).trim()   // «Nombre · fecha» de quien lo revisó; vacío = sin revisar
     };
     if (!mapa[sku]) { mapa[sku] = o; lista.push(o); }
   }
@@ -2947,17 +2951,40 @@ function skuGuardarCore_(skuOriginal, obj, usuario) {
       const fila = sk.sh.getRange(actual.fila, 1, 1, sk.sh.getLastColumn()).getValues()[0];
       SKU_EDITABLES.forEach(k => { if (sk.cols[k] !== undefined) fila[sk.cols[k]] = o[k]; });
       if (sk.cols.usuario !== undefined) fila[sk.cols.usuario] = usuario;
+      if (sk.cols.rev !== undefined && obj.rev !== undefined) fila[sk.cols.rev] = revisadoValor_(obj.rev, actual.rev, usuario);
       sk.sh.getRange(actual.fila, 1, 1, fila.length).setValues([fila]);
     } else {
       if (sk.mapa[o.sku]) throw new Error(`El SKU ${o.sku} ya existe (${sk.mapa[o.sku].prod}).`);
       let fila = new Array(sk.sh.getLastColumn()).fill("");
       SKU_EDITABLES.forEach(k => { if (sk.cols[k] !== undefined) fila[sk.cols[k]] = o[k]; });
       if (sk.cols.usuario !== undefined) fila[sk.cols.usuario] = usuario;
+      if (sk.cols.rev !== undefined && obj.rev !== undefined) fila[sk.cols.rev] = revisadoValor_(obj.rev, "", usuario);
       sk.sh.appendRow(fila);
     }
     invalidarSku_();
     sbEspejo_("sku");
     return o.sku;
+  });
+}
+
+// ✓ Revisado: «Nombre · fecha» de quien lo marcó (si ya estaba marcado se conserva); desmarcado = vacío
+function revisadoValor_(on, actual, usuario) {
+  const si = on === true || on === "true" || on === 1;
+  if (!si) return "";
+  return actual ? actual : `${usuario} · ${ahora_()}`;
+}
+function skuRevisadoCore_(sku, on, usuario) {
+  return conLock_(() => {
+    _SKU = null;
+    const sk = leerSku_();
+    if (!sk.sh) throw new Error("Falta la pestaña 'Sku'.");
+    if (sk.cols.rev === undefined) throw new Error("Falta la columna «Revisado» en la hoja Sku.");
+    const actual = sk.mapa[String(sku).trim()];
+    if (!actual) throw new Error(`El SKU ${sku} no existe.`);
+    sk.sh.getRange(actual.fila, sk.cols.rev + 1).setValue(revisadoValor_(on, "", usuario));
+    invalidarSku_();
+    sbEspejo_("sku");
+    return true;
   });
 }
 
@@ -5095,7 +5122,7 @@ function sbFilasSku_() {
     sku: c.sku, id_hoja: sbTxt_(c.idHoja),
     producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
     presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara, vida_util: c.vida,
-    empaque: c.emp || empaqueRegla_(c.prod, c.pres)
+    empaque: c.emp || empaqueRegla_(c.prod, c.pres), revisado: sbTxt_(c.rev)
   })), x => x.sku);
 }
 function sbFilasCanales_(omitir) {
@@ -5188,7 +5215,7 @@ function sbBajarMaestros_(tablas) {
       if (sk.sh) {
         const ancho = sk.sh.getLastColumn();
         const campos = { id: "id_hoja", sku: "sku", prod: "producto", cub: "cubicaje", piso: "piso", plancha: "plancha", cantEst: "cant_x_estiba",
-          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util", emp: "empaque" };
+          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util", emp: "empaque", rev: "revisado" };
         const enBase = new Set();
         m.sku.forEach(x => {
           enBase.add(String(x.sku));
@@ -5853,7 +5880,7 @@ function inventarioPayload_() {
       pick: i.pick, act: i.act, actTxt: formatoActualizacion(i.act), carga: i.carga,
       prio: i.prio, tpc: i.tpc, reemp: i.reempaque, fis: i.tieneFisico,
       T1: c2.T1, T2: c2.T2, KA: c2.KA, min: c2.min,
-      esKA: z === "KA", esPK: z === "PREV" || i.pick, esOp: esZonaOperativa(i), carpa: z === "CARPA",
+      esKA: z === "KA", esPK: esZonaPK_(i), esOp: esZonaOperativa(i), carpa: z === "CARPA",
       ret: esProductoRetornable(i.fam, i.p, i.s), vida: vidaUtilInfo(i.d).clave, emp: obtenerTipoEmpaque(i.p, i.s)
     };
   });
@@ -5865,7 +5892,7 @@ function inventarioPayload_() {
 function webInventario(tk) { return webAuth_(tk, L_, () => inventarioPayload_()); }
 
 function catalogoWeb_() {
-  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres) }));
+  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres), rev: c.rev || "" }));
 }
 function webCatalogo(tk) { return webAuth_(tk, L_, () => catalogoWeb_()); }
 function webCanales(tk) { return webAuth_(tk, L_, () => ({ reglas: canalesListar_(), defecto: POCOS_DEFECTO })); }
@@ -6079,6 +6106,8 @@ function webUsuarios(tk) { return webAuth_(tk, A_, () => usrListarAdmin_()); }
 function webUsuarioGuardar(tk, obj) { return webAuth_(tk, A_, u => { usrGuardarCore_(obj, u.nombre); return usrListarAdmin_(); }); }
 function webUsuarioEliminar(tk, nombre) { return webAuth_(tk, A_, u => { usrEliminarCore_(nombre, u.nombre); return usrListarAdmin_(); }); }
 function webSkuGuardar(tk, skuOriginal, obj) { return webAuth_(tk, A_, u => { skuGuardarCore_(skuOriginal, obj, u.nombre); return catalogoWeb_(); }); }
+// ✓ Revisado: quien actualizó toda la información del producto lo marca (o lo desmarca)
+function webSkuRevisado(tk, sku, on) { return webAuth_(tk, A_, u => { skuRevisadoCore_(sku, on, u.nombre); return catalogoWeb_(); }); }
 function webSkuEliminar(tk, sku) { return webAuth_(tk, A_, () => { skuEliminarCore_(sku); return catalogoWeb_(); }); }
 function webCapacidad(tk) { return webAuth_(tk, L_, () => capacidadListar_()); }
 function webCapacidadGuardar(tk, original, obj) { return webAuth_(tk, A_, () => { capacidadGuardarCore_(original, obj); return capacidadListar_(); }); }
@@ -6689,7 +6718,7 @@ function construirInformePrioridades(id) {
 }
 
 ;
-const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webConsumoNombre, webConsumoOrden, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webEnvasadoProducto, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEditar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMarcaPoner, webMarcaQuitar, webMarcas, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPocosVigilarGuardar, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValConc, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin, webVistasRolGuardar};
+const __EXPORTAR = {webAcomodar, webAvanzados, webBarriles, webCambiarPin, webCanales, webCanalesGuardar, webCapacidad, webCapacidadEliminar, webCapacidadGuardar, webCarpa, webCatalogo, webConc, webConcAbrir, webConcAgregar, webConcCerrar, webConcCopiar, webConcEliminar, webConcGuardar, webConcNota, webConcQuitar, webConcRestaurar, webConsolidar, webConsumo, webConsumoAgregar, webConsumoElegir, webConsumoEliminar, webConsumoNombre, webConsumoOrden, webEnt, webEntGuardar, webEntNota, webEntNotaEditar, webEntNotaQuitar, webEntPrecargar, webEntQuitar, webEntQuitarSeccion, webEntTraerValidados, webEnvasado, webEnvasadoProducto, webFinal, webHistorial, webHuecos, webInfiltrados, webInit, webInventario, webLimbo, webLimboAgregar, webLimboEditar, webLimboEliminar, webLogin, webLogout, webMantArchivar, webMantPrevia, webMarcaPoner, webMarcaQuitar, webMarcas, webMezclados, webOrganizar, webPDF, webPDFTelegram, webPocos, webPocosVigilarGuardar, webPreAgregar, webPreLimpiar, webPreQuitar, webPref, webPublico, webReporteCerrar, webReporteCrear, webReportes, webResumen, webRotCrear, webRotEliminar, webRotItem, webRotListar, webRotMarcar, webRotQuitar, webRotVer, webSetup, webSincronizar, webSkuEliminar, webSkuGuardar, webSkuRevisado, webTurno, webTurnoAbrir, webTurnoCerrar, webTurnoEliminar, webTurnoNota, webTurnoRestaurar, webUsuarioEliminar, webUsuarioGuardar, webUsuarios, webVacios, webVal, webValAgregar, webValAnular, webValConc, webValDestino, webValEditar, webValFinal, webValInicial, webValQuitar, webValRegistrar, webValSugerencias, webVerificarPin, webVistasRolGuardar};
 // ---------------------------------------------------------------------
 // Conexión del motor con la página
 // ---------------------------------------------------------------------

@@ -1562,9 +1562,12 @@ function filaProducto(c, opts) {
   const ab = abierto(opts.grupo || "pf", c.sku);
   const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
   const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Cant x estiba", cantEstTxt(c)]]
-    .concat(opts.todo ? [["Empaque", c.empE || c.emp], ["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : []);
-  return `<article class="pf plegable ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="${opts.grupo || "pf"}|${h(c.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
-      <div class="pf-t"><div class="pf-n">${skuTxt(c.sku, c.prod)}</div><div class="pf-s">${c.pres ? `<span>${h(c.pres)}</span>` : ""}${opts.todo ? "" : `<span>Disponible <b>${fm(cajas)}</b> cj</span>`}</div></div>
+    .concat(opts.todo ? [["Empaque", c.empE || c.emp], ["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : [])
+    .concat(opts.revisar ? [["✓ Revisado", c.rev || "Sin revisar"]] : []);
+  // ✓ Revisado (hoja Sku): el chulito se marca cuando ya se actualizó toda la información del producto
+  const chu = opts.revisar ? `<button type="button" class="chu ${c.rev ? "on" : ""}" data-rev="${h(c.sku)}" aria-pressed="${c.rev ? "true" : "false"}" title="${c.rev ? `Revisado: ${h(c.rev)} (toca para quitarlo)` : "Marcar como revisado: ya está actualizada toda su información"}" aria-label="${c.rev ? "Revisado" : "Marcar como revisado"}">✓</button>` : "";
+  return `<article class="pf plegable ${ab ? "abierto" : ""} ${opts.revisar && c.rev ? "rev" : ""}"><div class="pl-cab" data-plegar="${opts.grupo || "pf"}|${h(c.sku)}" role="button" tabindex="0" aria-expanded="${ab}">
+      ${chu}<div class="pf-t"><div class="pf-n">${skuTxt(c.sku, c.prod)}</div><div class="pf-s">${c.pres ? `<span>${h(c.pres)}</span>` : ""}${opts.todo ? "" : `<span>Disponible <b>${fm(cajas)}</b> cj</span>`}</div></div>
       <span class="pl-flecha" aria-hidden="true">▾</span></div>
     <div class="pl-cuerpo"><div class="pf-campos">${campos.map(([t, x]) => `<div><span>${t}</span><b>${v(x)}</b></div>`).join("")}</div>
       <div class="pf-acc">${opts.todo ? "" : `<button class="btn sm" data-sku="${h(c.sku)}">📡 Ver stock</button>`}${opts.editar ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}${opts.borrar ? `<button class="btn sm del" data-bo="${h(c.sku)}" title="Borrar" aria-label="Borrar">${ICO_DEL}</button>` : ""}</div></div></article>`;
@@ -5114,18 +5117,33 @@ const EMPAQUES_UI = ["Sixpacks", "Fourpacks", "Cajas", "Bandejas", "Barriles"];
 VISTAS.skus = async (el, p, vigente) => {
   await cargarCat(true);
   if (!vigente()) return;
-  el.innerHTML = cab("🗃️ Productos (hoja Sku)", "Añadir, editar y borrar productos. Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.", `<button class="btn primary" data-a="nuevo">＋ Nuevo producto</button>`) +
-    `<div class="lista-tools"><input type="search" id="skQ" placeholder="Filtrar por SKU o nombre…"><span class="count" id="skC"></span></div><div id="skR"></div>`;
+  el.innerHTML = cab("🗃️ Productos (hoja Sku)", "Añadir, editar y borrar productos. Mínimo, T1, T2, KA y estibas por cara vacíos = regla general. Con el chulito ✓ se marca el producto como revisado cuando ya está actualizada toda su información (queda quién y cuándo).", `<button class="btn primary" data-a="nuevo">＋ Nuevo producto</button>`) +
+    `<div class="lista-tools"><input type="search" id="skQ" placeholder="Filtrar por SKU o nombre…"><span class="count" id="skC"></span></div><div class="seg seg-sm sk-rev" id="skF"></div><div id="skR"></div>`;
+  let filtro = ls.get("skRev", "");
   const pintar = () => {
     const q = $("#skQ", el).value.trim();
-    const lis = q ? buscarCat(q, 400) : S.cat.slice().sort(cmpSku);
+    const base = q ? buscarCat(q, 400) : S.cat.slice().sort(cmpSku);
+    const nRev = base.filter(c => c.rev).length;
+    $("#skF", el).innerHTML = [["", `Todos <b>${base.length}</b>`], ["no", `Sin revisar <b>${base.length - nRev}</b>`], ["si", `✓ Revisados <b>${nRev}</b>`]].map(([k, t]) => `<button type="button" data-rf="${k}" class="${filtro === k ? "on" : ""}">${t}</button>`).join("");
+    const lis = filtro === "si" ? base.filter(c => c.rev) : filtro === "no" ? base.filter(c => !c.rev) : base;
     $("#skC", el).textContent = `${lis.length} productos`;
     const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
     // Filas desplegables (colores intercalados): cerradas solo SKU, nombre y presentación
-    $("#skR", el).innerHTML = `<div class="pf-lista">${lis.slice(0, 300).map(c => filaProducto(c, { grupo: "sk", todo: true, editar: true, borrar: true })).join("")}</div>${lis.length > 300 ? `<p class="small muted">Se muestran 300 de ${lis.length}: escribe para filtrar.</p>` : ""}`;
+    $("#skR", el).innerHTML = `<div class="pf-lista">${lis.slice(0, 300).map(c => filaProducto(c, { grupo: "sk", todo: true, editar: true, borrar: true, revisar: true })).join("")}</div>${lis.length > 300 ? `<p class="small muted">Se muestran 300 de ${lis.length}: escribe para filtrar.</p>` : ""}`;
   };
   $("#skQ", el).oninput = pintar;
   el.onclick = async e => {
+    const rf = e.target.closest("[data-rf]"); if (rf) { filtro = rf.dataset.rf; ls.set("skRev", filtro); pintar(); return; }
+    // ✓ Revisado: se marca o se quita al tocar el chulito
+    const rv = e.target.closest("[data-rev]");
+    if (rv) {
+      const c = S.cat.find(x => x.sku === rv.dataset.rev); if (!c) return;
+      const on = !c.rev, antes = c.rev;
+      c.rev = on ? `${S.usuario.nombre} · ahora` : ""; pintar();
+      try { S.cat = await api("webSkuRevisado", c.sku, on); ls.setJ("cat", S.cat); toast(on ? `✓ ${c.sku} revisado` : `${c.sku}: se quitó el revisado`, "ok", 2500); }
+      catch (er) { c.rev = antes; toast(er.message, "bad", 6000); }
+      pintar(); return;
+    }
     const ed = e.target.closest("[data-ed]"); if (ed) return modalSku(S.cat.find(x => x.sku === ed.dataset.ed), pintar);
     const bo = e.target.closest("[data-bo]");
     const b = bo ? { dataset: { a: "borrar", sku: bo.dataset.bo } } : e.target.closest("[data-a]"); if (!b) return;
@@ -5148,10 +5166,12 @@ function modalSku(c, alGuardar) {
     return `<label class="field ${k === "prod" || k === "ctx" ? "ancho" : ""}"><span>${h(t)}</span><input type="text" ${im ? `inputmode="${im}"` : ""} data-k="${k}" value="${h(c && c[k] !== null && c[k] !== undefined ? c[k] : "")}"></label>`; };
   const m = abrirModal(`<div class="m-sku"><h3>${c ? `✎ ${h(c.sku)}` : "Nuevo producto"}</h3>
     ${SKU_GRUPOS.map(([g, ks]) => `<div class="msk-g"><div class="msk-t">${g}</div><div class="msk-c">${ks.map(campo).join("")}</div></div>`).join("")}
+    <label class="check sk-revc"><input type="checkbox" id="skRv" ${c && c.rev ? "checked" : ""}><span><b>✓ Revisado</b>: ya está actualizada toda la información de este producto${c && c.rev ? `<br><span class="sub">${h(c.rev)}</span>` : ""}</span></label>
     <p class="small muted" style="margin:6px 0 0">Empaque: con qué se cuenta «Cant x estiba» y cómo lo dice la voz (X6 = sixpacks, X4 = fourpacks, retornables = cajas, Pony = bandejas, barril = barriles). Vida útil: días que dura desde la producción hasta vencer (para la fecha de envasado). Mínimo, T1, T2, KA y estibas por cara vacíos = regla general.</p>
     <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="skOk">Guardar</button></div></div>`);
   $("#skOk", m).onclick = async () => {
     const obj = {}; $$("[data-k]", m).forEach(i => obj[i.dataset.k] = i.value.trim());
+    obj.rev = $("#skRv", m).checked;
     const btn = $("#skOk", m); ocupado(btn, true);
     try { S.cat = await api("webSkuGuardar", c ? c.sku : "", obj); ls.setJ("cat", S.cat); ocupado(btn, false); cerrarModal(true); toast("Producto guardado", "ok"); alGuardar(); }
     catch (e) { ocupado(btn, false); toast(e.message, "bad", 6000); }

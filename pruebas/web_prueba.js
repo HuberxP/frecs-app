@@ -175,6 +175,21 @@ let llamadasSb = 0, sinRed = false;
   if (!cat.some(c => c.sku === "99002") || q("select minimo || '|' || estibas_por_cara || '|' || usuario from sku where sku='99002'") !== "5|3|Huber") errores.push("sku nuevo mal guardado");
   await P.evaluate(() => api("webSkuGuardar", "99002", { sku: "99003", prod: "Prueba web renombrada", minimo: "" }));
   if (q("select count(*) from sku where sku in ('99002')") !== "0" || q("select coalesce(minimo::text,'vacío') from sku where sku='99003'") !== "vacío") errores.push("renombrar sku falló");
+  // ✓ Revisado desde la lista de productos: el chulito guarda quién y cuándo
+  await P.evaluate(() => ir("skus")); await P.waitForTimeout(700);
+  await P.fill("#skQ", "99003"); await P.waitForTimeout(300);
+  await P.click('[data-rev="99003"]'); await P.waitForTimeout(2500);
+  if (!/^Huber · /.test(q("select coalesce(revisado,'') from sku where sku='99003'"))) errores.push("el chulito de revisado no se guardó: " + q("select coalesce(revisado,'vacío') from sku where sku='99003'"));
+  if (!(await P.$('[data-rev="99003"].on'))) errores.push("el chulito no queda marcado en la lista");
+  await P.click('#skF [data-rf="no"]'); await P.waitForTimeout(200);
+  if (await P.$('[data-rev="99003"]')) errores.push("«Sin revisar» sigue mostrando el revisado");
+  await P.click('#skF [data-rf="si"]'); await P.waitForTimeout(200);
+  if (!(await P.$('[data-rev="99003"]'))) errores.push("«Revisados» no muestra el revisado");
+  await P.screenshot({ path: "/tmp/w_sku_rev.png" });
+  await P.click('#skF [data-rf=""]'); await P.waitForTimeout(200);
+  // PK prev: sin los KA (el WMS los marca como picking)
+  const pkKa = await P.evaluate(() => (S.inv || []).filter(i => i.esPK && /^KA\d+$/.test(i.m)).length);
+  if (pkKa) errores.push(`PK prev muestra ${pkKa} ubicaciones de KA`);
   await P.evaluate(() => api("webSkuEliminar", "99003"));
   if (q("select count(*) from sku where sku='99003'") !== "0") errores.push("sku eliminado sigue");
   const canMal = await P.evaluate(() => api("webCanalesGuardar", [{ canal: "T1", tipo: "General", dias: 90 }]).then(() => "sin error", e => e.message));

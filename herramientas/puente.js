@@ -134,7 +134,7 @@
   const ESCRITURA = {
     webLimboAgregar: ["Limbo"], webLimboEditar: ["Limbo"], webLimboEliminar: ["Limbo"],
     webConsumoAgregar: ["Consumo"], webConsumoEliminar: ["Consumo"], webConsumoElegir: ["Consumo"], webConsumoNombre: ["Consumo"], webConsumoOrden: ["Consumo"],
-    webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webCanalesGuardar: ["Canales"],
+    webSkuGuardar: ["Sku"], webSkuEliminar: ["Sku"], webSkuRevisado: ["Sku"], webCanalesGuardar: ["Canales"],
     webCapacidadGuardar: ["Capacidad_Bodega"], webCapacidadEliminar: ["Capacidad_Bodega"]
   };
   // Fase 4b: turnos, validación y entrega. Se comparan todas sus hojas como tablas lógicas.
@@ -155,7 +155,7 @@
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
       return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
         cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
-        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")), empaque: nul(v("Empaque")) };
+        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")), empaque: nul(v("Empaque")), revisado: nul(v("Revisado")) };
     } },
     Capacidad_Bodega: { tabla: "capacidad_bodega", pk: "modulo", clave: f => f.modulo,
       fila: r => ({ modulo: txt(r[0]).toUpperCase(), caras: Math.round(num(r[1]) || 0), capacidad: num(r[2]) === null ? null : Math.round(num(r[2])) }) },

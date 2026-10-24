@@ -1683,7 +1683,17 @@
   .conc-card.activa.mal { box-shadow: inset 5px 0 0 var(--bad), 0 6px 22px rgba(14,165,233,.22); }
   .conc-card.activa.ok { box-shadow: inset 5px 0 0 var(--ok), 0 6px 22px rgba(14,165,233,.22); }
   @keyframes ccGiro { to { --cc-giro: 360deg; } }
-  @media (prefers-reduced-motion: reduce) { .conc-card.activa { animation: none; } }/* ============ Versión web (Supabase) ============ */
+  @media (prefers-reduced-motion: reduce) { .conc-card.activa { animation: none; } }
+
+  /* ---------- ✓ Revisado en Productos (hoja Sku) ---------- */
+  .pf .pl-cab { gap: 10px; }
+  .chu { flex: none; width: 30px; height: 30px; border-radius: 8px; border: 2px solid var(--line2); background: transparent; color: transparent; font-size: 17px; font-weight: 900; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+  .chu:hover { border-color: var(--ok); color: rgba(46,204,113,.45); }
+  .chu.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .pf.rev { border-left: 4px solid var(--ok); }
+  .sk-rev { margin: 0 0 10px; }
+  .sk-rev b { margin-left: 4px; }
+  .sk-revc { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

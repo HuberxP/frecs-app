@@ -1357,8 +1357,15 @@ const ocupMod = m => { const o = S.ocup[m]; return o && o.capTot ? o : null; };
 const tCargaMs = s0 => { if (!s0) return 0; const x = String(s0).trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"); const t = Date.parse(x); return isNaN(t) ? 0 : t; };
 const diaCarga = i => { const t = tCargaMs(i && i.carga); return t ? new Date(t - 5 * 3600e3).toISOString().slice(0, 10) : ""; };
 // Módulos que se están llenando: mismo producto y misma fecha, disponibles, en 2 o más módulos de bodega
-// ingresados al WMS el mismo día. Devuelve { primero, mods } o null
+// ingresados al WMS el mismo día. Devuelve { primero, mods } o null.
+// Si hay disponible en bodega con fecha más corta, esos módulos no son de consumo (el de consumo es el de la
+// fecha más corta): no se pregunta cuál dejar ni se marcan como «modulando» → null
+function hayFechaMasCorta(sku, v) {
+  const t = tV(v);
+  return (S.inv || []).some(i => i.s === String(sku) && i.v && i.v !== v && i.fis && i.disp && !i.esOp && tV(i.v) < t && !(typeof repVacio === "function" && repVacio(i.m)));
+}
 function enModulacion(sku, v) {
+  if (hayFechaMasCorta(sku, v)) return null;
   const l = (S.inv || []).filter(i => i.s === String(sku) && i.v === v && i.fis && i.disp && !i.esOp && i.carga);
   const porDia = {};
   l.forEach(i => { const d = diaCarga(i); if (d) (porDia[d] = porDia[d] || []).push(i); });

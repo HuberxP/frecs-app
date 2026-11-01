@@ -4494,13 +4494,13 @@ function construirPDFEntregaTpc(turnoId) {
   const hora = `${(Number(hh) % 12) || 12}:${mi} ${Number(hh) < 12 ? "a. m." : "p. m."}`;
   // Si la foto se saca otro día (de noche, antes de medianoche, o desde el historial), se dice cuándo se sacó
   const [y2, m2, d2] = hoy.split("-").map(Number);
-  const cuando = fT === hoy ? `🕒 ${hora}` : `🕒 Foto: ${dias[new Date(Date.UTC(y2, m2 - 1, d2)).getUTCDay()].slice(0, 3)} ${String(d2).padStart(2, "0")}/${String(m2).padStart(2, "0")} · ${hora}`;
+  const cuando = fT === hoy ? `${hora}` : `Foto: ${dias[new Date(Date.UTC(y2, m2 - 1, d2)).getUTCDay()].slice(0, 3)} ${String(d2).padStart(2, "0")}/${String(m2).padStart(2, "0")} · ${hora}`;
   const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, "TPC")}</td></tr>`).join("")
     : `<tr><td colspan="3" class="vacio">Sin productos en TPC.</td></tr>`;
-  const cuerpo = `<div class="tpc-f"><div class="fe">📅 ${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">${cuando}</div>
+  const cuerpo = `<div class="tpc-f"><div class="fe">${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">${cuando}</div>
       <div>Turno ${escHtml_(String(t.numero))} (${escHtml_(HORARIO_TURNOS[t.numero] || "")}) · ${escHtml_(t.abiertoPor || "")} · ${it.length} producto${it.length === 1 ? "" : "s"}</div></div>
     <table class="t tpc"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">Cantidad</th></tr></thead><tbody>${filas}</tbody></table>`;
-  const html = pdfDoc_("🏷️ TPC · TAPACÓDIGOS", cuerpo, { css: CSS_FOTO_TPC });
+  const html = pdfDoc_("TPC · TAPACÓDIGOS", cuerpo, { css: CSS_FOTO_TPC });
   return { blob: htmlAPdf_(html, `TPC_${fT}_T${t.numero}_${hh}${mi}.pdf`), caption: `🏷️ *TPC* · ${fecha} · ${turnoTexto_(t)}` };
 }
 

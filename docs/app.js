@@ -1141,6 +1141,31 @@ async function verInforme(tipo, id) {
   cargar();
 }
 
+// ---------- 📸 Foto de TPC (entrega de turno): una imagen con la fecha y la hora, lista para mandar al grupo ----------
+async function fotoTpc(en) {
+  const n = ((en && en.secciones && en.secciones.TPC) || []).length;
+  if (!n && !(await confirmar("Foto de TPC", "La sección TPC está vacía. ¿Sacar la foto igual?", "Sacar foto"))) return;
+  const c = abrirModal(`<h3>📸 Foto de TPC</h3><p class="muted small">Sale con la fecha y la hora de ahora. Toca «Compartir» y escoge el grupo (WhatsApp, Telegram…).</p>
+    <div class="ft-prev" id="ftP">${loader("Armando la foto…")}</div>
+    <div class="modal-actions"><button class="btn" data-x>Cerrar</button><button class="btn sm" id="ftB" disabled>⬇ Descargar</button><button class="btn primary" id="ftC" disabled>📤 Compartir</button></div>`, { wide: true });
+  let archivo = null;
+  try {
+    const r = await api("webPDFFoto", "ENTREGA_TPC", S.entTurno || (en && en.turno && en.turno.id) || "");
+    if (!document.body.contains(c)) return;
+    archivo = b64aArchivo(r.foto.split(",")[1], r.nombre.replace(/\.pdf$/i, ".jpg"), "image/jpeg");
+    $("#ftP", c).innerHTML = `<img src="${r.foto}" alt="Foto de TPC">`;
+    $("#ftB", c).disabled = false; $("#ftC", c).disabled = false;
+  } catch (e) { $("#ftP", c).innerHTML = errBox(e); return; }
+  const bajar = () => { const u = URL.createObjectURL(archivo); const a = document.createElement("a"); a.href = u; a.download = archivo.name; document.body.appendChild(a); a.click(); setTimeout(() => { a.remove(); URL.revokeObjectURL(u); }, 1500); };
+  $("#ftB", c).onclick = () => { bajar(); toast("Foto descargada", "ok", 3000); };
+  $("#ftC", c).onclick = async () => {
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) { await navigator.share({ files: [archivo], title: archivo.name }); cerrarModal(true); }
+      else { bajar(); toast("Este equipo no deja compartir directo: se descargó. Adjúntala en el grupo.", "warn", 8000); }
+    } catch (er) { if (er && er.name !== "AbortError") toast("No se pudo compartir: " + er.message, "bad", 6000); }
+  };
+}
+
 // ---------- 🟢 Compartir por WhatsApp (el celular abre su menú de compartir y se escoge el grupo) ----------
 function b64aArchivo(b64, nombre, tipo) {
   const bin = atob(b64); const bytes = new Uint8Array(bin.length);
@@ -1569,7 +1594,7 @@ function filaProducto(c, opts) {
   const ab = abierto(opts.grupo || "pf", c.sku);
   const v = x => x === null || x === undefined || x === "" ? `<span class="muted">—</span>` : h(x);
   const campos = [["Presentación", c.pres], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Cant x estiba", cantEstTxt(c)]]
-    .concat(opts.todo ? [["Empaque", c.empE || c.emp], ["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : [])
+    .concat(opts.todo ? [["Empaque", c.empE || c.emp], ["Factor cajas", c.fac], ["Est. por cara", c.estCara], ["Vida útil (días)", c.vida], ["Mínimo (pocos)", c.minimo], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]] : [])
     .concat(opts.revisar ? [["✓ Revisado", c.rev || "Sin revisar"]] : []);
   // ✓ Revisado (hoja Sku): el chulito se marca cuando ya se actualizó toda la información del producto
   const chu = opts.revisar ? `<button type="button" class="chu ${c.rev ? "on" : ""}" data-rev="${h(c.sku)}" aria-pressed="${c.rev ? "true" : "false"}" title="${c.rev ? `Revisado: ${h(c.rev)} (toca para quitarlo)` : "Marcar como revisado: ya está actualizada toda su información"}" aria-label="${c.rev ? "Revisado" : "Marcar como revisado"}">✓</button>` : "";
@@ -1589,7 +1614,7 @@ function detalleProducto(c) {
     <div class="dp-cab"><div><div class="dp-n">${skuTxt(c.sku, c.prod)}${typeof botonVoz === "function" ? botonVoz() : ""}</div>${c.pres ? `<div class="sub">${h(c.pres)}</div>` : ""}</div>
       <div class="dp-acc"><button class="btn sm primary" data-sku="${h(c.sku)}">📡 Ver stock</button>${puede("administrador") ? `<button class="btn sm" data-ed="${h(c.sku)}">✎ Editar</button>` : ""}</div></div>
     ${fis.length ? "" : `<div class="note bad dp-sin">Sin existencias físicas en bodega.</div>`}
-    ${g("📦 Estiba y presentación", [["Cant x estiba", cantEstTxt(c), "dp-est"], ["Presentación", c.pres], ["Empaque", empDe(c)], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Est. por cara", c.estCara]])}
+    ${g("📦 Estiba y presentación", [["Cant x estiba", cantEstTxt(c), "dp-est"], ["Presentación", c.pres], ["Empaque", empDe(c)], ["Unidades por caja", c.fac], ["Cubicaje", c.cub], ["Piso", c.piso], [planchaEt(c), c.plancha], ["Est. por cara", c.estCara]])}
     ${g("🚦 Reglas", [["Vida útil", c.vida ? c.vida + " días" : ""], ["Mínimo (pocos)", c.minimo || "10 (general)"], ["Días T1", c.t1], ["Días T2", c.t2], ["Días KA", c.ka], ["Contexto", c.ctx]])}
   </article>`;
 }
@@ -2890,7 +2915,9 @@ function pintarEnt(el) {
   // Si ya se está agregando a mano, la precarga se bloquea (llenaría todo por error)
   const aMano = ["BODEGA", "TPC", "KA", "PK"].some(s2 => en.secciones[s2].some(x => !/^(WMS|Conciliación|Validación)/.test(x.origen || "")));
   S.entAMano = aMano;
-  const botonesTurno = (esc && !hist ? `<button class="btn sm" data-a="precargar" title="Precargar (pocos o tu conciliación)"><span class="ic">⤓</span><span class="txt">Precargar</span></button>` : "") + botonesPDF("ENTREGA", "PDF", en.turno.id);
+  // 📸 Foto de TPC (con la fecha) para mandarla al grupo de tapacódigos: solo en la versión web
+  const btnFotoTpc = window.FRECS_WEB ? `<button class="btn sm" data-a="fototpc" title="Foto de TPC con la fecha, para el grupo de tapacódigos"><span class="ic">📸</span><span class="txt">Foto TPC</span></button>` : "";
+  const botonesTurno = (esc && !hist ? `<button class="btn sm" data-a="precargar" title="Precargar (pocos o tu conciliación)"><span class="ic">⤓</span><span class="txt">Precargar</span></button>` : "") + btnFotoTpc + botonesPDF("ENTREGA", "PDF", en.turno.id);
   const abN = abierto("entn", "notas");
   const cp = !hist && esc && en.concPropia && ls.get("entConcNo", "") !== en.turno.id + "|" + en.concPropia.id ? en.concPropia : null;
   html += `
@@ -2910,12 +2937,13 @@ function pintarEnt(el) {
     S.entSync = en.turno.id;
     api("webEntTraerValidados").then(r => { if (r && r.estado) { S.ent = r.estado; ls.setJ("ent", S.ent); if (S.vista === "entrega" && !modalAbierto()) pintarEnt(); } }).catch(() => { S.entSync = null; });
   }
-  if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA");
+  if (hist) $("#tb", el).innerHTML = bannerHist(en.turno, "ENTREGA") + (window.FRECS_WEB ? `<div class="barra-acc barra-mini"><button class="btn sm" data-a="fototpc"><span class="ic">📸</span><span class="txt">Foto TPC</span></button></div>` : "");
   else pintarBarra($("#tb", el), en.turnoInfo, false, botonesTurno);
   const nn = $("#nNota", el); if (nn) nn.onkeydown = e => { if (e.key === "Enter") agregarNota(); };
   el.onclick = e => {
     if (hist && onBanner(e, en.turno, "ENTREGA")) return;
     const z = e.target.closest("[data-ez]"); if (z) { ls.set("entZona", z.dataset.ez); pintarEnt(); return; }
+    if (e.target.closest('[data-a="fototpc"]')) { fotoTpc(en); return; }
     onEntClick(e);
   };
 }
@@ -5118,7 +5146,7 @@ function modalUsuario(u, alGuardar) {
 // ---------- Productos (hoja Sku) ----------
 const SKU_CAMPOS_UI = [
   ["sku", "SKU", "numeric"], ["prod", "Producto"], ["pres", "Presentación"], ["cub", "Cubicaje"], ["piso", "Piso"], ["plancha", "Plancha"], ["cantEst", "Cant x estiba", "numeric"],
-  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"], ["vida", "Vida útil (días)", "numeric"], ["emp", "Empaque (en qué se cuenta la estiba)"]
+  ["ctx", "Contexto (palabras para buscar)"], ["minimo", "Mínimo de estibas (pocos)", "decimal"], ["t1", "Días mínimos T1", "numeric"], ["t2", "Días mínimos T2", "numeric"], ["ka", "Días mínimos KA", "numeric"], ["estCara", "Estibas por cara", "numeric"], ["vida", "Vida útil (días)", "numeric"], ["emp", "Empaque (en qué se cuenta la estiba)"], ["fac", "Factor cajas (unidades por caja o bandeja)", "numeric"]
 ];
 const EMPAQUES_UI = ["Sixpacks", "Fourpacks", "Cajas", "Bandejas", "Barriles"];
 VISTAS.skus = async (el, p, vigente) => {
@@ -5165,7 +5193,7 @@ VISTAS.skus = async (el, p, vigente) => {
   pintar();
 };
 // Grupos de la ventana de edición (más compacta: etiquetas y cuadros pequeños)
-const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "emp", "estCara"]], ["Reglas", ["vida", "minimo", "t1", "t2", "ka"]]];
+const SKU_GRUPOS = [["Producto", ["sku", "prod", "pres", "ctx"]], ["Estiba", ["cub", "piso", "plancha", "cantEst", "emp", "fac", "estCara"]], ["Reglas", ["vida", "minimo", "t1", "t2", "ka"]]];
 function modalSku(c, alGuardar) {
   const campo = k => { const [, t, im] = SKU_CAMPOS_UI.find(x => x[0] === k);
     if (k === "emp") { const v = (c && c.emp) || (c && c.empE) || "", ops = EMPAQUES_UI.includes(v) || !v ? EMPAQUES_UI : EMPAQUES_UI.concat(v);

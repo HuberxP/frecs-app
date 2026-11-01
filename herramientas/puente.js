@@ -155,7 +155,7 @@
       const c = n => cab.indexOf(n), v = n => (c(n) === -1 ? "" : r[c(n)]);
       return { id_hoja: nul(v("Id")), sku: txt(v("SKU")), producto: txt(v("Producto")) || txt(v("SKU")), cubicaje: nul(v("Cubicaje")), piso: nul(v("Piso")), plancha: nul(v("Plancha")),
         cant_x_estiba: nul(v("Cant x Estibas")), presentacion: nul(v("Presentacion")), usuario: nul(v("Usuario")), contexto: nul(v("Contexto")),
-        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")), empaque: nul(v("Empaque")), revisado: nul(v("Revisado")) };
+        minimo: num(v("Minimo")), t1: num(v("T1")), t2: num(v("T2")), ka: num(v("KA")), estibas_por_cara: num(v("Estibas_por_cara")), vida_util: num(v("Vida_util")), empaque: nul(v("Empaque")), revisado: nul(v("Revisado")), factor_cajas: num(v("Factor_cajas")) };
     } },
     Capacidad_Bodega: { tabla: "capacidad_bodega", pk: "modulo", clave: f => f.modulo,
       fila: r => ({ modulo: txt(r[0]).toUpperCase(), caras: Math.round(num(r[1]) || 0), capacidad: num(r[2]) === null ? null : Math.round(num(r[2])) }) },
@@ -390,6 +390,29 @@
       return pdf.output("datauristring").split(",")[1];
     } finally { ifr.remove(); }
   }
+  // HTML del motor → UNA sola foto (JPG) del tamaño del contenido, sin hoja carta: para mandarla a un grupo
+  async function fotoDesdeHtml(html, ancho) {
+    await cargarLibsPdf();
+    ancho = ancho || 720;
+    const ifr = document.createElement("iframe");
+    ifr.setAttribute("aria-hidden", "true"); ifr.tabIndex = -1;
+    ifr.style.cssText = `position:fixed;left:-30000px;top:0;width:${ancho}px;height:1000px;border:0;background:#fff`;
+    document.body.appendChild(ifr);
+    try {
+      await new Promise(r => { ifr.onload = r; ifr.srcdoc = html; });
+      const doc = ifr.contentDocument, body = doc.body;
+      body.style.margin = "0"; body.style.padding = "14px"; body.style.background = "#fff";
+      try { await doc.fonts.ready; } catch (e) {}
+      // El alto del contenido (no el de la ventana): la foto termina donde termina la tabla
+      ifr.style.height = "10px";
+      const alto = Math.ceil(body.getBoundingClientRect().height) + 2;
+      ifr.style.height = alto + "px";
+      // Escala alta para que se lea bien en el chat, sin pasar el límite de imagen del celular
+      const escala = Math.max(1, Math.min(2.5, Math.sqrt(16e6 / (ancho * alto))));
+      const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", width: ancho, height: alto, windowWidth: ancho, windowHeight: alto, logging: false });
+      return lienzo.toDataURL("image/jpeg", 0.92);
+    } finally { ifr.remove(); }
+  }
   async function pdfDe(tipo, id) {
     const p = MOTOR.pdf(tipo, id || "");
     return { nombre: p.nombre, b64: await pdfDesdeHtml(p.html), caption: p.caption };
@@ -583,7 +606,7 @@
         return ok(true);
       }
       if (ESCRITURA[fn] || ESCRITURA_TURNO.has(fn)) return await despuesDeEscribir(fn, args, await escribirEnOrden(fn, args, ok, fallo));
-      if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos") {
+      if (fn === "webPDF" || fn === "webPDFTelegram" || fn === "webPDFHtml" || fn === "webPDFFotos" || fn === "webPDFFoto") {
         await cargarDatos(args[0]);
         if (nuevoExtra || Date.now() - turnosEn > FRESCO_TURNOS_MS) { await cadena; await cargarTurnos(args[0]); }
         // La rotulación vive solo en Supabase: se trae fresca para armar su PDF o foto
@@ -591,6 +614,7 @@
         // Ver el informe tal cual (sin convertirlo) o sacarlo como fotos
         if (fn === "webPDFHtml") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, html: p.html, caption: p.caption }); }
         if (fn === "webPDFFotos") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, fotos: await pdfDesdeHtml(p.html, "img") }); }
+        if (fn === "webPDFFoto") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, foto: await fotoDesdeHtml(p.html), caption: p.caption }); }
         const p = await pdfDe(args[1], args[2]);
         if (fn === "webPDF") return ok({ nombre: p.nombre, b64: p.b64 });
         await pdfATelegram(args[0], p);

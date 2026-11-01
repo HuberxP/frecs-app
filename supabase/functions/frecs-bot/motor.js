@@ -1372,9 +1372,10 @@ const SKU_CAMPOS = {
   estCara: ["estibasporcara", "estibasxcara", "porcara"],
   vida: ["vidautil", "vidautildias", "diasvidautil", "vidautil(dias)"],
   emp: ["empaque", "tipoempaque", "unidadestiba"],
-  rev: ["revisado", "revisadopor"]
+  rev: ["revisado", "revisadopor"],
+  fac: ["factorcajas", "factorcaja", "factor", "unidadesxcaja", "unidadesporcaja"]   // unidades por caja o bandeja
 };
-const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util", emp: "Empaque", rev: "Revisado" };
+const SKU_ENCABEZADOS = { id: "Id", sku: "SKU", prod: "Producto", cub: "Cubicaje", piso: "Piso", plancha: "Plancha", cantEst: "Cant x Estibas", pres: "Presentacion", usuario: "Usuario", ctx: "Contexto", minimo: "Minimo", t1: "T1", t2: "T2", ka: "KA", estCara: "Estibas_por_cara", vida: "Vida_util", emp: "Empaque", rev: "Revisado", fac: "Factor_cajas" };
 
 // «sixpack», «SIXPACKS» → «Sixpacks»; lo que no está en la lista queda como lo escribieron
 function empaqueNorm_(v) {
@@ -1398,7 +1399,7 @@ function leerSku_() {
     if (idx !== -1) cols[k] = idx;
   });
   // Columnas nuevas que faltan: se agregan al final con su encabezado
-  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida", "emp", "rev"].filter(k => cols[k] === undefined);
+  const faltan = ["minimo", "t1", "t2", "ka", "estCara", "vida", "emp", "rev", "fac"].filter(k => cols[k] === undefined);
   if (faltan.length && cols.sku !== undefined) {
     let col = sh.getLastColumn();
     faltan.forEach(k => { sh.getRange(1, col + 1).setValue(SKU_ENCABEZADOS[k]).setFontWeight("bold"); cols[k] = col; col++; });
@@ -1418,7 +1419,8 @@ function leerSku_() {
       usuario: String(val(r, "usuario")), ctx: String(val(r, "ctx")),
       minimo: num(val(r, "minimo")), t1: num(val(r, "t1")), t2: num(val(r, "t2")), ka: num(val(r, "ka")), estCara: num(val(r, "estCara")), vida: num(val(r, "vida")),
       emp: empaqueNorm_(val(r, "emp")),
-      rev: String(val(r, "rev") === null || val(r, "rev") === undefined ? "" : val(r, "rev")).trim()   // «Nombre · fecha» de quien lo revisó; vacío = sin revisar
+      rev: String(val(r, "rev") === null || val(r, "rev") === undefined ? "" : val(r, "rev")).trim(),   // «Nombre · fecha» de quien lo revisó; vacío = sin revisar
+      fac: num(val(r, "fac"))   // unidades por caja o bandeja (Factor cajas)
     };
     if (!mapa[sku]) { mapa[sku] = o; lista.push(o); }
   }
@@ -2936,8 +2938,8 @@ function buscarFichaTecnicaPaginada(termino, pagina) {
 // ---------------------------------------------------------
 // vida: días de vida útil (de la producción al vencimiento), para la calculadora de envasado
 // emp: en qué se cuenta la estiba (Sixpacks, Fourpacks, Cajas, Bandejas, Barriles); vacío = la regla del nombre
-const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara", "vida", "emp"];
-const SKU_NUMERICOS = ["minimo", "t1", "t2", "ka", "estCara", "vida"];
+const SKU_EDITABLES = ["sku", "prod", "cub", "piso", "plancha", "cantEst", "pres", "ctx", "minimo", "t1", "t2", "ka", "estCara", "vida", "emp", "fac"];
+const SKU_NUMERICOS = ["minimo", "t1", "t2", "ka", "estCara", "vida", "fac"];
 
 function validarSku_(obj) {
   let o = {};
@@ -4466,6 +4468,35 @@ function construirPDFEntrega(turnoId) {
 }
 
 // ---------------------------------------------------------
+// 📸 FOTO DE TPC: solo la sección TPC, con la fecha y la hora en grande, para mandarla al grupo de tapacódigos.
+// La página la convierte en una sola imagen (sin hoja carta ni márgenes de sobra).
+// ---------------------------------------------------------
+const CSS_FOTO_TPC = `.tpc-f{border:2px solid #003399;border-radius:6px;padding:8px 10px;margin:4px 0 10px;font-size:14px;line-height:1.35}
+  .tpc-f .fe{font-size:20px;font-weight:bold;color:#003399}.tpc-f .ho{font-size:16px;font-weight:bold}
+  table.t.tpc td,table.t.tpc th{font-size:14px;padding:6px 7px;line-height:1.25}table.t.tpc b.tt{font-size:15px}table.t.tpc .md{color:#444}
+  table.t.tpc tr:nth-child(even) td{background:#f3f6fb}`;
+function construirPDFEntregaTpc(turnoId) {
+  prepararTurnos_();
+  const t = turnoId ? turnoPorId_(turnoId) : turnoAbierto_(true);
+  if (!t) throw new Error(turnoId ? "Turno no encontrado." : "No hay turno abierto.");
+  const it = (entLeerTurno_(t.id).secciones.TPC || []).slice().sort((a, b) => String(a.producto).localeCompare(String(b.producto)));
+  const ahora = new Date();
+  // (solo yyyy, MM, dd, HH y mm: lo que entiende también la versión web)
+  const [yy, mo, dd] = Utilities.formatDate(ahora, TZ, "yyyy-MM-dd").split("-").map(Number);
+  const [hh, mi] = Utilities.formatDate(ahora, TZ, "HH:mm").split(":");
+  const fecha = Utilities.formatDate(ahora, TZ, "dd/MM/yyyy");
+  const hora = `${(Number(hh) % 12) || 12}:${mi} ${Number(hh) < 12 ? "a. m." : "p. m."}`;
+  const dia = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(Date.UTC(yy, mo - 1, dd)).getUTCDay()];
+  const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, "TPC")}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="vacio">Sin productos en TPC.</td></tr>`;
+  const cuerpo = `<div class="tpc-f"><div class="fe">📅 ${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">🕒 ${hora}</div>
+      <div>Turno ${escHtml_(String(t.numero))} (${escHtml_(HORARIO_TURNOS[t.numero] || "")}) · ${escHtml_(t.abiertoPor || "")} · ${it.length} producto${it.length === 1 ? "" : "s"}</div></div>
+    <table class="t tpc"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">Cantidad</th></tr></thead><tbody>${filas}</tbody></table>`;
+  const html = pdfDoc_("🏷️ TPC · TAPACÓDIGOS", cuerpo, { css: CSS_FOTO_TPC });
+  return { blob: htmlAPdf_(html, `TPC_${Utilities.formatDate(ahora, TZ, "yyyy-MM-dd_HHmm")}.pdf`), caption: `🏷️ *TPC* · ${fecha} ${hora} · ${turnoTexto_(t)}` };
+}
+
+// ---------------------------------------------------------
 // BOT: /entrega
 // ---------------------------------------------------------
 function obtenerEntregaBot() {
@@ -5141,7 +5172,7 @@ function sbFilasSku_() {
     sku: c.sku, id_hoja: sbTxt_(c.idHoja),
     producto: c.prod || c.sku, cubicaje: sbTxt_(c.cub), piso: sbTxt_(c.piso), plancha: sbTxt_(c.plancha), cant_x_estiba: sbTxt_(c.cantEst),
     presentacion: sbTxt_(c.pres), usuario: sbTxt_(c.usuario), contexto: sbTxt_(c.ctx), minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estibas_por_cara: c.estCara, vida_util: c.vida,
-    empaque: c.emp || empaqueRegla_(c.prod, c.pres), revisado: sbTxt_(c.rev)
+    empaque: c.emp || empaqueRegla_(c.prod, c.pres), revisado: sbTxt_(c.rev), factor_cajas: c.fac
   })), x => x.sku);
 }
 function sbFilasCanales_(omitir) {
@@ -5234,7 +5265,7 @@ function sbBajarMaestros_(tablas) {
       if (sk.sh) {
         const ancho = sk.sh.getLastColumn();
         const campos = { id: "id_hoja", sku: "sku", prod: "producto", cub: "cubicaje", piso: "piso", plancha: "plancha", cantEst: "cant_x_estiba",
-          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util", emp: "empaque", rev: "revisado" };
+          pres: "presentacion", usuario: "usuario", ctx: "contexto", minimo: "minimo", t1: "t1", t2: "t2", ka: "ka", estCara: "estibas_por_cara", vida: "vida_util", emp: "empaque", rev: "revisado", fac: "factor_cajas" };
         const enBase = new Set();
         m.sku.forEach(x => {
           enBase.add(String(x.sku));
@@ -5911,7 +5942,7 @@ function inventarioPayload_() {
 function webInventario(tk) { return webAuth_(tk, L_, () => inventarioPayload_()); }
 
 function catalogoWeb_() {
-  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres), rev: c.rev || "" }));
+  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres), rev: c.rev || "", fac: c.fac }));
 }
 function webCatalogo(tk) { return webAuth_(tk, L_, () => catalogoWeb_()); }
 function webCanales(tk) { return webAuth_(tk, L_, () => ({ reglas: canalesListar_(), defecto: POCOS_DEFECTO })); }
@@ -6470,6 +6501,7 @@ function construirPDFPorTipo_(tipo, id) {
     case "TPC": r = construirPDFTpc(); break;
     case "VALIDACION": r = construirPDFValidacion(id || ""); break;
     case "ENTREGA": r = construirPDFEntrega(id || ""); break;
+    case "ENTREGA_TPC": r = construirPDFEntregaTpc(id || ""); break;
     case "CONCILIACION": r = construirPDFConciliacion(id || ""); break;
     case "FINAL": r = construirPDFEntregaFinal(id || ""); break;
     case "ROTULACION": r = construirPDFRotulacion(id || ""); break;

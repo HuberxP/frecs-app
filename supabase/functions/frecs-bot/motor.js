@@ -4471,7 +4471,7 @@ function construirPDFEntrega(turnoId) {
 // 📸 FOTO DE TPC: solo la sección TPC, con la fecha y la hora en grande, para mandarla al grupo de tapacódigos.
 // La página la convierte en una sola imagen (sin hoja carta ni márgenes de sobra).
 // ---------------------------------------------------------
-const CSS_FOTO_TPC = `.tpc-f{border:2px solid #003399;border-radius:6px;padding:8px 10px;margin:4px 0 10px;font-size:14px;line-height:1.35}
+const CSS_FOTO_TPC = `table.hdr td.hdr-date{color:transparent}.tpc-f{border:2px solid #003399;border-radius:6px;padding:8px 10px;margin:4px 0 10px;font-size:14px;line-height:1.35}
   .tpc-f .fe{font-size:20px;font-weight:bold;color:#003399}.tpc-f .ho{font-size:16px;font-weight:bold}
   table.t.tpc td,table.t.tpc th{font-size:14px;padding:6px 7px;line-height:1.25}table.t.tpc b.tt{font-size:15px}table.t.tpc .md{color:#444}
   table.t.tpc tr:nth-child(even) td{background:#f3f6fb}`;
@@ -4480,20 +4480,28 @@ function construirPDFEntregaTpc(turnoId) {
   const t = turnoId ? turnoPorId_(turnoId) : turnoAbierto_(true);
   if (!t) throw new Error(turnoId ? "Turno no encontrado." : "No hay turno abierto.");
   const it = (entLeerTurno_(t.id).secciones.TPC || []).slice().sort((a, b) => String(a.producto).localeCompare(String(b.producto)));
-  const ahora = new Date();
+  // La fecha es la del turno, no la del reloj: el turno 1 que se abre a las 10 p. m. ya lleva la fecha de la
+  // mañana siguiente (fechaTurno_), y así sale la foto aunque se saque antes de medianoche.
   // (solo yyyy, MM, dd, HH y mm: lo que entiende también la versión web)
-  const [yy, mo, dd] = Utilities.formatDate(ahora, TZ, "yyyy-MM-dd").split("-").map(Number);
+  const ahora = new Date();
+  const hoy = Utilities.formatDate(ahora, TZ, "yyyy-MM-dd");
+  const fT = /^\d{4}-\d{2}-\d{2}$/.test(String(t.fecha || "")) ? String(t.fecha) : hoy;
+  const [yy, mo, dd] = fT.split("-").map(Number);
+  const fecha = `${String(dd).padStart(2, "0")}/${String(mo).padStart(2, "0")}/${yy}`;
+  const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+  const dia = dias[new Date(Date.UTC(yy, mo - 1, dd)).getUTCDay()];
   const [hh, mi] = Utilities.formatDate(ahora, TZ, "HH:mm").split(":");
-  const fecha = Utilities.formatDate(ahora, TZ, "dd/MM/yyyy");
   const hora = `${(Number(hh) % 12) || 12}:${mi} ${Number(hh) < 12 ? "a. m." : "p. m."}`;
-  const dia = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(Date.UTC(yy, mo - 1, dd)).getUTCDay()];
+  // Si la foto se saca otro día (de noche, antes de medianoche, o desde el historial), se dice cuándo se sacó
+  const [y2, m2, d2] = hoy.split("-").map(Number);
+  const cuando = fT === hoy ? `🕒 ${hora}` : `🕒 Foto: ${dias[new Date(Date.UTC(y2, m2 - 1, d2)).getUTCDay()].slice(0, 3)} ${String(d2).padStart(2, "0")}/${String(m2).padStart(2, "0")} · ${hora}`;
   const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, "TPC")}</td></tr>`).join("")
     : `<tr><td colspan="3" class="vacio">Sin productos en TPC.</td></tr>`;
-  const cuerpo = `<div class="tpc-f"><div class="fe">📅 ${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">🕒 ${hora}</div>
+  const cuerpo = `<div class="tpc-f"><div class="fe">📅 ${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">${cuando}</div>
       <div>Turno ${escHtml_(String(t.numero))} (${escHtml_(HORARIO_TURNOS[t.numero] || "")}) · ${escHtml_(t.abiertoPor || "")} · ${it.length} producto${it.length === 1 ? "" : "s"}</div></div>
     <table class="t tpc"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">Cantidad</th></tr></thead><tbody>${filas}</tbody></table>`;
   const html = pdfDoc_("🏷️ TPC · TAPACÓDIGOS", cuerpo, { css: CSS_FOTO_TPC });
-  return { blob: htmlAPdf_(html, `TPC_${Utilities.formatDate(ahora, TZ, "yyyy-MM-dd_HHmm")}.pdf`), caption: `🏷️ *TPC* · ${fecha} ${hora} · ${turnoTexto_(t)}` };
+  return { blob: htmlAPdf_(html, `TPC_${fT}_T${t.numero}_${hh}${mi}.pdf`), caption: `🏷️ *TPC* · ${fecha} · ${turnoTexto_(t)}` };
 }
 
 // ---------------------------------------------------------

@@ -548,6 +548,16 @@
         webRotQuitar: a => ["rot_item_quitar", { p_rot: Number(a[1]), p_id: Number(a[2]) }], webRotEliminar: a => ["rot_eliminar", { p_id: Number(a[1]) }]
       };
       if (ROT[fn]) { const [f, p] = ROT[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
+      // Tareas (sección Turnos, para todos): funciones de Supabase; cada una devuelve la lista fresca
+      const TAREAS = {
+        webTareas: a => ["tareas_listar", {}],
+        webTareaCrear: a => ["tarea_crear", { p_tipo: String(a[1] || ""), p_texto: String(a[2] || "") }],
+        webTareaCompletar: a => ["tarea_completar", { p_id: Number(a[1]), p_nota: String(a[2] || "") }],
+        webTareaReabrir: a => ["tarea_reabrir", { p_id: Number(a[1]) }],
+        webTareaEditar: a => ["tarea_editar", { p_id: Number(a[1]), p_tipo: String(a[2] || ""), p_texto: String(a[3] || "") }],
+        webTareaAnular: a => ["tarea_anular", { p_id: Number(a[1]) }]
+      };
+      if (TAREAS[fn]) { const [f, p] = TAREAS[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Secciones por rol (solo el administrador)
       if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }
       // Módulos en consumo por canal (verificador, rotador o administrador): la lista fresca de las activas

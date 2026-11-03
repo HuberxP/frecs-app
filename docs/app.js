@@ -14,6 +14,7 @@ const NAV = [
     { id: "repconflicto", ic: "⚠️", t: "Reportar conflicto" },
     { id: "repgen", ic: "📣", t: "Reportes generados" } ] },
   { g: "Turnos", cls: "turnos", items: [
+    { id: "tareas", ic: "✅", t: "Tareas", web: true },
     { id: "conciliacion", ic: "⚖️", t: "Conciliación" },
     { id: "validacion", ic: "📝", t: "Validaciones" },
     { id: "entrega", ic: "📋", t: "Entrega de turno" },
@@ -106,7 +107,7 @@ const qty = (e, c, u, emp) => (Number(e) || 0) > 0
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 const puedeSincronizar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // Verificador: solo estas pantallas
-const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen"]);
+const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen", "tareas"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
 // El rol «validador» se muestra como «Rotador» (por dentro sigue siendo validador)
 const ROL_NOMBRE = { validador: "rotador" };
@@ -129,6 +130,8 @@ const OPM_VISTAS = new Set(["prioridades", "tpc", "reempaque"]);
 const vistaDefecto = (id, rol) => ROLES_VERIF.has(rol) ? (VERIF_VISTAS.has(id) || (rol === "opm" && OPM_VISTAS.has(id))) : rolAlcanza(id, rol);
 function vistaPermitida(id, rol, cfg) {
   rol = rol || (S.usuario && S.usuario.rol); if (!rol) return false;
+  // Las secciones que viven solo en Supabase (p. ej. Tareas) no salen en la versión de Apps Script
+  { const [, it] = itemNav(id); if (it && it.web && !window.FRECS_WEB) return false; }
   if (rol === "administrador" && SIEMPRE_ADMIN.has(id)) return true;
   if (!rolAlcanza(id, rol)) return false;
   const o = (cfg || S.vistasRol || {})[rol];
@@ -790,7 +793,8 @@ function pintarNav() {
   // Secciones desplegables: la de la pantalla actual siempre abierta; las demás como las dejó la persona
   const ab = ls.getJ("navAb", {}), nPend = repPend().length, nPocos = typeof pocosAlerta === "function" ? pocosAlerta().length : 0;
   const cnt = (n, t) => n ? `<span class="nav-n" title="${t || "Reportes pendientes"}">${n}</span>` : "";
-  const cntDe = id => id === "repgen" ? cnt(nPend) : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados en un solo módulo, o agotados") : "";
+  const nTar = typeof tareasPend === "function" ? tareasPend().length : 0;
+  const cntDe = id => id === "repgen" ? cnt(nPend) : id === "tareas" ? cnt(nTar, "Tareas pendientes") : (id === "pocos" || id === "pocosvig") ? cnt(nPocos, "Productos vigilados en un solo módulo, o agotados") : "";
   const link = i => `<a href="#" data-v="${i.id}" class="${S.vista === i.id ? "on" : ""}"><span class="ic">${i.ic}</span><span class="nav-t">${h(i.t)}</span>${cntDe(i.id)}</a>`;
   const grupo = (g, items) => {
     const abierto = esVerif() || items.some(i => i.id === S.vista) || ab[g.g] === true;
@@ -3941,6 +3945,120 @@ VISTAS.repconflicto = async (el, p, vigente) => {
 };
 
 // ---------- Reportes generados ----------
+// =====================================================================
+// ✅ TAREAS (Turnos, para todos): lo que queda por hacer en bodega, clasificado en FEFO, Bloqueos u Otros.
+// Cualquiera crea una tarea; quien la haga la marca como hecha (con nota). Corregir o quitar una pendiente:
+// quien la creó o un rotador; reabrir una hecha: quien la hizo o un rotador. Vive en Supabase (versión web).
+// =====================================================================
+const TAREA_TIPOS = [["FEFO", "🔄", "FEFO"], ["BLOQUEOS", "🔒", "Bloqueos"], ["OTROS", "📌", "Otros"]];
+const tareaTipo = k => TAREA_TIPOS.find(x => x[0] === k) || ["OTROS", "📌", "Otros"];
+// Fecha y hora de Bogotá de un instante que llega de Supabase («03/11 17:40»)
+const fechaBog = iso => { const t = Date.parse(iso || ""); if (isNaN(t)) return ""; const d = new Date(t - 5 * 3600e3).toISOString(); return `${d.slice(8, 10)}/${d.slice(5, 7)} ${d.slice(11, 16)}`; };
+const tareasPend = () => (S.tareas || []).filter(x => x.estado === "PENDIENTE");
+function guardarTareas(l) { if (!Array.isArray(l)) return; S.tareas = l; ls.setJ("tareas", l); if (S.usuario) pintarNav(); }
+// Se revisan solas cada minuto (para el contador del menú y si otra persona agrega o termina una)
+let _tarRev = 0;
+async function revisarTareas(forzar) {
+  if (!window.FRECS_WEB || !S.usuario || document.hidden || !navigator.onLine || !vistaPermitida("tareas")) return;
+  if (!forzar && Date.now() - _tarRev < 55000) return;
+  _tarRev = Date.now();
+  try {
+    const l = await api("webTareas"), antes = JSON.stringify(S.tareas || []);
+    guardarTareas(l);
+    if (S.vista === "tareas" && antes !== JSON.stringify(l) && !modalAbierto() && !(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) pintarTareas();
+  } catch (e) {}
+}
+setInterval(() => revisarTareas(), 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) revisarTareas(true); });
+
+VISTAS.tareas = async (el, p, vigente) => {
+  if (!S.tareas) S.tareas = ls.getJ("tareas", null);
+  if (S.tareas) pintarTareas(el); else el.innerHTML = cab("✅ Tareas") + loader("Cargando tareas…");
+  try { const l = await api("webTareas"); if (!vigente()) return; _tarRev = Date.now(); guardarTareas(l); pintarTareas(el); }
+  catch (e) { if (!vigente()) return; if (!S.tareas) el.innerHTML = cab("✅ Tareas") + errBox(e); else toast(e.message, "bad", 5000); }
+};
+function pintarTareas(el) {
+  el = el || $("#view");
+  const lis = S.tareas || [], yo = S.usuario ? S.usuario.nombre : "", rot = puede("validador");
+  let tipo = ls.get("tarTipo", ""), estado = ls.get("tarEstado", "PEND");
+  if (!["PEND", "HECHA"].includes(estado)) estado = "PEND";
+  const base = lis.filter(x => !tipo || x.tipo === tipo);
+  const nP = base.filter(x => x.estado === "PENDIENTE").length, nH = base.filter(x => x.estado === "HECHA").length;
+  const nTipo = k => lis.filter(x => x.tipo === k && (estado === "PEND" ? x.estado === "PENDIENTE" : x.estado === "HECHA")).length;
+  const vis = base.filter(x => estado === "PEND" ? x.estado === "PENDIENTE" : x.estado === "HECHA");
+  const tarjeta = x => {
+    const [, ic, nom] = tareaTipo(x.tipo), pend = x.estado === "PENDIENTE";
+    const puedeEd = pend && (x.por === yo || rot), puedeRe = !pend && (x.hechaPor === yo || rot);
+    return `<article class="card tar-card tar-${x.tipo.toLowerCase()} ${pend ? "pend" : "hecha"}" data-tar="${h(x.id)}">
+      <div class="row sb tar-top"><span class="pill tar-p">${ic} ${h(nom)}</span>${pend ? `<span class="pill warn">Pendiente</span>` : `<span class="pill ok">✓ Hecha</span>`}</div>
+      <div class="tar-txt">${h(x.texto)}</div>
+      <div class="tar-quien">Creada por <b>${h(x.por)}</b> · ${h(fechaBog(x.en))}${x.turno ? ` · T${h(x.turno)}` : ""}${x.editadaPor ? ` · <span class="muted">corregida por ${h(x.editadaPor)}</span>` : ""}</div>
+      ${pend ? "" : `<div class="tar-hecha">✅ Hecha por <b>${h(x.hechaPor)}</b> · ${h(fechaBog(x.hechaEn))}${x.nota ? `<div class="tar-nota">📝 ${h(x.nota)}</div>` : ""}</div>`}
+      <div class="tar-acc">${puedeEd ? `<button class="btn sm icon del" data-tan="${h(x.id)}" title="Quitar la tarea" aria-label="Quitar la tarea">${ICO_DEL}</button><button class="btn sm" data-ted="${h(x.id)}">✎ Corregir</button>` : ""}${pend ? `<button class="btn sm b-verde" data-tok="${h(x.id)}">✔ Marcar hecha</button>` : ""}${puedeRe ? `<button class="btn sm" data-tre="${h(x.id)}">↩ Reabrir</button>` : ""}</div>
+    </article>`;
+  };
+  el.innerHTML = cab("✅ Tareas", "Lo que queda por hacer en bodega, para cualquier turno. Toca ＋ para crear una (FEFO, Bloqueos u Otros). Quien la haga la marca como hecha y puede dejar una nota. Quien la creó o un rotador la puede corregir o quitar; quien la hizo o un rotador la puede reabrir. Se ven las pendientes y las hechas de los últimos 60 días.") +
+    `<div class="seg seg-sm tar-est" id="tarE"><button data-te="PEND" class="${estado === "PEND" ? "on" : ""}">⏳ Pendientes <span class="sec-n">${nP}</span></button><button data-te="HECHA" class="${estado === "HECHA" ? "on" : ""}">✅ Terminadas <span class="sec-n">${nH}</span></button></div>
+    <div class="seg seg-sm tar-tipos" id="tarT"><button data-tt="" class="${!tipo ? "on" : ""}">Todas</button>${TAREA_TIPOS.map(([k, ic, t]) => `<button data-tt="${k}" class="${tipo === k ? "on" : ""}">${ic} ${t} <span class="sec-n">${nTipo(k)}</span></button>`).join("")}</div>
+    <div id="tarL">${vis.length ? `<div class="grid tarjetas">${vis.map(tarjeta).join("")}</div>` : vacio(estado === "PEND" ? (tipo ? `No hay tareas pendientes de ${tareaTipo(tipo)[2]}.` : "No hay tareas pendientes.") : "No hay tareas terminadas en los últimos 60 días.", estado === "PEND" ? "🎉" : "📭")}</div>
+    ${fab("tarnueva", "Nueva tarea")}`;
+  el.onclick = e => onTareasClick(e);
+}
+async function onTareasClick(e) {
+  const te = e.target.closest("[data-te]"); if (te) { ls.set("tarEstado", te.dataset.te); pintarTareas(); return; }
+  const tt = e.target.closest("[data-tt]"); if (tt) { ls.set("tarTipo", tt.dataset.tt); pintarTareas(); return; }
+  if (e.target.closest('[data-a="tarnueva"]')) { modalTarea(null); return; }
+  const id = (b => b && (b.dataset.tok || b.dataset.ted || b.dataset.tan || b.dataset.tre))(e.target.closest("[data-tok],[data-ted],[data-tan],[data-tre]"));
+  if (!id) return;
+  const x = (S.tareas || []).find(y => String(y.id) === String(id)); if (!x) return;
+  const b = e.target.closest("[data-tok],[data-ted],[data-tan],[data-tre]");
+  if (b.dataset.ted) { modalTarea(x); return; }
+  if (b.dataset.tok) { modalTareaHecha(x); return; }
+  const tx = `<div class="small muted" style="margin-top:6px">${h(x.texto)}</div>`;
+  if (b.dataset.tan && !(await confirmar("Quitar tarea", `¿Quitar esta tarea? Úsalo si ya no hace falta o se creó por error.${tx}`, "Quitar", true))) return;
+  if (b.dataset.tre && !(await confirmar("Reabrir tarea", `¿Volver a dejarla pendiente? Se quita quién la hizo y la nota.${tx}`, "Reabrir"))) return;
+  b.disabled = true;
+  try { guardarTareas(await api(b.dataset.tan ? "webTareaAnular" : "webTareaReabrir", x.id)); toast(b.dataset.tan ? "Tarea quitada" : "Tarea pendiente otra vez", "ok", 3000); pintarTareas(); }
+  catch (er) { b.disabled = false; toast(er.message, "bad", 6000); }
+}
+// Nueva tarea (o corregir una pendiente): clasificación y qué hay que hacer
+function modalTarea(x) {
+  let tipo = x ? x.tipo : (ls.get("tarTipo", "") || "");
+  const c = abrirModal(`<h3>${x ? "✎ Corregir tarea" : "✅ Nueva tarea"}</h3>
+    <div class="field"><span>Clasificación</span><div class="seg tar-sel" id="mtT">${TAREA_TIPOS.map(([k, ic, t]) => `<button type="button" data-k="${k}" class="${tipo === k ? "on" : ""}">${ic} ${t}</button>`).join("")}</div></div>
+    <label class="field"><span>¿Qué hay que hacer?</span><textarea id="mtX" maxlength="500" rows="4" placeholder="Ej: hacer FEFO de Aguila lata 330 en el pasillo C · bloquear el lote del 22/11 en B4">${h(x ? x.texto : "")}</textarea></label>
+    <div class="small muted" id="mtN"></div>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="mtOk">${x ? "Guardar" : "Crear tarea"}</button></div>`);
+  const ta = $("#mtX", c), cuenta = () => { $("#mtN", c).textContent = `${ta.value.length}/500`; };
+  ta.oninput = cuenta; cuenta();
+  $("#mtT", c).onclick = e => { const b = e.target.closest("[data-k]"); if (!b) return; tipo = b.dataset.k; $$("#mtT button", c).forEach(y => y.classList.toggle("on", y === b)); };
+  $("#mtOk", c).onclick = async () => {
+    const t = ta.value.trim();
+    if (!tipo) { toast("Escoge la clasificación: FEFO, Bloqueos u Otros.", "bad"); return; }
+    if (!t) { toast("Escribe qué hay que hacer.", "bad"); ta.focus(); return; }
+    const btn = $("#mtOk", c); ocupado(btn, true, "Guardando…");
+    try {
+      guardarTareas(x ? await api("webTareaEditar", x.id, tipo, t) : await api("webTareaCrear", tipo, t));
+      ocupado(btn, false); cerrarModal(true); toast(x ? "Tarea corregida" : "Tarea creada", "ok", 3000);
+      if (!x) { ls.set("tarEstado", "PEND"); if (ls.get("tarTipo", "") && ls.get("tarTipo", "") !== tipo) ls.set("tarTipo", ""); }
+      if (S.vista === "tareas") pintarTareas();
+    } catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); }
+  };
+  setTimeout(() => ta.focus(), 60);
+}
+// Marcar como hecha, con nota opcional
+function modalTareaHecha(x) {
+  const c = abrirModal(`<h3>✔ Marcar como hecha</h3><div class="tar-mt"><span class="pill tar-p">${tareaTipo(x.tipo)[1]} ${h(tareaTipo(x.tipo)[2])}</span><div>${h(x.texto)}</div><div class="small muted">Creada por ${h(x.por)} · ${h(fechaBog(x.en))}</div></div>
+    <label class="field"><span>Nota (opcional)</span><textarea id="mhN" maxlength="500" rows="3" placeholder="Ej: quedó C4 de consumo · faltó B5, no había montacargas"></textarea></label>
+    <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn primary" id="mhOk">✔ Hecha</button></div>`);
+  $("#mhOk", c).onclick = async () => {
+    const btn = $("#mhOk", c); ocupado(btn, true, "Guardando…");
+    try { guardarTareas(await api("webTareaCompletar", x.id, $("#mhN", c).value.trim())); ocupado(btn, false); cerrarModal(true); toast("✔ Tarea hecha", "ok", 3000); if (S.vista === "tareas") pintarTareas(); }
+    catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); revisarTareas(true); }
+  };
+  setTimeout(() => $("#mhN", c).focus(), 60);
+}
+
 VISTAS.repgen = async (el, p, vigente) => {
   const d = await api("webReportes");
   if (!vigente()) return;

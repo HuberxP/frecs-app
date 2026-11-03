@@ -1698,7 +1698,24 @@
   /* ---------- 📸 Foto de TPC ---------- */
   .ft-prev { max-height: 62vh; overflow: auto; border: 1px solid var(--line2); border-radius: 10px; background: #fff; margin: 8px 0; text-align: center; }
   .ft-prev img { display: block; width: 100%; height: auto; }
-  .ft-prev .err, .ft-prev .loader { background: var(--card); }/* ============ Versión web (Supabase) ============ */
+  .ft-prev .err, .ft-prev .loader { background: var(--card); }
+
+  /* ---------- ✅ Tareas ---------- */
+  .tar-est, .tar-tipos { margin: 0 0 10px; flex-wrap: wrap; }
+  .tar-card { border-left: 6px solid var(--line2); display: flex; flex-direction: column; gap: 6px; }
+  .tar-card.tar-fefo { border-left-color: #38bdf8; } .tar-card.tar-bloqueos { border-left-color: var(--bad); } .tar-card.tar-otros { border-left-color: #a78bfa; }
+  .tar-card.hecha { opacity: .92; }
+  .tar-p { font-weight: 800; }
+  .tar-fefo .tar-p { border-color: #38bdf8; color: #7dd3fc; } .tar-bloqueos .tar-p { border-color: var(--bad); color: #ffb3c1; } .tar-otros .tar-p { border-color: #a78bfa; color: #d3b6ff; }
+  html[data-tema="claro"] .tar-fefo .tar-p { color: #0369a1; } html[data-tema="claro"] .tar-bloqueos .tar-p { color: #b91c1c; } html[data-tema="claro"] .tar-otros .tar-p { color: #6d28d9; }
+  .tar-txt { font-size: 16px; font-weight: 650; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
+  .tar-quien { font-size: 12.5px; color: var(--muted); }
+  .tar-hecha { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: var(--ok-soft); }
+  .tar-nota { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+  .tar-acc { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .tar-acc:empty { display: none; }
+  .tar-sel { flex-wrap: wrap; } .tar-sel button { flex: 1 1 30%; min-height: 42px; font-weight: 800; }
+  .tar-mt { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; margin: 6px 0 10px; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

@@ -1553,6 +1553,7 @@
   .btn.ac-okb:hover { background: rgba(59,130,246,.12); }
   .card.act-mod.vacio .btn.ac-okb { color: #1d2733; }
   .ac-modo { display: inline-flex; gap: 10px; align-items: center; margin: 0; }
+  .fc-barr { padding: 6px 12px; }
   /* Modo «Estoy actualizando»: lo que falta con un borde rojo que gira; lo revisado, verde */
   .card.act-mod.modo { border: 0; padding: 13px 15px; overflow: hidden; isolation: isolate; }
   .card.act-mod.modo::before { content: ""; position: absolute; inset: -60%; z-index: -2; background: conic-gradient(from 0deg, #ff3b3b, rgba(255,59,59,.05) 25%, #ff3b3b 50%, rgba(255,59,59,.05) 75%, #ff3b3b); animation: girarBorde 2.2s linear infinite; }

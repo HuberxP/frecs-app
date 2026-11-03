@@ -1829,16 +1829,23 @@ VISTAS.fechas = async (el, p, vigente) => {
   const est = FC_EST[p.est] ? p.est : (FC_EST[ls.get("fcEst", "DISP")] ? ls.get("fcEst", "DISP") : "DISP");
   const inv = await cargarInv();
   if (!vigente()) return;
-  const enPlazo = inv.filter(i => i.fis && i.d >= 0 && i.d <= dias);
+  // Los barriles casi siempre están en fecha corta: ocultos por defecto, con un switch para verlos
+  const verBarr = ls.get("fcBarr", "0") === "1";
+  const esBarril = i => i.m === "BARRILES" || i.emp === "Barriles";
+  const todos = inv.filter(i => i.fis && i.d >= 0 && i.d <= dias);
+  const nBarr = todos.filter(esBarril).length;
+  const enPlazo = verBarr ? todos : todos.filter(i => !esBarril(i));
   const n = { DISP: enPlazo.filter(i => i.disp).length, BLOQ: enPlazo.filter(i => !i.disp).length, ALL: enPlazo.length };
   listaInv(el, {
     titulo: `⏳ Fechas cortas (≤ ${dias} días)`, sub: "Producto que vence dentro del plazo indicado",
     tools: `<label class="field" style="width:130px"><span>Días</span><input type="number" min="1" id="fd" value="${dias}"></label><button class="btn" id="fdb" style="align-self:flex-end">Aplicar</button>`,
-    arriba: `<div class="lista-tools"><div class="seg" id="fe">${Object.keys(FC_EST).map(k => `<button data-f="${k}" class="${k === est ? "on" : ""}">${FC_EST[k].t} <span class="sec-n">${n[k]}</span></button>`).join("")}</div></div>${FC_EST[est].nota ? `<div class="note small ayuda" style="margin:6px 0 10px">${FC_EST[est].nota}</div>` : ""}`,
+    arriba: `<div class="lista-tools"><div class="seg" id="fe">${Object.keys(FC_EST).map(k => `<button data-f="${k}" class="${k === est ? "on" : ""}">${FC_EST[k].t} <span class="sec-n">${n[k]}</span></button>`).join("")}</div>
+      <label class="sw-fila ac-modo fc-barr" title="Los barriles casi siempre están en fecha corta; por eso se ocultan"><span><b>🛢️ Mostrar barriles</b>${!verBarr && nBarr ? ` <span class="small muted">(${nBarr} ocultos)</span>` : ""}</span><span class="sw"><input type="checkbox" id="fcB" ${verBarr ? "checked" : ""}><i></i></span></label></div>${FC_EST[est].nota ? `<div class="note small ayuda" style="margin:6px 0 10px">${FC_EST[est].nota}</div>` : ""}`,
     items: enPlazo.filter(i => est === "ALL" || (est === "DISP" ? i.disp : !i.disp)).sort(ordPrioD), vacio: FC_EST[est].vacio,
     alMontar: e2 => {
       const ap = () => { const v = parseInt($("#fd", e2).value, 10) || 60; ls.set("ultDias", v); ir("fechas", { dias: v, est: est }); };
       $("#fdb", e2).onclick = ap; $("#fd", e2).onkeydown = ev => { if (ev.key === "Enter") ap(); };
+      $("#fcB", e2).onchange = ev => { ls.set("fcBarr", ev.target.checked ? "1" : "0"); ir("fechas", { dias: dias, est: est }); };
       $("#fe", e2).onclick = ev => { const b = ev.target.closest("[data-f]"); if (!b) return; ls.set("fcEst", b.dataset.f); ir("fechas", { dias: dias, est: b.dataset.f }); };
     }
   });

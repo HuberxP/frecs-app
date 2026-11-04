@@ -1,9 +1,9 @@
 // Frecs! · service worker (GENERADO: la versión la pone herramientas/construir.py)
 // Guarda la página para abrir rápido y sin conexión. Los datos NO se guardan aquí:
 // los maneja la página (última copia en este equipo).
-const VERSION = "frecs-ae123ec0";
+const VERSION = "frecs-4457d146";
 const BASICOS = ["./", "index.html", "app.css", "app.js", "motor.js", "puente.js", "config.js", "manifest.webmanifest",
-  "vendor/tarjeta-logo.png", "iconos/icon-192.png", "iconos/icon-512.png", "iconos/icon-maskable-512.png", "iconos/apple-touch-icon.png"];
+  "vendor/tarjeta-logo.png", "vendor/marcacion-logo.png", "iconos/icon-192.png", "iconos/icon-512.png", "iconos/icon-maskable-512.png", "iconos/apple-touch-icon.png"];
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(BASICOS)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {

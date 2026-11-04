@@ -20,7 +20,6 @@ const NAV = [
     { id: "entrega", ic: "📋", t: "Entrega de turno" },
     { id: "final", ic: "📦", t: "Entrega final" },
     { id: "consumo", ic: "🥤", t: "Consumo" },
-    { id: "rotular", ic: "🏷️", t: "Rotular", rol: "validador" },
     { id: "actualizacion", ic: "🕒", t: "Actualización de bodega" },
     { id: "preconciliacion", ic: "📌", t: "Pre-conciliación" } ] },
   { g: "Historial", cls: "turnos", items: [
@@ -28,7 +27,9 @@ const NAV = [
     { id: "hent", ic: "🗂️", t: "Historial de entregas" },
     { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" } ] },
   { g: "Tarjetas", items: [
-    { id: "tarjetas", ic: "🟥", t: "Tarjetas rojas", web: true } ] },
+    { id: "tarjetas", ic: "🟥", t: "Tarjetas rojas", web: true },
+    { id: "rotulos", ic: "🏷️", t: "Rótulos", web: true },
+    { id: "rotular", ic: "🗂️", t: "Marcación bodegas", rol: "validador" } ] },
   { g: "Operación", items: [
     { id: "actualizar", ic: "✍️", t: "Actualizar módulos", rol: "validador" },
     { id: "stock", ic: "📡", t: "Stock por SKU" },
@@ -109,7 +110,7 @@ const qty = (e, c, u, emp) => (Number(e) || 0) > 0
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 const puedeSincronizar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // Verificador: solo estas pantallas
-const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen", "tareas", "tarjetas"]);
+const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen", "tareas", "tarjetas", "rotulos"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
 // El rol «validador» se muestra como «Rotador» (por dentro sigue siendo validador)
 const ROL_NOMBRE = { validador: "rotador" };
@@ -4069,231 +4070,394 @@ function modalTareaHecha(x) {
 }
 
 // =====================================================================
-// 🟥 TARJETAS ROJAS (producto bloqueado): el formato de Excel, lleno con la hoja Sku y listo para imprimir
-// Carta horizontal, una tarjeta por hoja. «Por estiba»: la que va en cada estiba (1 pallet, sus cajas).
-// «Bolsillo»: la que va al frente del producto con el total de estibas bloqueadas (+ cajas sueltas).
+// TARJETAS: tarjetas rojas (carta horizontal), rótulos por estiba y marcación de bodega (carta vertical)
+// Cada sección llena la tarjeta con la hoja Sku; se guardan en una lista de este equipo y al final
+// sale un solo PDF (o impresión) con todas las hojas.
 // =====================================================================
-// Columnas A a N del Excel (anchos) y alto de cada fila (puntos), como en el formato original
-const TRJ_COLS = [11.44, 19.66, 18.55, 25.44, 18.33, 11.44, 11.44, 31.55, 14.89, 14.55, 19.55, 11.44, 11.44, 30.89];
-const TRJ_TIPOS = {
-  TRANSPORTE: { b: "🚚 P. Transporte", titulo: "PRUEBA DE TRANSPORTE", altoT: 265.5, uni: false, lab: 40, centro: false, bloqueo: "Hoy (día en que se hace la tarjeta)" },
-  CUARENTENA: { b: "🔍 Cuarentena", titulo: "INSPECCION / CUARENTENA / PRUEBA", altoT: 265.5, uni: false, lab: 40, centro: true, bloqueo: "Igual a la fecha de envasado" },
-  CALIDAD: { b: "⚠️ Calidad", titulo: "PNC CALIDAD", altoT: 145.5, uni: true, lab: 36, centro: false, lote: "a. CODIGO DE LOTE (completo, legible)", desc: "b. SKU + DESCRIPCION DEL PRODUCTO", bloqueo: "Hoy (día en que se hace la tarjeta)" },
-  FRESCURA: { b: "⏳ Frescura", titulo: "PNC FRESCURA", altoT: 145.5, uni: true, lab: 36, centro: false, bloqueo: "Vencimiento menos los días de T2 (fecha mínima de despacho)" }
-};
-const TRJ_PAG = { w: 267, h: 203 };   // mm: hoja carta horizontal (279,4 × 215,9) con un margen pequeño
+const TRJ_PAG = { H: { w: 267, h: 203, o: "landscape" }, V: { w: 203, h: 267, o: "portrait" } };   // mm (carta con margen pequeño)
 const trjHoy = () => { try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" }); } catch (e) { return new Date().toISOString().slice(0, 10); } };
-const trjMenos = (iso, dias) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ""); if (!m || !isFinite(dias)) return ""; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); d.setUTCDate(d.getUTCDate() - Math.round(dias)); return d.toISOString().slice(0, 10); };
-const trjDmy = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ""); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
+const trjMenos = (iso, dias) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); if (!m || dias === null || dias === undefined || !isFinite(dias)) return ""; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); d.setUTCDate(d.getUTCDate() - Math.round(dias)); return d.toISOString().slice(0, 10); };
+const trjDmy = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
+const TRJ_MES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+const trjDma = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? `${+m[3]}-${TRJ_MES[+m[2] - 1]}-${m[1].slice(2)}` : ""; };
 const trjNum = v => { const n = parseFloat(String(v === null || v === undefined ? "" : v).replace(",", ".")); return isFinite(n) ? n : null; };
 const trjEnt = v => { const n = trjNum(v); return n === null ? null : Math.round(n); };
-// Estado del formulario (se conserva al salir y volver a la sección)
-function trjEstado() {
-  if (!S.trj) S.trj = { tipo: TRJ_TIPOS[ls.get("trjTipo", "")] ? ls.get("trjTipo", "") : "CALIDAD", modo: ls.get("trjModo", "estiba") === "bolsillo" ? "bolsillo" : "estiba",
-    sku: "", lote: "", sol: "Calidad", vence: "", env: "", bloq: "", pallets: "1", sueltas: "", cajas: "", uni: "", copias: "1", man: {} };
-  return S.trj;
+const trjMay = s => String(s || "").replace(/\s+/g, " ").trim().toUpperCase();
+const trjN = x => x === "" || x === null || x === undefined ? "" : fm(x);
+const trjCat = sku => sku ? (S.cat || []).find(x => x.sku === String(sku)) || null : null;
+// Días de T2 del SKU; si no tiene, la regla de Canales (t2E)
+const trjT2 = c => c ? trjNum(c.t2 !== null && c.t2 !== undefined && c.t2 !== "" ? c.t2 : c.t2E) : null;
+
+// ---------- piezas comunes del formulario ----------
+// Cuadros uno debajo del otro: los que escribe el usuario van con color; los automáticos, sin color
+const trjCampo = f => `<label class="field trj-f ${f.user ? "trj-in" : "trj-au"}" id="${f.id}W"><span>${f.l}</span><input ${f.tipo || 'type="text"'} id="${f.id}" autocomplete="off" ${f.extra || ""}><small class="trj-h" id="${f.id}H"></small></label>`;
+// Muestra en los cuadros lo que va en la tarjeta (menos el que se está escribiendo)
+function trjMostrar(el, campos, t, a, desde) {
+  campos.forEach(f => {
+    const x = $("#" + f.id, el); if (!x || f.id === desde) return;
+    x.value = f.auto ? (t.man[f.k] ? t[f.k] : (a[f.k] === null || a[f.k] === undefined ? "" : a[f.k])) : (t[f.k] || "");
+    const tx = x.type === "date" && x.parentNode.querySelector(".fecha-txt");
+    if (tx && document.activeElement !== tx) { tx.value = trjDmy(x.value); tx.classList.remove("mal"); }
+    if (f.auto) $("#" + f.id + "H", el).textContent = t.man[f.k] ? "ESCRITO A MANO (BÓRRALO PARA VOLVER AL CÁLCULO)" : (a.ayuda[f.k] ? "AUTOMÁTICO · " + a.ayuda[f.k] : "AUTOMÁTICO");
+  });
 }
-// Lo que la tarjeta lleva: lo escrito a mano manda; lo vacío se calcula
-function trjCalcular(t) {
-  const c = t.sku ? (S.cat || []).find(x => x.sku === t.sku) : null, T = TRJ_TIPOS[t.tipo];
-  const vida = c ? trjNum(c.vida) : null, cpe = c ? trjEnt(c.cantEst) : null, fac = c ? trjNum(c.fac) : null;
-  const t2 = c ? trjNum(c.t2 !== null && c.t2 !== undefined && c.t2 !== "" ? c.t2 : c.t2E) : null;
-  const a = { c: c, vida: vida, cpe: cpe, fac: fac, t2: t2, ayuda: {}, falta: [] };
-  a.env = t.man.env ? t.env : (t.vence && vida ? trjMenos(t.vence, vida) : "");
-  a.ayuda.env = vida ? `Vencimiento − ${fm(vida)} días de vida útil` : "";
-  if (t.man.bloq) a.bloq = t.bloq;
-  else if (t.tipo === "FRESCURA") a.bloq = t.vence && t2 !== null ? trjMenos(t.vence, t2) : "";
-  else if (t.tipo === "CUARENTENA") a.bloq = a.env;
-  else a.bloq = trjHoy();
-  a.ayuda.bloq = t.tipo === "FRESCURA" ? (t2 !== null ? `Vencimiento − ${fm(t2)} días de T2` : "") : T.bloqueo;
-  const pal = trjEnt(t.pallets), sue = trjEnt(t.sueltas) || 0;
-  if (t.man.cajas) a.cajas = t.cajas;
-  else if (t.modo === "bolsillo") a.cajas = cpe ? String((pal || 0) * cpe + sue) : (sue ? String(sue) : "");
-  else a.cajas = cpe ? String(cpe) : "";
-  a.ayuda.cajas = !cpe ? "" : t.modo === "bolsillo" ? `${fm(pal || 0)} estibas × ${fm(cpe)} cajas${sue ? ` + ${fm(sue)} sueltas` : ""}` : `Cajas por estiba (${fm(cpe)})`;
-  const caj = trjNum(a.cajas);
-  a.uni = !T.uni ? "" : t.man.uni ? t.uni : (caj !== null && fac ? String(Math.round(caj * fac)) : "");
-  a.ayuda.uni = fac && caj !== null ? `${fm(caj)} cajas × ${fm(fac)} unidades por caja` : "";
-  if (c) {
-    if (!vida) a.falta.push("vida útil");
-    if (!cpe) a.falta.push("cantidad por estiba («Cant x Estibas»)");
-    if (T.uni && !fac) a.falta.push("unidades por caja («Factor cajas»)");
-    if (t.tipo === "FRESCURA" && t2 === null) a.falta.push("días de T2");
-  }
-  return a;
+// Escribir en un cuadro: lo automático que se escribe queda a mano; vacío vuelve al cálculo
+function trjEnlazar(el, campos, t, pintar) {
+  campos.forEach(f => {
+    const x = $("#" + f.id, el); if (!x) return;
+    x.addEventListener("input", () => {
+      t[f.k] = x.value;
+      if (f.auto) { if (String(x.value).trim() === "") delete t.man[f.k]; else t.man[f.k] = true; }
+      pintar(f.id);
+    });
+    if (f.auto) ["blur", "change"].forEach(ev => x.addEventListener(ev, () => { if (!t.man[f.k]) pintar(); }));
+  });
 }
-// HTML de una tarjeta (tamaño real, en mm)
-function trjHtml(t, a) {
-  const T = TRJ_TIPOS[t.tipo], tq = t.tipo === "CUARENTENA" || t.tipo === "TRANSPORTE";
-  const filas = [67.5, 92.85, T.altoT, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 46.5];
-  const tot = filas.reduce((x, y) => x + y, 0), borde = 0.5, alto = TRJ_PAG.h - borde, k = alto / tot;   // mm por punto
-  const mm = pt => (pt * k).toFixed(2) + "mm";
-  const celda = (col, txt, pt, cls, fit) => `<div class="trj-c ${cls || ""}" style="grid-column:${col};font-size:${mm(pt)}"><span${fit ? ' class="fit"' : ""}>${txt}</span></div>`;
-  const lb = (col, txt, pt) => celda(col, h(txt), pt || T.lab, "lb" + (T.centro ? " ce" : ""), true);
-  const vl = (col, txt, pt) => celda(col, h(txt || ""), pt || 55, "vl", true);
-  const fila = (l, v) => lb("1 / 9", l) + vl("9 / 15", v);
-  const c = a.c, n = x => x === "" || x === null || x === undefined ? "" : fm(x);
-  const desc = c ? String(c.prod).replace(/\s+/g, " ").trim() : "";
-  return `<div class="trj" style="width:${TRJ_PAG.w}mm;height:${TRJ_PAG.h}mm;grid-template-columns:${TRJ_COLS.map(w => w + "fr").join(" ")};grid-template-rows:${filas.map(mm).join(" ")}">
-    <div class="trj-c trj-cab" style="grid-column:1 / 15;font-size:${mm(26)}"><span>MA-APP4-VPOQ-A5-101-TAG ID / v1.2 / 2021 05 16</span><img src="vendor/tarjeta-logo.png" alt=""></div>
-    ${celda("1 / 15", "PRODUCTO BLOQUEADO", 100, "tt ce", true)}${celda("1 / 15", h(T.titulo), 100, "tt ce", true)}
-    ${fila(T.lote || "a. CODIGO DE LOTE", t.lote)}${fila(T.desc || "b. DESCRIPCION DEL PRODUCTO", desc)}${fila("c. SOLICITANTE BLOQUEO", t.sol)}
-    ${fila("d. FECHA ENVASADO (ddmmaaaa)", trjDmy(a.env))}${fila("e. FECHA BLOQUEO (ddmmaaaa)", trjDmy(a.bloq))}${fila("f. FECHA VENCIMIENTO (ddmmaaaa)", trjDmy(t.vence))}
-    ${tq ? lb("1 / 5", "#TOTAL PALLETS", 36) + vl("5 / 9", n(t.pallets), 72) + lb("9 / 12", "#TOTAL CAJAS", 28) + vl("12 / 15", n(a.cajas), 72)
-      : lb("1 / 4", "#TOTAL PALLETS", 28) + vl("4 / 5", n(t.pallets), 48) + lb("5 / 8", "# TOTAL CAJAS", 28) + vl("8 / 9", n(a.cajas), 48) + lb("9 / 12", "# TOTAL UNIDADES", 28) + vl("12 / 15", n(a.uni), 72)}
-    ${lb("1 / 9", "CODIGO PRODUCTO (WMS/SAP)", 36) + vl("9 / 15", c ? c.sku : "", 72)}
-    <div class="trj-c trj-pie" style="grid-column:1 / 15;font-size:${mm(30)}"><span>${a.vida ? `Vida útil: ${fm(a.vida)} días` : ""}</span></div>
-  </div>`;
+// Vista previa: la hoja a tamaño real, reducida al ancho de la pantalla
+function trjPrevia(prev, html) {
+  prev.innerHTML = html;
+  const card = prev.firstElementChild; if (!card) return;
+  const w = parseFloat(card.dataset.w) * 96 / 25.4, hh = parseFloat(card.dataset.h) * 96 / 25.4;
+  const e = Math.min(1, prev.parentNode.clientWidth / w);
+  card.style.transform = `scale(${e})`; prev.style.width = Math.ceil(w * e) + "px"; prev.style.height = Math.ceil(hh * e) + "px";
+  trjAjustar(prev);
 }
 // Achica la letra de lo que no cabe en su casilla (nombres largos, números grandes)
 function trjAjustar(raiz) {
-  $$(".trj-c .fit", raiz).forEach(s => {
-    const c = s.parentNode; let f = parseFloat(c.style.fontSize), n = 0;
-    while (n++ < 30 && (s.scrollHeight > c.clientHeight + 1 || s.scrollWidth > s.clientWidth + 1)) { f *= 0.93; c.style.fontSize = f.toFixed(2) + "mm"; }
+  $$(".fit", raiz).forEach(s => {
+    const c = s.parentNode; let f = parseFloat(getComputedStyle(c).fontSize), n = 0;
+    while (n++ < 40 && f > 4 && (s.scrollHeight > c.clientHeight + 1 || s.scrollWidth > s.clientWidth + 1)) { f *= 0.93; c.style.fontSize = f.toFixed(2) + "px"; }
   });
 }
-
-VISTAS.tarjetas = async (el, p, vigente) => {
-  await cargarCat();
-  if (!vigente()) return;
-  const t = trjEstado(), c0 = t.sku && S.cat.find(x => x.sku === t.sku);
-  const campo = (id, l, tipo, extra) => `<label class="field" id="${id}W"><span>${l}</span><input ${tipo || 'type="text"'} id="${id}" autocomplete="off" ${extra || ""}><small class="trj-h" id="${id}H"></small></label>`;
-  el.innerHTML = cab("🟥 Tarjetas rojas", "Producto bloqueado: escoge el tipo y el producto, completa el lote y la fecha de vencimiento, y lo demás sale de la hoja Sku. Lo que dice «auto» se calcula solo; si lo escribes, queda lo tuyo (bórralo para volver al cálculo). Sale en hoja carta horizontal, como el formato de Excel.") +
-    `<div class="trj-wrap"><div class="card trj-form">
-      <div class="seg trj-seg" id="trjT">${Object.keys(TRJ_TIPOS).map(k => `<button data-tt="${k}">${TRJ_TIPOS[k].b}</button>`).join("")}</div>
-      <div class="seg trj-seg" id="trjM"><button data-tm="estiba">🧱 Por estiba</button><button data-tm="bolsillo">👝 Bolsillo</button></div>
-      <div class="small muted trj-modoh" id="trjMH"></div>
-      ${campoAuto("trjP", "Nombre o SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}
-      <div class="trj-aviso" id="trjAv"></div>
-      <div class="trj-g">
-        ${campo("trjL", "Código de lote", 'type="text"', 'autocapitalize="characters"')}
-        ${campo("trjS", "Solicitante del bloqueo")}
-        ${campo("trjV", "Fecha de vencimiento", 'type="date"')}
-        ${campo("trjE", "Fecha de envasado", 'type="date"')}
-        ${campo("trjB", "Fecha de bloqueo", 'type="date"')}
-        ${campo("trjPa", "Total de pallets", 'type="number" min="0" inputmode="numeric"')}
-        ${campo("trjSu", "Cajas sueltas", 'type="number" min="0" inputmode="numeric"')}
-        ${campo("trjC", "Total de cajas", 'type="number" min="0" inputmode="numeric"')}
-        ${campo("trjU", "Total de unidades", 'type="number" min="0" inputmode="numeric"')}
-        ${campo("trjN", "Copias (una hoja por estiba)", 'type="number" min="1" max="50" inputmode="numeric"')}
-      </div>
-      <div class="trj-btns"><button class="btn primary" id="trjImp">🖨️ Imprimir</button><button class="btn" id="trjPdf">📄 PDF</button><button class="btn ghost" id="trjNue" title="Empezar otra tarjeta">↺ Nueva</button></div>
-    </div><div class="trj-prev-w"><div class="trj-prev" id="trjPrev"></div></div></div>`;
-  const inp = id => $("#" + id, el);
-  const CAMPOS = { trjL: "lote", trjS: "sol", trjV: "vence", trjE: "env", trjB: "bloq", trjPa: "pallets", trjSu: "sueltas", trjC: "cajas", trjU: "uni", trjN: "copias" };
-  const AUTO = { trjE: "env", trjB: "bloq", trjC: "cajas", trjU: "uni" };
-  let a = null, tPrev = 0;
-  const escalar = () => {
-    const pv = inp("trjPrev"), card = $(".trj", pv); if (!card) return;
-    const anchoPx = TRJ_PAG.w * 96 / 25.4, altoPx = TRJ_PAG.h * 96 / 25.4, e = Math.min(1, pv.parentNode.clientWidth / anchoPx);
-    card.style.transform = `scale(${e})`; pv.style.height = Math.ceil(altoPx * e) + "px"; pv.style.width = Math.ceil(anchoPx * e) + "px";
-  };
-  const previa = () => { inp("trjPrev").innerHTML = trjHtml(t, a); escalar(); trjAjustar(inp("trjPrev")); };
-  const pintar = (desde) => {
-    a = trjCalcular(t);
-    const T = TRJ_TIPOS[t.tipo];
-    $$("#trjT [data-tt]", el).forEach(b => b.classList.toggle("on", b.dataset.tt === t.tipo));
-    $$("#trjM [data-tm]", el).forEach(b => b.classList.toggle("on", b.dataset.tm === t.modo));
-    inp("trjMH").textContent = t.modo === "bolsillo" ? "Bolsillo: va al frente del producto. Pon cuántas estibas están bloqueadas y las cajas sueltas; las cajas y unidades salen solas." : "Por estiba: una tarjeta en cada estiba (1 pallet con sus cajas). Si son varias estibas, pon las copias.";
-    inp("trjSuW").classList.toggle("hidden", t.modo !== "bolsillo");
-    inp("trjNW").classList.toggle("hidden", t.modo !== "estiba");
-    inp("trjUW").classList.toggle("hidden", !T.uni);
-    // Los cuadros muestran lo que va en la tarjeta (menos el que se está escribiendo)
-    Object.keys(CAMPOS).forEach(id => {
-      const k = CAMPOS[id], x = inp(id); if (id === desde) return;
-      x.value = AUTO[id] ? (t.man[k] ? t[k] : (a[k] || "")) : (t[k] || "");
-      // Las fechas se ven en un cuadro de texto aparte (dd/mm/aaaa)
-      const tx = x.type === "date" && x.parentNode.querySelector(".fecha-txt");
-      if (tx && document.activeElement !== tx) { tx.value = trjDmy(x.value); tx.classList.remove("mal"); }
-    });
-    Object.keys(AUTO).forEach(id => {
-      const k = AUTO[id], man = !!t.man[k];
-      inp(id + "W").classList.toggle("auto", !man);
-      inp(id + "H").textContent = man ? "✍️ escrito a mano (bórralo para volver al cálculo)" : (a.ayuda[k] ? "auto · " + a.ayuda[k] : "auto");
-    });
-    inp("trjAv").innerHTML = !a.c ? `<div class="note small">👆 Escoge el producto: con eso salen el nombre, el SKU, la vida útil y las cajas.</div>`
-      : a.falta.length ? `<div class="note warn small">⚠️ ${h(a.c.sku)} no tiene en la hoja Sku: <b>${h(a.falta.join(", "))}</b>. Escríbelo aquí${puede("administrador") ? " o complétalo en Productos (hoja Sku)" : ""}.</div>` : "";
-    clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
-  };
-  // Tipo y modo
-  inp("trjT").onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; ls.set("trjTipo", t.tipo); delete t.man.bloq; delete t.man.uni; pintar(); };
-  inp("trjM").onclick = e => { const b = e.target.closest("[data-tm]"); if (!b) return; t.modo = b.dataset.tm; ls.set("trjModo", t.modo); if (t.modo === "estiba") { t.pallets = "1"; t.sueltas = ""; } delete t.man.cajas; delete t.man.uni; pintar(); };
-  // Producto
-  autoSku(inp("trjP"), c => { t.sku = c.sku; delete t.man.cajas; delete t.man.uni; pintar(); }, { max: 20 });
-  alLimpiar(inp("trjP"), () => { t.sku = ""; pintar(); });
-  // Cuadros
-  Object.keys(CAMPOS).forEach(id => inp(id).addEventListener("input", () => {
-    const k = CAMPOS[id], v = inp(id).value;
-    t[k] = v;
-    if (AUTO[id]) { if (String(v).trim() === "") delete t.man[k]; else t.man[k] = true; }
-    pintar(id);
-  }));
-  // Al salir de un cuadro calculado que quedó vacío, se muestra otra vez el cálculo
-  Object.keys(AUTO).forEach(id => ["blur", "change"].forEach(ev => inp(id).addEventListener(ev, () => { if (!t.man[AUTO[id]]) pintar(); })));
-  inp("trjNue").onclick = () => { S.trj = null; const n = trjEstado(); n.tipo = t.tipo; n.modo = t.modo; ir("tarjetas"); };
-  const copias = () => t.modo === "estiba" ? Math.max(1, Math.min(50, trjEnt(t.copias) || 1)) : 1;
-  const listo = () => { if (!a.c) toast("Ojo: no escogiste el producto (sale sin nombre ni SKU).", "warn", 4000); return true; };
-  inp("trjImp").onclick = async () => { listo(); await trjImprimir(inp("trjPrev"), copias()); };
-  inp("trjPdf").onclick = async () => {
-    listo(); const btn = inp("trjPdf"); ocupado(btn, true, "Armando…");
-    try { await trjPdf(inp("trjPrev"), copias(), `Tarjeta_${t.tipo}_${a.c ? a.c.sku : "sin_sku"}${t.lote ? "_" + t.lote.replace(/[^\w-]+/g, "") : ""}.pdf`); }
-    catch (er) { toast(er.message || "No se pudo armar el PDF.", "bad", 6000); }
-    ocupado(btn, false);
-  };
-  // La vista previa se ajusta al ancho de la pantalla
-  if (window.__trjRs) window.removeEventListener("resize", window.__trjRs);
-  window.__trjRs = () => { if (S.vista !== "tarjetas" || !document.getElementById("trjPrev")) { window.removeEventListener("resize", window.__trjRs); window.__trjRs = null; return; } escalar(); };
-  window.addEventListener("resize", window.__trjRs);
-  pintar();
-  try { if (document.fonts) document.fonts.ready.then(() => { if (S.vista === "tarjetas") previa(); }); } catch (e) {}
-};
-// Copia de la tarjeta (sin la escala de la vista previa) N veces, una por hoja
-function trjCopias(prev, n) {
-  const card = $(".trj", prev); if (!card) return "";
-  const html = card.outerHTML.replace(/transform:\s*scale\([^)]*\);?/, "");
-  return Array.from({ length: n }, () => `<div class="trj-hoja">${html}</div>`).join("");
+// Hojas listas (con la letra ajustada) en un contenedor fuera de la pantalla
+async function trjArmar(htmls) {
+  const caja = document.createElement("div"); caja.className = "trj-fuera";
+  caja.innerHTML = htmls.map(x => `<div class="trj-hoja">${x}</div>`).join("");
+  document.body.appendChild(caja);
+  await Promise.all($$("img", caja).map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })));
+  try { if (document.fonts) await document.fonts.ready; } catch (e) {}
+  trjAjustar(caja);
+  return caja;
 }
-async function trjImagenesListas(raiz) {
-  await Promise.all($$("img", raiz).map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })));
-}
-// Imprimir desde la página: solo la tarjeta, hoja carta horizontal
-async function trjImprimir(prev, n) {
-  let raiz = $("#trjPrint"); if (raiz) raiz.remove();
-  raiz = document.createElement("div"); raiz.id = "trjPrint"; raiz.innerHTML = trjCopias(prev, n);
-  document.body.appendChild(raiz);
+// Imprimir desde la página: solo las hojas, en carta horizontal (tarjetas rojas) o vertical (rótulos y marcación)
+async function trjImprimir(htmls, orient) {
+  const viejo = $("#trjPrint"); if (viejo) viejo.remove();
+  const viejoSt = $("#trjPage"); if (viejoSt) viejoSt.remove();
+  const raiz = await trjArmar(htmls); raiz.id = "trjPrint";
   const st = document.createElement("style"); st.id = "trjPage";
-  st.textContent = "@page { size: letter landscape; margin: 6mm; }";
+  st.textContent = `@page { size: letter ${orient}; margin: 6mm; }`;
   document.head.appendChild(st);
-  await trjImagenesListas(raiz);
   document.body.classList.add("trj-imprimiendo");
   const fin = () => { document.body.classList.remove("trj-imprimiendo"); raiz.remove(); st.remove(); window.removeEventListener("afterprint", fin); };
   window.addEventListener("afterprint", fin);
   setTimeout(() => window.print(), 60);
 }
-// PDF (para el celular o para guardarlo): la misma tarjeta como imagen en hoja carta horizontal
+// PDF (para el celular o para guardarlo): cada hoja como imagen en carta
 let trjLibs = null;
 function trjCargarLibs() {
   const carga = src => new Promise((ok, mal) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => mal(new Error("No se pudo cargar el generador de PDF (¿sin internet?).")); document.head.appendChild(s); });
   if (!trjLibs) trjLibs = Promise.all([window.html2canvas ? 0 : carga("vendor/html2canvas.min.js"), window.jspdf ? 0 : carga("vendor/jspdf.umd.min.js")]).catch(e => { trjLibs = null; throw e; });
   return trjLibs;
 }
-async function trjPdf(prev, n, nombre) {
+async function trjPdf(htmls, orient, nombre) {
   await trjCargarLibs();
-  const caja = document.createElement("div");
-  caja.style.cssText = "position:fixed;left:-30000px;top:0;background:#fff";
-  caja.innerHTML = trjCopias(prev, 1);
-  document.body.appendChild(caja);
+  const caja = await trjArmar(htmls), hoja = orient === "landscape" ? { w: 279.4, h: 215.9 } : { w: 215.9, h: 279.4 };
   try {
-    await trjImagenesListas(caja);
-    const card = $(".trj", caja);
-    const lienzo = await window.html2canvas(card, { scale: 2.5, backgroundColor: "#ffffff", logging: false });
-    const img = lienzo.toDataURL("image/jpeg", 0.95);
-    const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: "landscape", compress: true });
-    const mx = (279.4 - TRJ_PAG.w) / 2, my = (215.9 - TRJ_PAG.h) / 2;
-    for (let k = 0; k < n; k++) { if (k) pdf.addPage(); pdf.addImage(img, "JPEG", mx, my, TRJ_PAG.w, TRJ_PAG.h); }
+    const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: orient, compress: true });
+    const hechas = {};   // las copias iguales se dibujan una sola vez
+    const cards = $$(".trj-hoja > *", caja);
+    for (let k = 0; k < cards.length; k++) {
+      const card = cards[k], w = parseFloat(card.dataset.w), hh = parseFloat(card.dataset.h), clave = htmls[k];
+      if (!hechas[clave]) {
+        const lienzo = await window.html2canvas(card, { scale: cards.length > 20 ? 2 : 2.5, backgroundColor: "#ffffff", logging: false });
+        hechas[clave] = lienzo.toDataURL("image/jpeg", 0.93);
+      }
+      if (k) pdf.addPage("letter", orient);
+      pdf.addImage(hechas[clave], "JPEG", (hoja.w - w) / 2, (hoja.h - hh) / 2, w, hh);
+    }
     pdf.save(nombre);
   } finally { caja.remove(); }
 }
+// Lista de hojas guardadas en este equipo (se vacía cuando el usuario quiera)
+function trjCola(el, o) {
+  const leer = () => ls.getJ(o.clave, []) || [];
+  const pintar = () => {
+    const cola = leer(), hojas = cola.reduce((n, x) => n + o.paginas(x).length, 0);
+    $("#" + o.id, el).innerHTML = `<div class="trj-cola-t"><b>GUARDADAS PARA IMPRIMIR</b> <span class="sec-n">${cola.length}</span>${cola.length ? ` <span class="small muted">${hojas} ${hojas === 1 ? "HOJA" : "HOJAS"}</span>` : ""}</div>
+      ${cola.length ? `<div class="trj-cola-l">${cola.map((x, k) => `<div class="trj-cola-i"><span class="trj-cola-n">${k + 1}</span><div class="trj-cola-d">${o.etiqueta(x)}</div><button type="button" class="btn sm icon del" data-qc="${k}" title="Quitar" aria-label="Quitar">${ICO_DEL}</button></div>`).join("")}</div>
+        <div class="trj-btns"><button type="button" class="btn primary" data-cola="pdf">GENERAR PDF</button><button type="button" class="btn" data-cola="imp">IMPRIMIR</button><button type="button" class="btn ghost" data-cola="vaciar">VACIAR LISTA</button></div>`
+        : `<div class="small muted">TODAVÍA NO HAS GUARDADO NINGUNA. LLENA LOS DATOS Y TOCA «GUARDAR».</div>`}`;
+  };
+  $("#" + o.id, el).onclick = async e => {
+    const q = e.target.closest("[data-qc]");
+    if (q) { const c = leer(); c.splice(+q.dataset.qc, 1); ls.setJ(o.clave, c); pintar(); return; }
+    const b = e.target.closest("[data-cola]"); if (!b) return;
+    const cola = leer(); if (!cola.length) return;
+    const htmls = cola.flatMap(o.paginas);
+    if (b.dataset.cola === "vaciar") { if (await confirmar("Vaciar lista", `¿Quitar las ${cola.length} guardadas?`, "Vaciar", true)) { ls.setJ(o.clave, []); pintar(); } return; }
+    if (b.dataset.cola === "imp") return trjImprimir(htmls, o.orient);
+    ocupado(b, true, "ARMANDO…");
+    try { await trjPdf(htmls, o.orient, `${o.nombre}_${trjHoy().replace(/-/g, "")}.pdf`); }
+    catch (er) { toast(er.message || "No se pudo armar el PDF.", "bad", 6000); }
+    ocupado(b, false);
+  };
+  pintar();
+  return { agregar: x => { const c = leer(); c.push(x); ls.setJ(o.clave, c); pintar(); }, pintar: pintar };
+}
+// La vista previa se ajusta al ancho de la pantalla
+function trjAlCambiarTamano(vista, fn) {
+  if (window.__trjRs) window.removeEventListener("resize", window.__trjRs);
+  window.__trjRs = () => { if (S.vista !== vista) { window.removeEventListener("resize", window.__trjRs); window.__trjRs = null; return; } fn(); };
+  window.addEventListener("resize", window.__trjRs);
+}
+
+// =====================================================================
+// TARJETAS ROJAS (producto bloqueado): carta horizontal, como el formato de Excel
+// «Por estiba»: la que va en cada estiba (1 pallet, sus cajas). «Bolsillo»: va al frente del producto con
+// el total de estibas bloqueadas (+ cajas sueltas).
+// =====================================================================
+const TRJ_COLS = [11.44, 19.66, 18.55, 25.44, 18.33, 11.44, 11.44, 31.55, 14.89, 14.55, 19.55, 11.44, 11.44, 30.89];
+const TRJ_TIPOS = {
+  TRANSPORTE: { b: "P. TRANSPORTE", titulo: "PRUEBA DE TRANSPORTE", altoT: 265.5, uni: false, lab: 40, centro: false, bloqueo: "HOY (DÍA EN QUE SE HACE LA TARJETA)" },
+  CUARENTENA: { b: "CUARENTENA", titulo: "INSPECCION / CUARENTENA / PRUEBA", altoT: 265.5, uni: false, lab: 40, centro: true, bloqueo: "IGUAL A LA FECHA DE ENVASADO" },
+  CALIDAD: { b: "CALIDAD", titulo: "PNC CALIDAD", altoT: 145.5, uni: true, lab: 36, centro: false, lote: "a. CODIGO DE LOTE (completo, legible)", desc: "b. SKU + DESCRIPCION DEL PRODUCTO", bloqueo: "HOY (DÍA EN QUE SE HACE LA TARJETA)" },
+  FRESCURA: { b: "FRESCURA", titulo: "PNC FRESCURA", altoT: 145.5, uni: true, lab: 36, centro: false, bloqueo: "VENCIMIENTO MENOS LOS DÍAS DE T2" }
+};
+function trjEstado() {
+  if (!S.trj) S.trj = { tipo: TRJ_TIPOS[ls.get("trjTipo", "")] ? ls.get("trjTipo", "") : "CALIDAD", modo: ls.get("trjModo", "estiba") === "bolsillo" ? "bolsillo" : "estiba",
+    sku: "", lote: "", sol: "CALIDAD", vence: "", env: "", bloq: "", pallets: "1", sueltas: "", cajas: "", uni: "", copias: "1", man: {} };
+  return S.trj;
+}
+// Lo que la tarjeta lleva: lo escrito a mano manda; lo vacío se calcula
+function trjCalcular(t) {
+  const c = trjCat(t.sku), T = TRJ_TIPOS[t.tipo];
+  const vida = c ? trjNum(c.vida) : null, cpe = c ? trjEnt(c.cantEst) : null, fac = c ? trjNum(c.fac) : null, t2 = trjT2(c);
+  const a = { c: c, vida: vida, cpe: cpe, fac: fac, t2: t2, ayuda: {}, falta: [] };
+  a.env = t.man.env ? t.env : (t.vence && vida ? trjMenos(t.vence, vida) : "");
+  a.ayuda.env = vida ? `VENCIMIENTO − ${fm(vida)} DÍAS DE VIDA ÚTIL` : "";
+  if (t.man.bloq) a.bloq = t.bloq;
+  else if (t.tipo === "FRESCURA") a.bloq = t.vence && t2 !== null ? trjMenos(t.vence, t2) : "";
+  else if (t.tipo === "CUARENTENA") a.bloq = a.env;
+  else a.bloq = trjHoy();
+  a.ayuda.bloq = t.tipo === "FRESCURA" ? (t2 !== null ? `VENCIMIENTO − ${fm(t2)} DÍAS DE T2` : "") : T.bloqueo;
+  const pal = trjEnt(t.pallets), sue = trjEnt(t.sueltas) || 0;
+  if (t.man.cajas) a.cajas = t.cajas;
+  else if (t.modo === "bolsillo") a.cajas = cpe ? String((pal || 0) * cpe + sue) : (sue ? String(sue) : "");
+  else a.cajas = cpe ? String(cpe) : "";
+  a.ayuda.cajas = !cpe ? "" : t.modo === "bolsillo" ? `${fm(pal || 0)} ESTIBAS × ${fm(cpe)} CAJAS${sue ? ` + ${fm(sue)} SUELTAS` : ""}` : `CAJAS POR ESTIBA (${fm(cpe)})`;
+  const caj = trjNum(a.cajas);
+  a.uni = !T.uni ? "" : t.man.uni ? t.uni : (caj !== null && fac ? String(Math.round(caj * fac)) : "");
+  a.ayuda.uni = fac && caj !== null ? `${fm(caj)} CAJAS × ${fm(fac)} UNIDADES POR CAJA` : "";
+  if (c) {
+    if (!vida) a.falta.push("VIDA ÚTIL");
+    if (!cpe) a.falta.push("CANT X ESTIBAS");
+    if (T.uni && !fac) a.falta.push("FACTOR CAJAS");
+    if (t.tipo === "FRESCURA" && t2 === null) a.falta.push("DÍAS DE T2");
+  }
+  return a;
+}
+// Lo que se imprime (se guarda así en la lista)
+const trjDatos = (t, a) => ({ tipo: t.tipo, lote: trjMay(t.lote), desc: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", sol: trjMay(t.sol), env: a.env, bloq: a.bloq, vence: t.vence, pallets: t.pallets, cajas: a.cajas, uni: a.uni, vida: a.vida });
+// HTML de una tarjeta roja (tamaño real, en mm)
+function trjHtml(d) {
+  const T = TRJ_TIPOS[d.tipo], tq = d.tipo === "CUARENTENA" || d.tipo === "TRANSPORTE", P = TRJ_PAG.H;
+  const filas = [67.5, 92.85, T.altoT, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 80.1, 46.5];
+  const tot = filas.reduce((x, y) => x + y, 0), k = (P.h - 0.5) / tot;   // mm por punto
+  const mm = pt => (pt * k).toFixed(2) + "mm";
+  const celda = (col, txt, pt, cls) => `<div class="trj-c ${cls || ""}" style="grid-column:${col};font-size:${mm(pt)}"><span class="fit">${txt}</span></div>`;
+  const lb = (col, txt, pt) => celda(col, h(txt), pt || T.lab, "lb" + (T.centro ? " ce" : ""));
+  const vl = (col, txt, pt) => celda(col, h(txt || ""), pt || 55, "vl");
+  const fila = (l, v) => lb("1 / 9", l) + vl("9 / 15", v);
+  return `<div class="trj" data-w="${P.w}" data-h="${P.h}" style="width:${P.w}mm;height:${P.h}mm;grid-template-columns:${TRJ_COLS.map(w => w + "fr").join(" ")};grid-template-rows:${filas.map(mm).join(" ")}">
+    <div class="trj-c trj-cab" style="grid-column:1 / 15;font-size:${mm(26)}"><span>MA-APP4-VPOQ-A5-101-TAG ID / v1.2 / 2021 05 16</span><img src="vendor/tarjeta-logo.png" alt=""></div>
+    ${celda("1 / 15", "PRODUCTO BLOQUEADO", 100, "tt ce")}${celda("1 / 15", h(T.titulo), 100, "tt ce")}
+    ${fila(T.lote || "a. CODIGO DE LOTE", d.lote)}${fila(T.desc || "b. DESCRIPCION DEL PRODUCTO", d.desc)}${fila("c. SOLICITANTE BLOQUEO", d.sol)}
+    ${fila("d. FECHA ENVASADO (ddmmaaaa)", trjDmy(d.env))}${fila("e. FECHA BLOQUEO (ddmmaaaa)", trjDmy(d.bloq))}${fila("f. FECHA VENCIMIENTO (ddmmaaaa)", trjDmy(d.vence))}
+    ${tq ? lb("1 / 5", "#TOTAL PALLETS", 36) + vl("5 / 9", trjN(d.pallets), 72) + lb("9 / 12", "#TOTAL CAJAS", 28) + vl("12 / 15", trjN(d.cajas), 72)
+      : lb("1 / 4", "#TOTAL PALLETS", 28) + vl("4 / 5", trjN(d.pallets), 48) + lb("5 / 8", "# TOTAL CAJAS", 28) + vl("8 / 9", trjN(d.cajas), 48) + lb("9 / 12", "# TOTAL UNIDADES", 28) + vl("12 / 15", trjN(d.uni), 72)}
+    ${lb("1 / 9", "CODIGO PRODUCTO (WMS/SAP)", 36) + vl("9 / 15", d.sku, 72)}
+    <div class="trj-c trj-pie" style="grid-column:1 / 15;font-size:${mm(30)}"><span>${d.vida ? `Vida útil: ${fm(d.vida)} días` : ""}</span></div>
+  </div>`;
+}
+
+VISTAS.tarjetas = async (el, p, vigente) => {
+  await cargarCat();
+  if (!vigente()) return;
+  const t = trjEstado(), c0 = trjCat(t.sku);
+  const CAMPOS = [
+    { id: "trjL", k: "lote", l: "CÓDIGO DE LOTE", user: true, extra: 'autocapitalize="characters"' },
+    { id: "trjV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
+    { id: "trjPa", k: "pallets", l: "TOTAL DE PALLETS", tipo: 'type="number" min="0" inputmode="numeric"', user: true },
+    { id: "trjSu", k: "sueltas", l: "CAJAS SUELTAS", tipo: 'type="number" min="0" inputmode="numeric"', user: true },
+    { id: "trjN", k: "copias", l: "COPIAS (UNA HOJA POR ESTIBA)", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
+    { id: "trjS", k: "sol", l: "SOLICITANTE DEL BLOQUEO", extra: 'autocapitalize="characters"' },
+    { id: "trjE", k: "env", l: "FECHA DE ENVASADO", tipo: 'type="date"', auto: true },
+    { id: "trjB", k: "bloq", l: "FECHA DE BLOQUEO", tipo: 'type="date"', auto: true },
+    { id: "trjC", k: "cajas", l: "TOTAL DE CAJAS", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
+    { id: "trjU", k: "uni", l: "TOTAL DE UNIDADES", tipo: 'type="number" min="0" inputmode="numeric"', auto: true }
+  ];
+  el.innerHTML = cab("TARJETAS ROJAS", "Producto bloqueado: escoge el tipo y el producto, escribe el lote y la fecha de vencimiento; lo demás sale de la hoja Sku. Los cuadros con color los llenas tú; los demás se calculan solos (si escribes en ellos queda lo tuyo; bórralo para volver al cálculo). Toca GUARDAR por cada tarjeta y al final GENERAR PDF con todas, en hoja carta horizontal.") +
+    `<div class="trj-wrap"><div class="card trj-form">
+      <div class="trj-st">TIPO DE TARJETA</div>
+      <div class="seg trj-seg" id="trjT">${Object.keys(TRJ_TIPOS).map(k => `<button data-tt="${k}">${TRJ_TIPOS[k].b}</button>`).join("")}</div>
+      <div class="trj-st">MODO</div>
+      <div class="seg trj-seg" id="trjM"><button data-tm="estiba">POR ESTIBA</button><button data-tm="bolsillo">BOLSILLO</button></div>
+      <div class="small muted trj-modoh" id="trjMH"></div>
+      <div class="trj-f trj-in">${campoAuto("trjP", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
+      <div class="trj-aviso" id="trjAv"></div>
+      <div class="trj-g">${CAMPOS.map(trjCampo).join("")}</div>
+      <div class="trj-btns"><button class="btn primary" id="trjOk">GUARDAR</button><button class="btn ghost" id="trjNue" title="Empezar otra tarjeta">LIMPIAR</button></div>
+      <div class="trj-cola" id="trjCola"></div>
+    </div><div class="trj-prev-w"><div class="trj-prev" id="trjPrev"></div></div></div>`;
+  let a = null, tPrev = 0;
+  const pagsDe = x => Array.from({ length: Math.max(1, Math.min(50, trjEnt(x.copias) || 1)) }, () => trjHtml(x.d));
+  const cola = trjCola(el, { id: "trjCola", clave: "trjCola", orient: "landscape", nombre: "Tarjetas_rojas", paginas: pagsDe,
+    etiqueta: x => `<b>${h(TRJ_TIPOS[x.d.tipo].titulo)}</b> · ${x.d.sku ? `${h(x.d.sku)} · ${h(x.d.desc)}` : "SIN PRODUCTO"}<br><span class="small muted">LOTE ${h(x.d.lote || "—")} · VENCE ${h(trjDmy(x.d.vence) || "—")} · ${h(x.modo === "bolsillo" ? "BOLSILLO" : "POR ESTIBA")}${(trjEnt(x.copias) || 1) > 1 ? ` · ${trjEnt(x.copias)} COPIAS` : ""}</span>` });
+  const previa = () => trjPrevia($("#trjPrev", el), trjHtml(trjDatos(t, a)));
+  const pintar = desde => {
+    a = trjCalcular(t);
+    const T = TRJ_TIPOS[t.tipo];
+    $$("#trjT [data-tt]", el).forEach(b => b.classList.toggle("on", b.dataset.tt === t.tipo));
+    $$("#trjM [data-tm]", el).forEach(b => b.classList.toggle("on", b.dataset.tm === t.modo));
+    $("#trjMH", el).textContent = t.modo === "bolsillo" ? "BOLSILLO: VA AL FRENTE DEL PRODUCTO. PON CUÁNTAS ESTIBAS ESTÁN BLOQUEADAS Y LAS CAJAS SUELTAS." : "POR ESTIBA: UNA TARJETA EN CADA ESTIBA (1 PALLET CON SUS CAJAS). SI SON VARIAS ESTIBAS, PON LAS COPIAS.";
+    $("#trjSuW", el).classList.toggle("hidden", t.modo !== "bolsillo");
+    $("#trjNW", el).classList.toggle("hidden", t.modo !== "estiba");
+    $("#trjUW", el).classList.toggle("hidden", !T.uni);
+    trjMostrar(el, CAMPOS, t, a, desde);
+    $("#trjAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LA VIDA ÚTIL Y LAS CAJAS.</div>`
+      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. ESCRÍBELO AQUÍ${puede("administrador") ? " O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
+    clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
+  };
+  $("#trjT", el).onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; ls.set("trjTipo", t.tipo); delete t.man.bloq; delete t.man.uni; pintar(); };
+  $("#trjM", el).onclick = e => { const b = e.target.closest("[data-tm]"); if (!b) return; t.modo = b.dataset.tm; ls.set("trjModo", t.modo); if (t.modo === "estiba") { t.pallets = "1"; t.sueltas = ""; } delete t.man.cajas; delete t.man.uni; pintar(); };
+  autoSku($("#trjP", el), c => { t.sku = c.sku; delete t.man.cajas; delete t.man.uni; pintar(); }, { max: 20 });
+  alLimpiar($("#trjP", el), () => { t.sku = ""; pintar(); });
+  trjEnlazar(el, CAMPOS, t, pintar);
+  $("#trjNue", el).onclick = () => { S.trj = null; const n = trjEstado(); n.tipo = t.tipo; n.modo = t.modo; ir("tarjetas"); };
+  // Guardar: queda en la lista y el formulario sigue con el mismo producto para la siguiente
+  $("#trjOk", el).onclick = () => {
+    if (!a.c) { toast("Escoge el producto.", "warn"); $("#trjP", el).focus(); return; }
+    if (!String(t.lote || "").trim() && !String(t.vence || "").trim()) { toast("Escribe el lote y la fecha de vencimiento.", "warn"); return; }
+    cola.agregar({ d: trjDatos(t, a), modo: t.modo, copias: t.modo === "estiba" ? (trjEnt(t.copias) || 1) : 1 });
+    toast("Tarjeta guardada", "ok", 2000);
+    t.lote = ""; t.vence = ""; t.copias = "1"; t.man = {}; if (t.modo === "bolsillo") { t.pallets = "1"; t.sueltas = ""; }
+    pintar(); $("#trjL", el).focus();
+  };
+  trjAlCambiarTamano("tarjetas", previa);
+  pintar();
+  try { if (document.fonts) document.fonts.ready.then(() => { if (S.vista === "tarjetas") previa(); }); } catch (e) {}
+};
+
+// =====================================================================
+// TARJETA DE MARCACIÓN (carta vertical): la usan los rótulos (una por estiba) y la marcación de bodega
+// (una por módulo, desde la sección Marcación bodegas)
+// =====================================================================
+function marcaHtml(d) {
+  const P = TRJ_PAG.V;
+  const caja = (cls, txt) => `<div class="mrc-box ${cls}"><span class="fit">${h(txt === null || txt === undefined ? "" : txt)}</span></div>`;
+  const k4 = (l, v) => `<div class="mrc-k"><div class="mrc-lab">${h(l)}</div>${caja("mrc-big", v)}</div>`;
+  const dim = (l, v) => `<div class="mrc-dk"><div class="mrc-lab">${h(l)}</div>${caja("mrc-dv", v)}</div>`;
+  const fe = (l, v) => `<div class="mrc-f"><div class="mrc-fl">${h(l)}</div>${caja("mrc-fv", trjDma(v))}</div>`;
+  return `<div class="mrc" data-w="${P.w}" data-h="${P.h}" style="width:${P.w}mm;height:${P.h}mm">
+    <div class="mrc-cab"><div class="mrc-cod"><div>06-003216</div><div>Actualización: 04</div><div>1/1/2025</div><div>Página 1 de 1</div></div>
+      <div class="mrc-tit"><div class="mrc-t1">TARJETA DE MARCACION</div><div class="mrc-t2">ITAGÜÍ</div></div>
+      <div class="mrc-logo"><img src="vendor/marcacion-logo.png" alt=""></div></div>
+    <div class="mrc-prod"><div><div class="mrc-lab azul">PRODUCTO</div>${caja("mrc-pn", d.prod)}</div><div><div class="mrc-lab">CÓDIGO SAP</div>${caja("mrc-sn", d.sku)}</div></div>
+    <div class="mrc-red"><div class="mrc-4">${k4(d.etq, d.val)}${k4("CAJAS POR ESTIBA", trjN(d.cpe))}${k4("ESTIBAS", trjN(d.est))}${k4("TOTAL CAJAS", trjN(d.total))}</div>
+      <div class="mrc-dim"><div class="mrc-diml">DIMENSIONES DEL LOTE:</div>${dim("ANCHO", trjN(d.ancho))}${dim("ALTO", trjN(d.alto))}${dim("LARGO", trjN(d.largo))}</div></div>
+    <div class="mrc-red"><div class="mrc-dma"><span></span><div><span>Día</span><span>Mes</span><span>Año</span></div></div>
+      ${fe("FECHA DE PRODUCCIÓN", d.fProd)}${fe("FECHA DE RECIBO", d.fRec)}${fe("FECHA LIMITE DE DESPACHO", d.fLim)}${fe("FECHA DE VENCIMIENTO", d.fVen)}</div>
+    <div class="mrc-firm"><div>Verificador</div><div></div><div>Rotador</div><div></div></div>
+    <div class="mrc-red mrc-venc"><span class="fit">${h(trjDma(d.fVen))}</span></div>
+  </div>`;
+}
+// Marcación de bodega: un módulo de la rotulación → su tarjeta
+// Ancho 2 · alto 8 · largo = caras del módulo (Capacidad de bodega)
+function marcaDeModulo(it) {
+  const c = trjCat(it.sku), cpe = c ? trjEnt(c.cantEst) : null, est = trjNum(it.est), vida = c ? trjNum(c.vida) : null, t2 = trjT2(c);
+  const ven = String(it.vence || "").slice(0, 10), fp = ven && vida ? trjMenos(ven, vida) : "";
+  const o = (S.ocup || {})[String(it.m || "").toUpperCase()];
+  return { prod: trjMay(it.prod || (c && c.prod)), sku: it.sku || "", etq: "MODULO", val: it.m || "", cpe: cpe, est: est, total: cpe && est !== null ? Math.round(cpe * est) : "",
+    ancho: 2, alto: 8, largo: o && o.caras ? o.caras : "", fProd: fp, fRec: fp, fLim: ven && t2 !== null ? trjMenos(ven, t2) : "", fVen: ven };
+}
+
+// =====================================================================
+// RÓTULOS: la tarjeta de marcación de cada estiba de un producto (dimensiones 1 × 1 × 1)
+// =====================================================================
+function rtuEstado() {
+  if (!S.rtu) S.rtu = { sku: "", vence: "", desde: "1", n: "1", est: "1", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
+  return S.rtu;
+}
+function rtuCalcular(t) {
+  const c = trjCat(t.sku), vida = c ? trjNum(c.vida) : null, cpe = c ? trjEnt(c.cantEst) : null, t2 = trjT2(c);
+  const a = { c: c, ayuda: {}, falta: [] };
+  a.cpe = t.man.cpe ? t.cpe : (cpe ? String(cpe) : "");
+  a.ayuda.cpe = cpe ? "CANT X ESTIBAS DE LA HOJA SKU" : "";
+  const cp = trjNum(a.cpe), est = trjNum(t.est);
+  a.total = t.man.total ? t.total : (cp !== null && est !== null ? String(Math.round(cp * est)) : "");
+  a.ayuda.total = cp !== null && est !== null ? `${fm(cp)} CAJAS × ${fm(est)} ESTIBAS` : "";
+  a.fp = t.man.fp ? t.fp : (t.vence && vida ? trjMenos(t.vence, vida) : "");
+  a.ayuda.fp = vida ? `VENCIMIENTO − ${fm(vida)} DÍAS DE VIDA ÚTIL` : "";
+  a.fr = t.man.fr ? t.fr : a.fp; a.ayuda.fr = "IGUAL A LA FECHA DE PRODUCCIÓN";
+  a.fl = t.man.fl ? t.fl : (t.vence && t2 !== null ? trjMenos(t.vence, t2) : "");
+  a.ayuda.fl = t2 !== null ? `VENCIMIENTO − ${fm(t2)} DÍAS DE T2` : "";
+  if (c) { if (!vida) a.falta.push("VIDA ÚTIL"); if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
+  return a;
+}
+const rtuDatos = (t, a, num) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: num, cpe: a.cpe, est: t.est, total: a.total, ancho: 1, alto: 1, largo: 1, fProd: a.fp, fRec: a.fr, fLim: a.fl, fVen: t.vence });
+VISTAS.rotulos = async (el, p, vigente) => {
+  await cargarCat();
+  if (!vigente()) return;
+  const t = rtuEstado(), c0 = trjCat(t.sku);
+  const CAMPOS = [
+    { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
+    { id: "rtD", k: "desde", l: "ESTIBA # (DESDE)", tipo: 'type="number" min="1" inputmode="numeric"', user: true },
+    { id: "rtN", k: "n", l: "CANTIDAD DE ESTIBAS (UN RÓTULO POR ESTIBA)", tipo: 'type="number" min="1" max="100" inputmode="numeric"', user: true },
+    { id: "rtE", k: "est", l: "ESTIBAS POR RÓTULO", tipo: 'type="number" min="0" inputmode="numeric"' },
+    { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
+    { id: "rtT", k: "total", l: "TOTAL CAJAS", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
+    { id: "rtP", k: "fp", l: "FECHA DE PRODUCCIÓN", tipo: 'type="date"', auto: true },
+    { id: "rtR", k: "fr", l: "FECHA DE RECIBO", tipo: 'type="date"', auto: true },
+    { id: "rtL", k: "fl", l: "FECHA LÍMITE DE DESPACHO", tipo: 'type="date"', auto: true }
+  ];
+  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento y cuántas estibas son; sale un rótulo por estiba, numerado. Los cuadros con color los llenas tú; los demás se calculan con la hoja Sku. Toca GUARDAR y al final GENERAR PDF con todos, en hoja carta vertical.") +
+    `<div class="trj-wrap trj-v"><div class="card trj-form">
+      <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
+      <div class="trj-aviso" id="rtAv"></div>
+      <div class="trj-g">${CAMPOS.map(trjCampo).join("")}</div>
+      <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div>
+      <div class="trj-btns"><button class="btn primary" id="rtOk">GUARDAR</button><button class="btn ghost" id="rtNue">LIMPIAR</button></div>
+      <div class="trj-cola" id="rtCola"></div>
+    </div><div class="trj-prev-w"><div class="trj-prev" id="rtPrev"></div></div></div>`;
+  let a = null, tPrev = 0;
+  const desdeDe = x => Math.max(1, trjEnt(x.desde) || 1), cuantos = x => Math.max(1, Math.min(100, trjEnt(x.n) || 1));
+  const cola = trjCola(el, { id: "rtCola", clave: "rtuCola", orient: "portrait", nombre: "Rotulos",
+    paginas: x => Array.from({ length: cuantos(x) }, (_, k) => marcaHtml(Object.assign({}, x.d, { val: desdeDe(x) + k }))),
+    etiqueta: x => { const d0 = desdeDe(x), n = cuantos(x); return `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">VENCE ${h(trjDmy(x.d.fVen) || "—")} · ${n === 1 ? `ESTIBA #${d0}` : `ESTIBAS #${d0} A #${d0 + n - 1} (${n} RÓTULOS)`}</span>`; } });
+  const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, Math.max(1, trjEnt(t.desde) || 1))));
+  const pintar = desde => {
+    a = rtuCalcular(t);
+    trjMostrar(el, CAMPOS, t, a, desde);
+    $("#rtAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LAS CAJAS POR ESTIBA Y LAS FECHAS.</div>`
+      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. ESCRÍBELO AQUÍ${puede("administrador") ? " O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
+    clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
+  };
+  autoSku($("#rtPr", el), c => { t.sku = c.sku; delete t.man.cpe; delete t.man.total; pintar(); }, { max: 20 });
+  alLimpiar($("#rtPr", el), () => { t.sku = ""; pintar(); });
+  trjEnlazar(el, CAMPOS, t, pintar);
+  $("#rtNue", el).onclick = () => { S.rtu = null; ir("rotulos"); };
+  $("#rtOk", el).onclick = () => {
+    if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
+    if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }
+    cola.agregar({ d: rtuDatos(t, a, 1), desde: t.desde, n: t.n });
+    toast("Rótulos guardados", "ok", 2000);
+    t.vence = ""; t.desde = "1"; t.n = "1"; t.man = {};
+    pintar();
+  };
+  trjAlCambiarTamano("rotulos", previa);
+  pintar();
+  try { if (document.fonts) document.fonts.ready.then(() => { if (S.vista === "rotulos") previa(); }); } catch (e) {}
+};
 
 VISTAS.repgen = async (el, p, vigente) => {
   const d = await api("webReportes");
@@ -4355,7 +4519,7 @@ VISTAS.rotular = async (el, p, vigente) => {
   if (p.id) return vistaRotulo(el, p.id, vigente);
   const lis = await api("webRotListar");
   if (!vigente()) return;
-  el.innerHTML = cab("🏷️ Rotular", "El turno de la noche rotula los módulos completos. Crea una rotulación con tu turno, agrega cada módulo (el sistema trae el producto, el vencimiento y las estibas, que puedes corregir) y marca cuando lo mandaste a imprimir y cuando ya quedó rotulado.",
+  el.innerHTML = cab("🗂️ Marcación bodegas", "El turno de la noche rotula los módulos completos. Crea una rotulación con tu turno, agrega cada módulo (el sistema trae el producto, el vencimiento y las estibas, que puedes corregir) y marca cuando lo mandaste a imprimir y cuando ya quedó rotulado. Al terminar, «PDF marcación» arma la tarjeta de marcación de cada módulo en hoja carta vertical, lista para imprimir.",
       `<button class="btn primary" data-a="nueva">＋ Nueva rotulación</button>`) +
     (lis.length ? `<div class="grid tarjetas">${lis.map(r => {
       const listo = r.n > 0 && r.rotulados === r.n;
@@ -4439,7 +4603,7 @@ async function vistaRotulo(el, id, vigente) {
     pintarForm();
   };
   el.innerHTML = `<div class="vh"><div><h1>🏷️ Rotulación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))}</h1><div class="sub">Abierta por <b>${h(rot.por)}</b></div></div>
-      <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button>${botonesPDF("ROTULACION", "PDF rotulación", rot.id)}${window.FRECS_WEB ? `<button class="btn sm ic-only" data-jpg="ROTULACION" data-id="${h(rot.id)}" title="Descargar foto" aria-label="Descargar foto de la rotulación"><span class="ic">🖼️</span></button>` : ""}<button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
+      <div class="tools"><button class="btn sm" data-volver>← Rotulaciones</button>${window.FRECS_WEB ? `<button class="btn sm primary" data-mrc="pdf" title="Tarjeta de marcación de cada módulo, carta vertical">PDF marcación</button><button class="btn sm" data-mrc="imp" title="Imprimir las tarjetas de marcación">Imprimir marcación</button>` : ""}${botonesPDF("ROTULACION", "PDF rotulación", rot.id)}${window.FRECS_WEB ? `<button class="btn sm ic-only" data-jpg="ROTULACION" data-id="${h(rot.id)}" title="Descargar foto" aria-label="Descargar foto de la rotulación"><span class="ic">🖼️</span></button>` : ""}<button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
     <section class="card rot-agregar"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div><div id="roN"></div></div>
       <div id="roF" class="hidden"></div></section>
     <section id="roL"></section>`;
@@ -4450,6 +4614,17 @@ async function vistaRotulo(el, id, vigente) {
   const guardar = async obj => { rot = await api("webRotItem", rot.id, obj); pintarLista(); };
   el.onclick = async e => {
     if (e.target.closest("[data-volver]")) return ir("rotular");
+    const mrc = e.target.closest("[data-mrc]");
+    if (mrc) {
+      if (!rot.items.length) { toast("Agrega primero los módulos.", "warn"); return; }
+      const htmls = rot.items.map(it => marcaHtml(marcaDeModulo(it)));
+      if (mrc.dataset.mrc === "imp") return trjImprimir(htmls, "portrait");
+      ocupado(mrc, true, "Armando…");
+      try { await trjPdf(htmls, "portrait", `Marcacion_T${rot.turno}_${String(rot.fecha || "").replace(/-/g, "")}.pdf`); }
+      catch (er) { toast(er.message || "No se pudo armar el PDF.", "bad", 6000); }
+      ocupado(mrc, false);
+      return;
+    }
     if (e.target.closest("[data-elim]")) {
       if (!(await confirmar("Quitar rotulación", `¿Quitar la rotulación del turno ${h(rot.turno)} del ${h(fechaDMY(rot.fecha))} con ${rot.items.length} módulos?`, "Quitar", true))) return;
       try { await api("webRotEliminar", rot.id); toast("Rotulación quitada", "ok"); ir("rotular"); } catch (er) { toast(er.message, "bad"); }

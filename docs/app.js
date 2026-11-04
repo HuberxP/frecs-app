@@ -4411,8 +4411,7 @@ VISTAS.rotulos = async (el, p, vigente) => {
   const t = rtuEstado(), c0 = trjCat(t.sku);
   const CAMPOS = [
     { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
-    { id: "rtD", k: "desde", l: "ESTIBA # (DESDE)", tipo: 'type="number" min="1" inputmode="numeric"', user: true },
-    { id: "rtN", k: "n", l: "CANTIDAD DE ESTIBAS (UN RÓTULO POR ESTIBA)", tipo: 'type="number" min="1" max="100" inputmode="numeric"', user: true },
+    { id: "rtD", k: "desde", l: "ESTIBA #", tipo: 'type="number" min="1" inputmode="numeric"', user: true },
     { id: "rtE", k: "est", l: "ESTIBAS POR RÓTULO", tipo: 'type="number" min="0" inputmode="numeric"' },
     { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
     { id: "rtT", k: "total", l: "TOTAL CAJAS", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
@@ -4420,20 +4419,15 @@ VISTAS.rotulos = async (el, p, vigente) => {
     { id: "rtR", k: "fr", l: "FECHA DE RECIBO", tipo: 'type="date"', auto: true },
     { id: "rtL", k: "fl", l: "FECHA LÍMITE DE DESPACHO", tipo: 'type="date"', auto: true }
   ];
-  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento y cuántas estibas son; sale un rótulo por estiba, numerado. Los cuadros con color los llenas tú; los demás se calculan con la hoja Sku. Toca GUARDAR y al final GENERAR PDF con todos, en hoja carta vertical.") +
+  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento y el número de estiba. Los cuadros con color los llenas tú; los demás se calculan con la hoja Sku. Toca IMPRIMIR y en la ventana de impresión escoges cuántas copias (hoja carta vertical).") +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>
       <div class="trj-g">${CAMPOS.map(trjCampo).join("")}</div>
       <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div>
-      <div class="trj-btns"><button class="btn primary" id="rtOk">GUARDAR</button><button class="btn ghost" id="rtNue">LIMPIAR</button></div>
-      <div class="trj-cola" id="rtCola"></div>
+      <div class="trj-btns"><button class="btn primary" id="rtOk">IMPRIMIR</button><button class="btn ghost" id="rtNue">LIMPIAR</button></div>
     </div><div class="trj-prev-w"><div class="trj-prev" id="rtPrev"></div></div></div>`;
   let a = null, tPrev = 0;
-  const desdeDe = x => Math.max(1, trjEnt(x.desde) || 1), cuantos = x => Math.max(1, Math.min(100, trjEnt(x.n) || 1));
-  const cola = trjCola(el, { id: "rtCola", clave: "rtuCola", orient: "portrait", nombre: "Rotulos",
-    paginas: x => Array.from({ length: cuantos(x) }, (_, k) => marcaHtml(Object.assign({}, x.d, { val: desdeDe(x) + k }))),
-    etiqueta: x => { const d0 = desdeDe(x), n = cuantos(x); return `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">VENCE ${h(trjDmy(x.d.fVen) || "—")} · ${n === 1 ? `ESTIBA #${d0}` : `ESTIBAS #${d0} A #${d0 + n - 1} (${n} RÓTULOS)`}</span>`; } });
   const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, Math.max(1, trjEnt(t.desde) || 1))));
   const pintar = desde => {
     a = rtuCalcular(t);
@@ -4446,13 +4440,11 @@ VISTAS.rotulos = async (el, p, vigente) => {
   alLimpiar($("#rtPr", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#rtNue", el).onclick = () => { S.rtu = null; ir("rotulos"); };
+  // Un solo rótulo: las copias se escogen en la ventana de impresión
   $("#rtOk", el).onclick = () => {
     if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
-    if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }
-    cola.agregar({ d: rtuDatos(t, a, 1), desde: t.desde, n: t.n });
-    toast("Rótulos guardados", "ok", 2000);
-    t.vence = ""; t.desde = "1"; t.n = "1"; t.man = {};
-    pintar();
+    if (!t.vence) toast("Ojo: no pusiste la fecha de vencimiento.", "warn", 3500);
+    trjImprimir([marcaHtml(rtuDatos(t, a, Math.max(1, trjEnt(t.desde) || 1)))], "portrait");
   };
   trjAlCambiarTamano("rotulos", previa);
   pintar();

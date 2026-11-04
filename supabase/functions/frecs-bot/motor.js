@@ -5950,7 +5950,7 @@ function inventarioPayload_() {
 function webInventario(tk) { return webAuth_(tk, L_, () => inventarioPayload_()); }
 
 function catalogoWeb_() {
-  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres), rev: c.rev || "", fac: c.fac }));
+  return catalogoSku_().map(c => ({ sku: c.sku, prod: c.prod, cub: c.cub, piso: c.piso, plancha: c.plancha, cantEst: c.cantEst, pres: c.pres, ctx: c.ctx, usuario: c.usuario, minimo: c.minimo, t1: c.t1, t2: c.t2, ka: c.ka, estCara: c.estCara, vida: c.vida, emp: c.emp, empE: c.emp || empaqueRegla_(c.prod, c.pres), rev: c.rev || "", fac: c.fac, t2E: diasMinimos_("T2", "", c.sku, c.prod) }));
 }
 function webCatalogo(tk) { return webAuth_(tk, L_, () => catalogoWeb_()); }
 function webCanales(tk) { return webAuth_(tk, L_, () => ({ reglas: canalesListar_(), defecto: POCOS_DEFECTO })); }

@@ -1554,6 +1554,43 @@
   .card.act-mod.vacio .btn.ac-okb { color: #1d2733; }
   .ac-modo { display: inline-flex; gap: 10px; align-items: center; margin: 0; }
   .fc-barr { padding: 6px 12px; }
+  /* 🟥 Tarjetas rojas: formulario + vista previa de la hoja carta horizontal */
+  .trj-wrap { display: grid; gap: 14px; }
+  @media (min-width: 1100px) { .trj-wrap { grid-template-columns: 370px minmax(0, 1fr); align-items: start; } }
+  .trj-form { display: flex; flex-direction: column; gap: 10px; }
+  .trj-seg { flex-wrap: wrap; }
+  .trj-seg button { flex: 1 1 auto; }
+  .trj-modoh { margin-top: -4px; }
+  .trj-g { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  .trj-g .field { min-width: 0; }
+  .trj-g .field input { width: 100%; min-width: 0; }
+  .trj-g .field.auto input { border-style: dashed; }
+  .trj-h { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.25; min-height: 1em; }
+  .trj-aviso .note { margin: 0; }
+  .trj-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .trj-btns .btn { flex: 1 1 auto; }
+  .trj-prev-w { min-width: 0; }
+  .trj-prev { position: relative; overflow: hidden; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.35); background: #fff; }
+  .trj { display: grid; box-sizing: border-box; border-top: .5mm solid #000; border-left: .5mm solid #000; background: #fff; color: #000;
+    font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif; transform-origin: 0 0; position: absolute; left: 0; top: 0; }
+  .trj-c { box-sizing: border-box; border-right: .5mm solid #000; border-bottom: .5mm solid #000; display: flex; align-items: center;
+    overflow: hidden; min-width: 0; min-height: 0; padding: 0 1.6mm; font-weight: 700; line-height: 1.05; }
+  .trj-c > span { display: block; width: 100%; overflow-wrap: normal; word-break: normal; }
+  .trj-c.vl, .trj-c.ce, .trj-c.tt { text-align: center; }
+  .trj-cab { justify-content: space-between; font-weight: 400; gap: 4mm; }
+  .trj-cab > span { width: auto; }
+  .trj-cab img { height: 80%; width: auto; }
+  .trj-pie { font-weight: 400; justify-content: flex-end; }
+  .trj-pie > span { text-align: right; }
+  #trjPrint { display: none; }
+  @media print {
+    body.trj-imprimiendo > *:not(#trjPrint) { display: none !important; }
+    body.trj-imprimiendo { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+    body.trj-imprimiendo #trjPrint { display: block; }
+    #trjPrint .trj { position: relative; transform: none !important; }
+    #trjPrint .trj-hoja { break-after: page; page-break-after: always; }
+    #trjPrint .trj-hoja:last-child { break-after: auto; page-break-after: auto; }
+  }
   /* Modo «Estoy actualizando»: lo que falta con un borde rojo que gira; lo revisado, verde */
   .card.act-mod.modo { border: 0; padding: 13px 15px; overflow: hidden; isolation: isolate; }
   .card.act-mod.modo::before { content: ""; position: absolute; inset: -60%; z-index: -2; background: conic-gradient(from 0deg, #ff3b3b, rgba(255,59,59,.05) 25%, #ff3b3b 50%, rgba(255,59,59,.05) 75%, #ff3b3b); animation: girarBorde 2.2s linear infinite; }

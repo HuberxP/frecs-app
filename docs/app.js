@@ -27,6 +27,8 @@ const NAV = [
     { id: "hval", ic: "🗂️", t: "Historial de validaciones" },
     { id: "hent", ic: "🗂️", t: "Historial de entregas" },
     { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" } ] },
+  { g: "Tarjetas", items: [
+    { id: "tarjetas", ic: "🟥", t: "Tarjetas rojas", web: true } ] },
   { g: "Operación", items: [
     { id: "actualizar", ic: "✍️", t: "Actualizar módulos", rol: "validador" },
     { id: "stock", ic: "📡", t: "Stock por SKU" },
@@ -46,7 +48,6 @@ const NAV = [
     { id: "fechas", ic: "⏳", t: "Fechas cortas" },
     { id: "bloqueados", ic: "❌", t: "Bloqueados" },
     { id: "candados", ic: "🔒", t: "Candados" },
-    { id: "tarjetas", ic: "🟥", t: "Tarjetas rojas", web: true },
     { id: "prioridades", ic: "🚨", t: "Prioridades" },
     { id: "tpc", ic: "🏷️", t: "Tapacódigos" },
     { id: "reempaque", ic: "📦", t: "Reempaques" },
@@ -108,7 +109,7 @@ const qty = (e, c, u, emp) => (Number(e) || 0) > 0
 const puede = rol => !!S.usuario && (ROLES[S.usuario.rol] || 0) >= (ROLES[rol] || 1);
 const puedeSincronizar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // Verificador: solo estas pantallas
-const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen", "tareas"]);
+const VERIF_VISTAS = new Set(["stock", "pocosvig", "producto", "modulo", "enconsumo", "repvacio", "repconflicto", "repgen", "tareas", "tarjetas"]);
 const ROLES_VERIF = new Set(["verificador", "opm"]);
 // El rol «validador» se muestra como «Rotador» (por dentro sigue siendo validador)
 const ROL_NOMBRE = { validador: "rotador" };

@@ -4375,7 +4375,11 @@ VISTAS.tarjetas = async (el, p, vigente) => {
   };
   $("#trjT", el).onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; ls.set("trjTipo", t.tipo); delete t.man.bloq; delete t.man.uni; pintar(); };
   $("#trjM", el).onclick = e => { const b = e.target.closest("[data-tm]"); if (!b) return; t.modo = b.dataset.tm; ls.set("trjModo", t.modo); if (t.modo === "estiba") { t.pallets = "1"; t.sueltas = ""; } delete t.man.cajas; delete t.man.uni; pintar(); };
-  autoSku($("#trjP", el), c => { t.sku = c.sku; delete t.man.cajas; delete t.man.uni; pintar(); }, { max: 20 });
+  // Otro producto: se borra lo escrito (lote, fechas, pallets, copias); quedan el tipo, el modo y el solicitante
+  autoSku($("#trjP", el), c => {
+    if (c.sku !== t.sku) Object.assign(t, { sku: c.sku, lote: "", vence: "", env: "", bloq: "", pallets: "1", sueltas: "", cajas: "", uni: "", copias: "1", man: {} });
+    pintar();
+  }, { max: 20 });
   alLimpiar($("#trjP", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#trjNue", el).onclick = () => { S.trj = null; const n = trjEstado(); n.tipo = t.tipo; n.modo = t.modo; ir("tarjetas"); };
@@ -4433,7 +4437,7 @@ function marcaDeModulo(it) {
 // RÓTULOS: la tarjeta de marcación de cada estiba de un producto (dimensiones 1 × 1 × 1)
 // =====================================================================
 function rtuEstado() {
-  if (!S.rtu) S.rtu = { sku: "", vence: "", desde: "1", copias: "1", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
+  if (!S.rtu) S.rtu = { sku: "", vence: "", copias: "1", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
   return S.rtu;
 }
 // Rótulo: 1 estiba; producción (= envasado) = vencimiento − vida útil; recibo = producción; límite = vencimiento − T2
@@ -4453,14 +4457,13 @@ function rtuCalcular(t) {
   if (c) { if (!vida) a.falta.push("VIDA ÚTIL"); if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
   return a;
 }
-const rtuDatos = (t, a) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: Math.max(1, trjEnt(t.desde) || 1), cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1, fProd: a.fp, fRec: a.fr, fLim: a.fl, fVen: t.vence });
+const rtuDatos = (t, a) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1, fProd: a.fp, fRec: a.fr, fLim: a.fl, fVen: t.vence });
 VISTAS.rotulos = async (el, p, vigente) => {
   await cargarCat();
   if (!vigente()) return;
   const t = rtuEstado(), c0 = trjCat(t.sku);
   const CAMPOS = [
     { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
-    { id: "rtD", k: "desde", l: "ESTIBA #", tipo: 'type="number" min="1" inputmode="numeric"', user: true },
     { id: "rtN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
     { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, reinicia: ["total"] },
     { id: "rtT", k: "total", l: "TOTAL CAJAS", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
@@ -4489,21 +4492,24 @@ VISTAS.rotulos = async (el, p, vigente) => {
       : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. ESCRÍBELO AQUÍ${puede("administrador") ? " O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
     clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
   };
-  autoSku($("#rtPr", el), c => { t.sku = c.sku; delete t.man.cpe; delete t.man.total; pintar(); }, { max: 20 });
+  autoSku($("#rtPr", el), c => {
+    if (c.sku !== t.sku) { S.rtu = null; Object.assign(t, rtuEstado(), { sku: c.sku, man: {} }); S.rtu = t; }
+    pintar();
+  }, { max: 20 });
   alLimpiar($("#rtPr", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#rtNue", el).onclick = () => { S.rtu = null; ir("rotulos"); };
   const listo = () => { if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return false; } if (!t.vence) toast("Ojo: no pusiste la fecha de vencimiento.", "warn", 3500); return true; };
   // Imprimir ya este rótulo (con sus copias)
   $("#rtImp", el).onclick = () => { if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait"); };
-  // Guardar en la lista del usuario; el formulario sigue con el mismo producto y la siguiente estiba
+  // Guardar en la lista del usuario (si después se escoge otro producto, el formulario empieza de nuevo)
   $("#rtOk", el).onclick = async () => {
     if (!listo()) return;
     const btn = $("#rtOk", el); ocupado(btn, true, "GUARDANDO…");
     try { await cola.agregar(rtuDatos(t, a), copias()); }
     catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); return; }
     ocupado(btn, false); toast("Rótulo guardado", "ok", 2000);
-    t.desde = String(Math.max(1, trjEnt(t.desde) || 1) + 1); t.copias = "1";
+    t.copias = "1";
     pintar();
   };
   trjAlCambiarTamano("rotulos", previa);

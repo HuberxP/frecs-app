@@ -4427,7 +4427,7 @@ function rtuEstado() {
   if (!S.rtu) S.rtu = { sku: "", vence: "", desde: "1", copias: "1", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
   return S.rtu;
 }
-// Rótulo: 1 estiba; producción = el día en que se genera; recibo = producción; límite = vencimiento − T2
+// Rótulo: 1 estiba; producción (= envasado) = vencimiento − vida útil; recibo = producción; límite = vencimiento − T2
 function rtuCalcular(t) {
   const c = trjCat(t.sku), vida = c ? trjNum(c.vida) : null, cpe = c ? trjEnt(c.cantEst) : null, t2 = trjT2(c);
   const a = { c: c, ayuda: {}, falta: [] };
@@ -4436,11 +4436,12 @@ function rtuCalcular(t) {
   const cp = trjNum(a.cpe);
   a.total = t.man.total ? t.total : (cp !== null ? String(Math.round(cp)) : "");
   a.ayuda.total = cp !== null ? `${fm(cp)} CAJAS × 1 ESTIBA` : "";
-  a.fp = t.man.fp ? t.fp : trjHoy(); a.ayuda.fp = "HOY (DÍA EN QUE SE GENERA)";
+  a.fp = t.man.fp ? t.fp : (t.vence && vida ? trjMenos(t.vence, vida) : "");
+  a.ayuda.fp = vida ? `VENCIMIENTO − ${fm(vida)} DÍAS DE VIDA ÚTIL` : "";
   a.fr = t.man.fr ? t.fr : a.fp; a.ayuda.fr = "IGUAL A LA FECHA DE PRODUCCIÓN";
   a.fl = t.man.fl ? t.fl : (t.vence && t2 !== null ? trjMenos(t.vence, t2) : "");
   a.ayuda.fl = t2 !== null ? `VENCIMIENTO − ${fm(t2)} DÍAS DE T2` : "";
-  if (c) { if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
+  if (c) { if (!vida) a.falta.push("VIDA ÚTIL"); if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
   return a;
 }
 const rtuDatos = (t, a) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: Math.max(1, trjEnt(t.desde) || 1), cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1, fProd: a.fp, fRec: a.fr, fLim: a.fl, fVen: t.vence });
@@ -4458,7 +4459,7 @@ VISTAS.rotulos = async (el, p, vigente) => {
     { id: "rtR", k: "fr", l: "FECHA DE RECIBO", tipo: 'type="date"', auto: true },
     { id: "rtL", k: "fl", l: "FECHA LÍMITE DE DESPACHO", tipo: 'type="date"', auto: true }
   ];
-  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento, el número de estiba y las copias. Los cuadros con color los llenas tú; los demás se calculan (la fecha de producción es el día en que se genera). IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).") +
+  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento, el número de estiba y las copias. Los cuadros con color los llenas tú; los demás se calculan (la fecha de producción es el vencimiento menos la vida útil). IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).") +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>

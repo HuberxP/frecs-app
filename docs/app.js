@@ -738,6 +738,7 @@ $("#userChip").onclick = () => {
     ${u.rol === "administrador" ? `<div id="pfSA"></div>` : ""}
     <div id="pfPN"></div>
     <label class="sw-fila"><span><b>🔊 Leer en voz alta</b><br><span class="small muted">Al consultar un producto o un módulo dice cuál es el módulo de consumo o de cuál debería salir</span></span><span class="sw"><input type="checkbox" id="pfV" ${typeof vozOn === "function" && vozOn() ? "checked" : ""} ${typeof vozDisponible === "function" && !vozDisponible() ? "disabled" : ""}><i></i></span></label>
+    <label class="sw-fila"><span><b>🔔 Avisos por voz</b><br><span class="small muted">En Stock por SKU, solo retornable y PET: avisa si su módulo de consumo tiene observación o una fecha larga tapando la corta (aunque la lectura en voz alta esté apagada)</span></span><span class="sw"><input type="checkbox" id="pfVA" ${typeof vozAvisoOn === "function" && vozAvisoOn() ? "checked" : ""} ${typeof vozDisponible === "function" && !vozDisponible() ? "disabled" : ""}><i></i></span></label>
     ${esVerif() ? "" : `<label class="sw-fila"><span><b>Sugerencias del WMS</b><br><span class="small muted">En validaciones: cuántas cajas tiene el WMS y el aviso cuando tiene menos</span></span><span class="sw"><input type="checkbox" id="pfW" ${verWms() ? "checked" : ""}><i></i></span></label>`}
     <details class="card" style="margin-top:14px"><summary>Cambiar mi PIN</summary>
       <label class="field"><span>PIN actual</span><input type="password" inputmode="numeric" id="cpA" maxlength="8"></label>
@@ -753,6 +754,14 @@ $("#userChip").onclick = () => {
     try { S.usuario.prefs = await api("webPref", "voz", v); ls.setJ("usuario", S.usuario); toast(v ? "🔊 Leerá en voz alta el módulo de consumo" : "Lectura en voz alta apagada", "ok", 3000); }
     catch (e) { sv.checked = !v; toast(e.message, "bad", 5000); }
     sv.disabled = false;
+  };
+  const sa = $("#pfVA", c);
+  if (sa) sa.onchange = async () => {
+    const v = sa.checked; sa.disabled = true;
+    if (v) hablar("Avisos por voz activados.", "", true);
+    try { S.usuario.prefs = await api("webPref", "vozAvisos", v); ls.setJ("usuario", S.usuario); toast(v ? "🔔 Avisará por voz las observaciones y fechas tapadas" : "Avisos por voz apagados", "ok", 3000); }
+    catch (e) { sa.checked = !v; toast(e.message, "bad", 5000); }
+    sa.disabled = false;
   };
   const sw = $("#pfW", c);
   if (sw) sw.onchange = async () => {
@@ -5432,6 +5441,9 @@ async function avisarAntesDeSincronizar() {
 // =====================================================================
 const vozDisponible = () => typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
 const vozOn = () => !!(S.usuario && S.usuario.prefs && S.usuario.prefs.voz === true) && vozDisponible();
+// Avisos por voz (encendidos por defecto): aunque la lectura completa esté apagada, en Stock por SKU se avisa
+// cuando el módulo de consumo de un retornable o PET tiene observación o una fecha larga tapando la corta
+const vozAvisoOn = () => !!S.usuario && !(S.usuario.prefs && S.usuario.prefs.vozAvisos === false) && vozDisponible();
 // Último toque o tecla: la voz solo sale por una acción de la persona (no por una actualización sola)
 S.ultToque = 0;
 ["pointerdown", "keydown"].forEach(ev => document.addEventListener(ev, () => { S.ultToque = Date.now(); }, true));
@@ -5480,11 +5492,11 @@ function vozElegir() {
 }
 if (vozDisponible()) speechSynthesis.onvoiceschanged = () => { vozVoz = null; vozElegir(); };
 // Dice el texto. clave: lo que se consultó (si la pantalla se repinta sola con lo mismo, no se repite)
-function hablar(texto, clave, forzar) {
+function hablar(texto, clave, forzar, aviso) {
   if (!texto || !vozDisponible()) return;
   S.vozTxt = texto;
   if (!forzar) {
-    if (!vozOn()) return;
+    if (!vozOn() && !(aviso && vozAvisoOn())) return;
     const reciente = Date.now() - S.ultToque < 4000;
     if (!reciente && clave === S.vozClave) return;
     if (!reciente && document.hidden) return;
@@ -5540,9 +5552,28 @@ function tapadoVoz(sku, m) {
 
 // Stock por SKU: el módulo de consumo marcado (quién lo marcó, para qué canal, dónde está y cuándo vence)
 // o, si no hay, el que debería ser según fefo; y lo que diga la observación del WMS
+// Aviso corto (lectura completa apagada): solo retornable o PET, y solo si su módulo de consumo
+// (el marcado o, si no hay, el primero en fefo) tiene observación o 2 fechas con la larga tapando la corta
+function avisoStock(sku, prod, canal) {
+  const fam = famDe(sku, prod);
+  if (fam !== "RETORNABLE" && fam !== "PET") return "";
+  const mk = [...new Set(marcasProd(sku).filter(x => (S.inv || []).some(i => i.s === x.sku && i.m === x.m && i.fis)).map(x => x.m))];
+  const p = mk.length ? null : primeroFefo(sku, canal);
+  const mods = mk.length ? mk : p ? [p.m] : [];
+  const partes = mods.map(m => {
+    const obs = obsVoz(sku, m), t = typeof tapadoDe === "function" ? tapadoDe(sku, m) : null;
+    const tap = t && (t.nivel === "probable" || t.nivel === "posible") ? tapadoVoz(sku, m) : "";
+    return obs || tap ? `${mk.length ? "Módulo de consumo" : "Según fefo, el de consumo es"} ${ubicVoz(m)}.${obs}${tap}` : "";
+  }).filter(Boolean);
+  return partes.length ? `${prodVoz(prod)}. ${partes.join(" ")}` : "";
+}
 function vozStock(sku, prod, filtro) {
-  if (!vozOn()) { S.vozTxt = ""; return; }
   const canal = CANALES[filtro] ? filtro : "";
+  if (!vozOn()) {
+    const av = vozAvisoOn() ? avisoStock(sku, prod, canal) : "";
+    if (av) hablar(av.replace(/\s+/g, " ").trim(), `aviso|${sku}|${filtro}`, false, true); else S.vozTxt = "";
+    return;
+  }
   const mk = marcasProd(sku).filter(x => (S.inv || []).some(i => i.s === x.sku && i.m === x.m && i.fis));
   let t = prodVoz(prod) + ". ";
   if (mk.length) {

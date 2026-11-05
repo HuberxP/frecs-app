@@ -2688,6 +2688,7 @@ function ejecutarEliminarLimbo(id) {
 // ---------------------------------------------------------
 // 1. POCOS: SKUs con menos estibas disponibles que su mínimo
 // (columna Minimo de Sku; vacío = POCOS_DEFECTO). Estibas = cajas ÷ cajas por estiba.
+// Solo cuenta lo que está en bodega, carpa y demás áreas: sin PREV / picking, sin KA y sin bloqueados.
 // ---------------------------------------------------------
 function calcularPocos() {
   const sk = leerSku_();
@@ -2700,10 +2701,10 @@ function calcularPocos() {
     if (i.prio) it.prio = true;
     it.totE += i.e; it.totC += i.c; it.totU += i.u;
     const eq = estibasEq(i);
-    it.eq += eq;
     if (i.cpe > 1) it.cpe = i.cpe;
-    if (esZonaKA_(i.m)) it.zonas.ka += i.c; else if (esZonaPK_(i)) it.zonas.pk += i.c; else it.zonas.bodega += eq;
-    it.locs.push(i);
+    if (esZonaKA_(i.m)) it.zonas.ka += i.c;
+    else if (esZonaPK_(i)) it.zonas.pk += i.c;
+    else { it.zonas.bodega += eq; it.eq += eq; it.locs.push(i); }
   });
   let lis = Object.keys(cat).map(k => cat[k]).filter(it => it.eq < it.minimo && (it.totE > 0 || it.totC > 0 || it.totU > 0));
   lis.sort((a, b) => (b.prio ? 1 : 0) - (a.prio ? 1 : 0) || (a.eq / (a.minimo || 1)) - (b.eq / (b.minimo || 1)));
@@ -5963,7 +5964,7 @@ function webPocos(tk) {
   return webAuth_(tk, L_, () => {
     const lis = calcularPocos();
     if (lis === null) throw new Error("Falta la pestaña 'Sku'.");
-    return lis.map(it => ({ s: it.s, p: it.p, minimo: it.minimo, eq: Math.round(it.eq * 10) / 10, totE: it.totE, totC: it.totC, totU: it.totU, prio: it.prio, zonas: it.zonas, locs: it.locs.map(l => ({ m: l.m, e: l.e, c: l.c, u: l.u, v: l.v, vf: formatearFecha(l.v), d: l.d, actTxt: formatoActualizacion(l.act), vida: vidaUtilInfo(l.d).clave })) }));
+    return lis.map(it => ({ s: it.s, p: it.p, fam: familiaDeSku_(it.s, it.p), minimo: it.minimo, eq: Math.round(it.eq * 10) / 10, totE: it.totE, totC: it.totC, totU: it.totU, prio: it.prio, zonas: it.zonas, locs: it.locs.map(l => ({ m: l.m, e: l.e, c: l.c, u: l.u, v: l.v, vf: formatearFecha(l.v), d: l.d, actTxt: formatoActualizacion(l.act), vida: vidaUtilInfo(l.d).clave })) }));
   });
 }
 

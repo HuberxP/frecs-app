@@ -1565,14 +1565,20 @@
   .trj-seg button { flex: 1 1 auto; }
   .trj-modoh { margin-top: -4px; }
   .trj-g { display: flex; flex-direction: column; gap: 10px; }
+  @media (min-width: 600px) and (max-width: 1099px) {
+    .trj-g { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; align-items: start; }
+    .trj-btns .btn { flex: 0 1 auto; min-width: 150px; }
+    .trj-prev-w { max-width: 760px; margin: 0 auto; width: 100%; }
+    .trj-v .trj-prev-w { max-width: 560px; }
+  }
   .trj-g .field { min-width: 0; margin: 0; }
   .trj-g .field input { width: 100%; min-width: 0; }
   .trj-f.hidden { display: none; }
   /* Lo que escribe el usuario: con color · lo automático: sin color */
-  .trj-in input, .trj-in .fecha-txt { background: rgba(250, 204, 21, .16) !important; border-color: rgba(250, 204, 21, .7) !important; color: var(--ink) !important; }
-  .trj-in input::placeholder { color: var(--muted); }
+  .trj-in input, .trj-in .fecha-txt { background: #eef1f5 !important; border-color: #c3ccd8 !important; color: #111827 !important; }
+  .trj-in input::placeholder { color: #6b7280; }
+  html[data-tema="claro"] .trj-in input, html[data-tema="claro"] .trj-in .fecha-txt { background: #eceff3 !important; border-color: #b8c2cf !important; }
   .trj-in .trj-h:empty { display: none; }
-  html[data-tema="claro"] .trj-in input, html[data-tema="claro"] .trj-in .fecha-txt { background: #fff3bf !important; border-color: #e0b100 !important; }
   .trj-au input, .trj-au .fecha-txt { background: transparent !important; }
   .trj-form .fecha-ico { font-size: 0; background: center / 18px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
   .trj-h { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.25; min-height: 1em; }
@@ -1584,13 +1590,21 @@
   .trj-cola-i { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; line-height: 1.3; }
   .trj-cola-n { font-weight: 800; color: var(--muted); min-width: 18px; text-align: center; }
   .trj-cola-d { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .trj-cola-c { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: var(--muted); }
+  .trj-cola-c input { width: 58px; text-align: center; padding: 4px 6px; min-height: 32px; background: #eef1f5; color: #111827; border: 1px solid #c3ccd8; border-radius: 8px; }
   .trj-prev-w { min-width: 0; }
   .trj-v .trj-prev-w { max-width: 620px; }
   .trj-prev { position: relative; overflow: hidden; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.35); background: #fff; }
   .trj-prev > .trj, .trj-prev > .mrc { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   /* Tarjeta roja (carta horizontal) */
+  /* Fuentes propias de las tarjetas (iguales en PC, celular y tablet): métricas de Calibri y de Arial */
+  @font-face { font-family: "Frecs Tarjeta"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/tarjeta-400.woff2") format("woff2"); }
+  @font-face { font-family: "Frecs Tarjeta"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/tarjeta-700.woff2") format("woff2"); }
+  @font-face { font-family: "Frecs Marcacion"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-400.woff2") format("woff2"); }
+  @font-face { font-family: "Frecs Marcacion"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-700.woff2") format("woff2"); }
+  .trj, .mrc, .trj-fuera { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; font-kerning: normal; letter-spacing: 0; word-spacing: 0; }
   .trj { display: grid; box-sizing: border-box; border-top: .5mm solid #000; border-left: .5mm solid #000; background: #fff; color: #000;
-    font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif; }
+    font-family: "Frecs Tarjeta", Calibri, Carlito, "Segoe UI", Arial, sans-serif; }
   .trj-c { box-sizing: border-box; border-right: .5mm solid #000; border-bottom: .5mm solid #000; display: flex; align-items: center;
     overflow: hidden; min-width: 0; min-height: 0; padding: 0 1.6mm; font-weight: 700; line-height: 1.05; }
   .trj-c > span { display: block; width: 100%; overflow-wrap: normal; word-break: normal; }
@@ -1601,13 +1615,13 @@
   .trj-pie { font-weight: 400; justify-content: flex-end; }
   .trj-pie > span { text-align: right; }
   /* Tarjeta de marcación (carta vertical): rótulos y marcación de bodega */
-  .mrc { box-sizing: border-box; background: #fff; color: #000; font-family: Arial, "Liberation Sans", Helvetica, sans-serif; border: .3mm solid #000;
-    padding: 3mm 4mm 4mm; display: flex; flex-direction: column; gap: 2.6mm; line-height: 1.05; }
+  .mrc { box-sizing: border-box; background: #fff; color: #000; font-family: "Frecs Marcacion", Arial, "Liberation Sans", Helvetica, sans-serif; border: .3mm solid #000; border-radius: 3mm;
+    padding: 3.5mm 4mm 4mm; display: flex; flex-direction: column; justify-content: space-between; line-height: 1.05; }
   .mrc .fit { display: block; width: 100%; text-align: center; overflow-wrap: normal; word-break: normal; }
-  .mrc-box { border: .6mm solid #000; display: flex; align-items: center; overflow: hidden; min-width: 0; padding: 0 1.5mm; box-sizing: border-box; }
+  .mrc-box { border: .6mm solid #000; border-radius: 2.6mm; display: flex; align-items: center; overflow: hidden; min-width: 0; padding: 0 1.8mm; box-sizing: border-box; }
   .mrc-lab { font-size: 3.4mm; font-weight: 700; text-align: center; margin-bottom: .8mm; white-space: nowrap; }
   .mrc-lab.azul { color: #1d3fcf; font-size: 4.2mm; }
-  .mrc-cab { display: grid; grid-template-columns: 34mm 1fr 52mm; height: 25mm; border: .3mm solid #000; flex: none; }
+  .mrc-cab { display: grid; grid-template-columns: 32mm 1fr 48mm; height: 23mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
   .mrc-cod { display: flex; flex-direction: column; border-right: .3mm solid #000; font-size: 2.5mm; }
   .mrc-cod > div { flex: 1; display: flex; align-items: center; padding: 0 1.2mm; border-bottom: .2mm solid #000; }
   .mrc-cod > div:last-child { border-bottom: 0; }
@@ -1616,25 +1630,25 @@
   .mrc-t2 { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 8.5mm; font-weight: 700; color: #e01b1b; }
   .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; }
   .mrc-logo img { max-width: 100%; max-height: 100%; }
-  .mrc-prod { display: grid; grid-template-columns: 1fr 44mm; gap: 3mm; flex: none; }
-  .mrc-pn { height: 15mm; font-size: 8.5mm; }
-  .mrc-sn { height: 15mm; font-size: 11mm; font-weight: 700; }
-  .mrc-red { border: .7mm solid #000; border-radius: 6mm; padding: 2.5mm 4mm 3mm; flex: none; }
+  .mrc-prod { display: grid; grid-template-columns: 1fr 42mm; gap: 3mm; flex: none; }
+  .mrc-pn { height: 14mm; font-size: 7.5mm; font-weight: 700; }
+  .mrc-sn { height: 14mm; font-size: 10mm; font-weight: 700; }
+  .mrc-red { border: .7mm solid #000; border-radius: 7mm; padding: 2.5mm 4mm 3mm; flex: none; }
   .mrc-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 2.5mm; }
-  .mrc-big { height: 29mm; font-size: 19mm; font-weight: 700; }
+  .mrc-big { height: 24mm; font-size: 14mm; font-weight: 700; }
   .mrc-dim { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.3fr; gap: 2.5mm; align-items: end; margin-top: 2.5mm; }
   .mrc-diml { font-size: 3mm; text-align: center; align-self: center; }
   .mrc-dv { height: 7.5mm; font-size: 5.5mm; font-weight: 700; }
-  .mrc-dma { display: grid; grid-template-columns: 62mm 1fr; font-size: 3.6mm; font-weight: 700; }
+  .mrc-dma { display: grid; grid-template-columns: 58mm 1fr; font-size: 3.4mm; font-weight: 700; }
   .mrc-dma > div { display: flex; justify-content: space-around; }
-  .mrc-f { display: grid; grid-template-columns: 62mm 1fr; align-items: center; margin-top: 2.6mm; }
+  .mrc-f { display: grid; grid-template-columns: 58mm 1fr; align-items: center; margin-top: 2.4mm; }
   .mrc-fl { font-size: 3.3mm; }
-  .mrc-fv { height: 11.5mm; font-size: 8.5mm; font-weight: 700; }
-  .mrc-firm { display: grid; grid-template-columns: 38mm 1fr; margin: 0 10mm; border: .3mm solid #000; flex: none; }
+  .mrc-fv { height: 10.5mm; font-size: 7.5mm; font-weight: 700; }
+  .mrc-firm { display: grid; grid-template-columns: 36mm 1fr; margin: 0 10mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
   .mrc-firm > div { height: 8mm; border-bottom: .3mm solid #000; display: flex; align-items: center; justify-content: center; font-size: 3.3mm; }
   .mrc-firm > div:nth-child(odd) { border-right: .3mm solid #000; }
   .mrc-firm > div:nth-last-child(-n+2) { border-bottom: 0; }
-  .mrc-venc { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; overflow: hidden; font-size: 36mm; font-weight: 700; padding: 0 4mm; }
+  .mrc-venc { flex: none; height: 38mm; margin: 0 8mm; display: flex; align-items: center; overflow: hidden; font-size: 24mm; font-weight: 700; padding: 0 4mm; }
   /* Hojas para imprimir o pasar a PDF: fuera de la pantalla hasta imprimir */
   .trj-fuera { position: fixed; left: -30000px; top: 0; background: #fff; }
   @media print {

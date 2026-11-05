@@ -557,6 +557,15 @@
         webTareaEditar: a => ["tarea_editar", { p_id: Number(a[1]), p_tipo: String(a[2] || ""), p_texto: String(a[3] || "") }],
         webTareaAnular: a => ["tarea_anular", { p_id: Number(a[1]) }]
       };
+      // Tarjetas guardadas para imprimir (por usuario): funciones de Supabase; cada una devuelve la lista fresca
+      const TRJC = {
+        webTrjCola: a => ["trj_cola_listar", { p_seccion: String(a[1] || "") }],
+        webTrjColaAgregar: a => ["trj_cola_agregar", { p_seccion: String(a[1] || ""), p_datos: a[2] || {}, p_copias: Number(a[3]) || 1 }],
+        webTrjColaCopias: a => ["trj_cola_copias", { p_id: Number(a[1]), p_copias: Number(a[2]) || 1 }],
+        webTrjColaQuitar: a => ["trj_cola_quitar", { p_id: Number(a[1]) }],
+        webTrjColaVaciar: a => ["trj_cola_vaciar", { p_seccion: String(a[1] || "") }]
+      };
+      if (TRJC[fn]) { const [f, p] = TRJC[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       if (TAREAS[fn]) { const [f, p] = TAREAS[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Secciones por rol (solo el administrador)
       if (fn === "webVistasRolGuardar") { const v = await rpc("vistas_rol_guardar", { p_token: args[0], p_cfg: args[1] || {} }); if (datos) { datos.vistas_rol = v; guardarLS(); } return ok(v); }

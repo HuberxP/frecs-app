@@ -4471,13 +4471,17 @@ VISTAS.rotulos = async (el, p, vigente) => {
     { id: "rtR", k: "fr", l: "FECHA DE RECIBO", tipo: 'type="date"', auto: true },
     { id: "rtL", k: "fl", l: "FECHA LÍMITE DE DESPACHO", tipo: 'type="date"', auto: true }
   ];
-  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento, el número de estiba y las copias. Los cuadros con color los llenas tú; los demás se calculan (la fecha de producción es el vencimiento menos la vida útil). IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).") +
+  // Visibles: producto, vencimiento y copias. Lo automático (cajas y fechas) va en «CAMBIAR DATOS AUTOMÁTICOS»
+  const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
+  el.innerHTML = cab("RÓTULOS", "La tarjeta de marcación de cada estiba: escoge el producto, la fecha de vencimiento y las copias. Las cajas y las fechas de producción, recibo y límite de despacho se calculan solas (producción = vencimiento menos la vida útil); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).") +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>
-      <div class="trj-g">${CAMPOS.map(trjCampo).join("")}</div>
-      <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div>
-      <div class="trj-btns"><button class="btn primary" id="rtOk">GUARDAR</button><button class="btn" id="rtImp">IMPRIMIR</button><button class="btn ghost" id="rtNue">LIMPIAR</button></div>
+      <div class="trj-g">${USUARIO.map(trjCampo).join("")}</div>
+      <button type="button" class="trj-mas-b" id="rtMasB" aria-expanded="false" aria-controls="rtMas"></button>
+      <div class="trj-mas hidden" id="rtMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div>
+        <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div></div>
+      <div class="trj-btns"><button class="btn trj-b-imp" id="rtImp">IMPRIMIR</button><button class="btn trj-b-gua" id="rtOk">GUARDAR</button><button class="btn trj-b-lim" id="rtNue">LIMPIAR</button></div>
       <div class="trj-cola" id="rtCola"></div>
     </div><div class="trj-prev-w"><div class="trj-prev" id="rtPrev"></div></div></div>`;
   let a = null, tPrev = 0;
@@ -4485,11 +4489,20 @@ VISTAS.rotulos = async (el, p, vigente) => {
   const cola = trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", pagina: x => marcaHtml(x.d),
     etiqueta: x => `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">ESTIBA #${h(x.d.val)} · VENCE ${h(trjDmy(x.d.fVen) || "—")}</span>` });
   const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a)));
+  const masAbierto = () => !!S.rtuMas;
+  const pintarMas = () => {
+    const n = AUTOS.filter(f => t.man[f.k]).length, ab = masAbierto();
+    $("#rtMas", el).classList.toggle("hidden", !ab);
+    const b = $("#rtMasB", el); b.setAttribute("aria-expanded", String(ab));
+    b.innerHTML = `<span>${ab ? "OCULTAR DATOS AUTOMÁTICOS" : "CAMBIAR DATOS AUTOMÁTICOS"}${n ? ` <b class="trj-mas-n">${n} ${n === 1 ? "CAMBIADO" : "CAMBIADOS"}</b>` : ""}</span><span class="trj-mas-f" aria-hidden="true">${ab ? "▴" : "▾"}</span>`;
+  };
+  $("#rtMasB", el).onclick = () => { S.rtuMas = !masAbierto(); pintarMas(); };
   const pintar = desde => {
     a = rtuCalcular(t);
     trjMostrar(el, CAMPOS, t, a, desde);
+    pintarMas();
     $("#rtAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LAS CAJAS POR ESTIBA Y LAS FECHAS.</div>`
-      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. ESCRÍBELO AQUÍ${puede("administrador") ? " O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
+      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. TOCA «CAMBIAR DATOS AUTOMÁTICOS» Y ESCRÍBELO AHÍ${puede("administrador") ? ", O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
     clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
   };
   autoSku($("#rtPr", el), c => {

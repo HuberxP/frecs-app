@@ -1,7 +1,7 @@
 // Frecs! · service worker (GENERADO: la versión la pone herramientas/construir.py)
 // Guarda la página para abrir rápido y sin conexión. Los datos NO se guardan aquí:
 // los maneja la página (última copia en este equipo).
-const VERSION = "frecs-72063185";
+const VERSION = "frecs-ff888118";
 const BASICOS = ["./", "index.html", "app.css", "app.js", "motor.js", "puente.js", "config.js", "manifest.webmanifest",
   "vendor/tarjeta-logo.png", "vendor/marcacion-logo.png", "vendor/fuentes/tarjeta-400.woff2", "vendor/fuentes/tarjeta-700.woff2", "vendor/fuentes/marcacion-400.woff2", "vendor/fuentes/marcacion-700.woff2", "iconos/icon-192.png", "iconos/icon-512.png", "iconos/icon-maskable-512.png", "iconos/apple-touch-icon.png"];
 

@@ -1591,6 +1591,22 @@
   .trj-form .ac-item .sku { color: #0b4f8a; }
   .trj-form .ac-item .pnom { color: #111827; }
   .trj-form .ac-item .sub { color: #4b5563; }
+  /* Rótulos: lo automático va plegado debajo de un botón */
+  .trj-mas-b { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 14px; border-radius: 10px;
+    border: 1.5px dashed var(--line2); background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 750; letter-spacing: .03em; cursor: pointer; text-align: left; }
+  .trj-mas-b:hover { border-color: var(--cyan); }
+  .trj-mas-b[aria-expanded="true"] { border-style: solid; border-color: var(--cyan); background: var(--cyan-soft); }
+  .trj-mas-f { font-size: 16px; line-height: 1; }
+  .trj-mas-n { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: 11px; }
+  .trj-mas { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .trj-mas.hidden { display: none; }
+  /* Botones de rótulos: imprimir verde, guardar azul, limpiar rojo claro */
+  .trj-btns .btn.trj-b-imp { background: #22c55e; border-color: #22c55e; color: #04210f; font-weight: 800; }
+  .trj-btns .btn.trj-b-imp:hover { filter: brightness(1.08); }
+  .trj-btns .btn.trj-b-gua { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 800; }
+  .trj-btns .btn.trj-b-gua:hover { filter: brightness(1.1); }
+  .trj-btns .btn.trj-b-lim { background: #fecaca; border-color: #fca5a5; color: #7f1d1d; font-weight: 800; }
+  .trj-btns .btn.trj-b-lim:hover { background: #fdb4b4; }
   .trj-h { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.25; min-height: 1em; }
   .trj-aviso .note { margin: 0; }
   .trj-btns { display: flex; gap: 8px; flex-wrap: wrap; }

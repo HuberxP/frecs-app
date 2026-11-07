@@ -4218,7 +4218,7 @@ function trjCola(el, o) {
       ${cola.length ? `<div class="trj-cola-l">${cola.map((x, k) => `<div class="trj-cola-i" data-cid="${h(x.id)}"><span class="trj-cola-n">${k + 1}</span><div class="trj-cola-d">${o.etiqueta(x)}</div>
           <label class="trj-cola-c" title="Copias en el PDF"><span>COPIAS</span><input type="number" min="1" max="50" inputmode="numeric" value="${h(x.copias)}" data-cc></label>
           <button type="button" class="btn sm icon del" data-qc title="Quitar" aria-label="Quitar">${ICO_DEL}</button></div>`).join("")}</div>
-        <div class="trj-btns"><button type="button" class="btn primary" data-cola="pdf">GENERAR PDF</button><button type="button" class="btn" data-cola="imp">IMPRIMIR</button><button type="button" class="btn ghost" data-cola="vaciar">VACIAR LISTA</button></div>`
+        <div class="trj-btns"><button type="button" class="btn trj-b-pdf" data-cola="pdf">GENERAR PDF</button><button type="button" class="btn trj-b-imp" data-cola="imp">IMPRIMIR</button><button type="button" class="btn ghost" data-cola="vaciar">VACIAR LISTA</button></div>`
         : `<div class="small muted">TODAVÍA NO HAS GUARDADO NINGUNA. LLENA LOS DATOS Y TOCA «GUARDAR».</div>`}`;
   };
   const poner = l => { cola = Array.isArray(l) ? l : []; S["cola" + o.seccion] = cola; if (document.body.contains($("#" + o.id, el))) pintar(); };
@@ -4249,6 +4249,18 @@ function trjCola(el, o) {
     agregar: async (datos, copias) => { poner(await api("webTrjColaAgregar", o.seccion, datos, Math.max(1, Math.min(50, trjEnt(copias) || 1)))); },
     pintar: pintar
   };
+}
+// Datos automáticos plegados debajo de un botón (naranja claro). El botón dice cuántos se cambiaron a mano.
+// clave: dónde se recuerda si está abierto (S[clave]); def: valor por defecto de los que no son «auto»
+function trjMas(el, idB, idP, autos, t, clave) {
+  const pintar = () => {
+    const n = autos.filter(f => f.auto ? t.man[f.k] : (f.def !== undefined && trjMay(t[f.k]) !== f.def)).length, ab = !!S[clave];
+    $("#" + idP, el).classList.toggle("hidden", !ab);
+    const b = $("#" + idB, el); b.setAttribute("aria-expanded", String(ab));
+    b.innerHTML = `<span>${ab ? "OCULTAR DATOS AUTOMÁTICOS" : "CAMBIAR DATOS AUTOMÁTICOS"}${n ? ` <b class="trj-mas-n">${n} ${n === 1 ? "CAMBIADO" : "CAMBIADOS"}</b>` : ""}</span><span class="trj-mas-f" aria-hidden="true">${ab ? "▴" : "▾"}</span>`;
+  };
+  $("#" + idB, el).onclick = () => { S[clave] = !S[clave]; pintar(); };
+  return pintar;
 }
 // La vista previa se ajusta al ancho de la pantalla
 function trjAlCambiarTamano(vista, fn) {
@@ -4337,32 +4349,49 @@ VISTAS.tarjetas = async (el, p, vigente) => {
     { id: "trjPa", k: "pallets", l: "TOTAL DE PALLETS", tipo: 'type="number" min="0" inputmode="numeric"', user: true, reinicia: ["cajas", "uni"] },
     { id: "trjSu", k: "sueltas", l: "CAJAS SUELTAS", tipo: 'type="number" min="0" inputmode="numeric"', user: true, reinicia: ["cajas", "uni"] },
     { id: "trjN", k: "copias", l: "COPIAS EN EL PDF", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
-    { id: "trjS", k: "sol", l: "SOLICITANTE DEL BLOQUEO", extra: 'autocapitalize="characters"' },
+    { id: "trjS", k: "sol", l: "SOLICITANTE DEL BLOQUEO", extra: 'autocapitalize="characters"', def: "CALIDAD" },
     { id: "trjE", k: "env", l: "FECHA DE ENVASADO", tipo: 'type="date"', auto: true },
     { id: "trjB", k: "bloq", l: "FECHA DE BLOQUEO", tipo: 'type="date"', auto: true },
     { id: "trjC", k: "cajas", l: "TOTAL DE CAJAS", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, reinicia: ["uni"] },
     { id: "trjU", k: "uni", l: "TOTAL DE UNIDADES", tipo: 'type="number" min="0" inputmode="numeric"', auto: true }
   ];
-  el.innerHTML = cab("TARJETAS ROJAS", "Producto bloqueado: escoge el tipo y el producto, escribe el lote y la fecha de vencimiento; lo demás sale de la hoja Sku. Los cuadros con color los llenas tú; los demás se calculan solos (si escribes en ellos queda lo tuyo; bórralo para volver al cálculo). Toca GUARDAR por cada tarjeta y al final GENERAR PDF con todas, en hoja carta horizontal.") +
+  // Visibles: lote, vencimiento, pallets (y sueltas en bolsillo) y copias. Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
+  const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
+  el.innerHTML = cab("TARJETAS ROJAS", "Producto bloqueado: escoge el producto, escribe el lote, la fecha de vencimiento, los pallets y las copias. El tipo de tarjeta y el modo se cambian arriba (toca el recuadro para abrirlo). El solicitante, las fechas de envasado y bloqueo, las cajas y las unidades se calculan solos; para cambiar alguno toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca esta tarjeta ya; GUARDAR la deja en tu lista para generar al final un solo PDF con todas (hoja carta horizontal).") +
     `<div class="trj-wrap"><div class="card trj-form">
-      <div class="trj-st">TIPO DE TARJETA</div>
-      <div class="seg trj-seg" id="trjT">${Object.keys(TRJ_TIPOS).map(k => `<button data-tt="${k}">${TRJ_TIPOS[k].b}</button>`).join("")}</div>
-      <div class="trj-st">MODO</div>
-      <div class="seg trj-seg" id="trjM"><button data-tm="estiba">POR ESTIBA</button><button data-tm="bolsillo">BOLSILLO</button></div>
-      <div class="small muted trj-modoh" id="trjMH"></div>
+      <button type="button" class="trj-sel-b" id="trjSelB" aria-expanded="false" aria-controls="trjSel"></button>
+      <div class="trj-sel hidden" id="trjSel">
+        <div class="trj-st">TIPO DE TARJETA</div>
+        <div class="seg trj-seg" id="trjT">${Object.keys(TRJ_TIPOS).map(k => `<button data-tt="${k}">${TRJ_TIPOS[k].b}</button>`).join("")}</div>
+        <div class="trj-st">MODO</div>
+        <div class="seg trj-seg" id="trjM"><button data-tm="estiba">POR ESTIBA</button><button data-tm="bolsillo">BOLSILLO</button></div>
+        <div class="small muted trj-modoh" id="trjMH"></div>
+      </div>
       <div class="trj-f trj-in">${campoAuto("trjP", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="trjAv"></div>
-      <div class="trj-g">${CAMPOS.map(trjCampo).join("")}</div>
-      <div class="trj-btns"><button class="btn primary" id="trjOk">GUARDAR</button><button class="btn ghost" id="trjNue" title="Empezar otra tarjeta">LIMPIAR</button></div>
+      <div class="trj-g">${USUARIO.map(trjCampo).join("")}</div>
+      <button type="button" class="trj-mas-b" id="trjMasB" aria-expanded="false" aria-controls="trjMas"></button>
+      <div class="trj-mas hidden" id="trjMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div></div>
+      <div class="trj-btns"><button class="btn trj-b-imp" id="trjImp">IMPRIMIR</button><button class="btn trj-b-gua" id="trjOk">GUARDAR</button><button class="btn trj-b-lim" id="trjNue" title="Empezar otra tarjeta">LIMPIAR</button></div>
       <div class="trj-cola" id="trjCola"></div>
     </div><div class="trj-prev-w"><div class="trj-prev" id="trjPrev"></div></div></div>`;
   let a = null, tPrev = 0;
   const cola = trjCola(el, { id: "trjCola", seccion: "ROJAS", orient: "landscape", nombre: "Tarjetas_rojas", pagina: x => trjHtml(x.d),
     etiqueta: x => `<b>${h((TRJ_TIPOS[x.d.tipo] || {}).titulo || x.d.tipo)}</b> · ${x.d.sku ? `${h(x.d.sku)} · ${h(x.d.desc)}` : "SIN PRODUCTO"}<br><span class="small muted">LOTE ${h(x.d.lote || "—")} · VENCE ${h(trjDmy(x.d.vence) || "—")} · ${h(x.d.modo === "bolsillo" ? "BOLSILLO" : "POR ESTIBA")} · ${h(trjN(x.d.pallets) || "0")} PALLETS · ${h(trjN(x.d.cajas) || "0")} CAJAS</span>` });
   const previa = () => trjPrevia($("#trjPrev", el), trjHtml(trjDatos(t, a)));
+  const pintarMas = trjMas(el, "trjMasB", "trjMas", AUTOS, t, "trjMasAb");
+  // Tipo y modo: recuadro plegable; cerrado muestra qué tipo y qué modo están escogidos
+  const pintarSel = () => {
+    const ab = !!S.trjSelAb, T = TRJ_TIPOS[t.tipo];
+    $("#trjSel", el).classList.toggle("hidden", !ab);
+    const b = $("#trjSelB", el); b.setAttribute("aria-expanded", String(ab));
+    b.innerHTML = `<span class="trj-sel-r"><span class="trj-sel-k">TIPO</span><b>${h(T.b)}</b></span><span class="trj-sel-r"><span class="trj-sel-k">MODO</span><b>${t.modo === "bolsillo" ? "BOLSILLO" : "POR ESTIBA"}</b></span><span class="trj-sel-c">${ab ? "LISTO ▴" : "CAMBIAR ▾"}</span>`;
+  };
+  $("#trjSelB", el).onclick = () => { S.trjSelAb = !S.trjSelAb; pintarSel(); };
   const pintar = desde => {
     a = trjCalcular(t);
     const T = TRJ_TIPOS[t.tipo];
+    pintarSel(); pintarMas();
     $$("#trjT [data-tt]", el).forEach(b => b.classList.toggle("on", b.dataset.tt === t.tipo));
     $$("#trjM [data-tm]", el).forEach(b => b.classList.toggle("on", b.dataset.tm === t.modo));
     $("#trjMH", el).textContent = t.modo === "bolsillo" ? "BOLSILLO: VA AL FRENTE DEL PRODUCTO. PON CUÁNTAS ESTIBAS ESTÁN BLOQUEADAS Y LAS CAJAS SUELTAS." : "POR ESTIBA: UNA TARJETA EN CADA ESTIBA. SI SON VARIAS ESTIBAS, PON LAS COPIAS.";
@@ -4370,7 +4399,7 @@ VISTAS.tarjetas = async (el, p, vigente) => {
     $("#trjUW", el).classList.toggle("hidden", !T.uni);
     trjMostrar(el, CAMPOS, t, a, desde);
     $("#trjAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LA VIDA ÚTIL Y LAS CAJAS.</div>`
-      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. ESCRÍBELO AQUÍ${puede("administrador") ? " O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
+      : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. TOCA «CAMBIAR DATOS AUTOMÁTICOS» Y ESCRÍBELO AHÍ${puede("administrador") ? ", O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
     clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
   };
   $("#trjT", el).onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; ls.set("trjTipo", t.tipo); delete t.man.bloq; delete t.man.uni; pintar(); };
@@ -4383,6 +4412,12 @@ VISTAS.tarjetas = async (el, p, vigente) => {
   alLimpiar($("#trjP", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#trjNue", el).onclick = () => { S.trj = null; const n = trjEstado(); n.tipo = t.tipo; n.modo = t.modo; ir("tarjetas"); };
+  // Imprimir ya esta tarjeta (con sus copias)
+  $("#trjImp", el).onclick = () => {
+    if (!a.c) { toast("Escoge el producto.", "warn"); $("#trjP", el).focus(); return; }
+    const pg = trjHtml(trjDatos(t, a));
+    trjImprimir(Array.from({ length: Math.max(1, Math.min(50, trjEnt(t.copias) || 1)) }, () => pg), "landscape");
+  };
   // Guardar: queda en la lista y el formulario sigue con el mismo producto para la siguiente
   $("#trjOk", el).onclick = async () => {
     if (!a.c) { toast("Escoge el producto.", "warn"); $("#trjP", el).focus(); return; }
@@ -4489,14 +4524,7 @@ VISTAS.rotulos = async (el, p, vigente) => {
   const cola = trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", pagina: x => marcaHtml(x.d),
     etiqueta: x => `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">ESTIBA #${h(x.d.val)} · VENCE ${h(trjDmy(x.d.fVen) || "—")}</span>` });
   const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a)));
-  const masAbierto = () => !!S.rtuMas;
-  const pintarMas = () => {
-    const n = AUTOS.filter(f => t.man[f.k]).length, ab = masAbierto();
-    $("#rtMas", el).classList.toggle("hidden", !ab);
-    const b = $("#rtMasB", el); b.setAttribute("aria-expanded", String(ab));
-    b.innerHTML = `<span>${ab ? "OCULTAR DATOS AUTOMÁTICOS" : "CAMBIAR DATOS AUTOMÁTICOS"}${n ? ` <b class="trj-mas-n">${n} ${n === 1 ? "CAMBIADO" : "CAMBIADOS"}</b>` : ""}</span><span class="trj-mas-f" aria-hidden="true">${ab ? "▴" : "▾"}</span>`;
-  };
-  $("#rtMasB", el).onclick = () => { S.rtuMas = !masAbierto(); pintarMas(); };
+  const pintarMas = trjMas(el, "rtMasB", "rtMas", AUTOS, t, "rtuMas");
   const pintar = desde => {
     a = rtuCalcular(t);
     trjMostrar(el, CAMPOS, t, a, desde);

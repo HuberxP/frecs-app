@@ -1593,11 +1593,22 @@
   .trj-form .ac-item .sub { color: #4b5563; }
   /* Rótulos: lo automático va plegado debajo de un botón */
   .trj-mas-b { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 14px; border-radius: 10px;
-    border: 1.5px dashed var(--line2); background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 750; letter-spacing: .03em; cursor: pointer; text-align: left; }
-  .trj-mas-b:hover { border-color: var(--cyan); }
-  .trj-mas-b[aria-expanded="true"] { border-style: solid; border-color: var(--cyan); background: var(--cyan-soft); }
+    border: 1.5px solid #fb923c; background: #fed7aa; color: #7c2d12; font: inherit; font-size: 13px; font-weight: 800; letter-spacing: .03em; cursor: pointer; text-align: left; }
+  .trj-mas-b:hover { background: #fdc795; }
+  .trj-mas-b[aria-expanded="true"] { background: #fdba74; border-color: #f97316; }
   .trj-mas-f { font-size: 16px; line-height: 1; }
-  .trj-mas-n { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: 11px; }
+  .trj-mas-n { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #fff7ed; color: #9a3412; border: 1px solid #fb923c; font-size: 11px; }
+  /* Tarjetas rojas: tipo y modo en un recuadro plegable que muestra lo escogido */
+  .trj-sel-b { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; width: 100%; min-height: 46px; padding: 8px 14px; border-radius: 12px; cursor: pointer; text-align: left;
+    border: 1.5px solid var(--line2); background: var(--card2); color: var(--ink); font: inherit; font-size: 13px; }
+  .trj-sel-b:hover, .trj-sel-b[aria-expanded="true"] { border-color: var(--cyan); }
+  .trj-sel-r { display: inline-flex; align-items: baseline; gap: 6px; }
+  .trj-sel-k { font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--muted); }
+  .trj-sel-r b { font-size: 14px; color: var(--brand); }
+  html[data-tema="claro"] .trj-sel-r b { color: #0f7a43; }
+  .trj-sel-c { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--cyan); }
+  .trj-sel { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .trj-sel.hidden { display: none; }
   .trj-mas { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
   .trj-mas.hidden { display: none; }
   /* Botones de rótulos: imprimir verde, guardar azul, limpiar rojo claro */
@@ -1607,11 +1618,13 @@
   .trj-btns .btn.trj-b-gua:hover { filter: brightness(1.1); }
   .trj-btns .btn.trj-b-lim { background: #fecaca; border-color: #fca5a5; color: #7f1d1d; font-weight: 800; }
   .trj-btns .btn.trj-b-lim:hover { background: #fdb4b4; }
+  .trj-btns .btn.trj-b-pdf { background: #facc15; border-color: #eab308; color: #3b2f00; font-weight: 800; }
+  .trj-btns .btn.trj-b-pdf:hover { filter: brightness(1.06); }
   .trj-h { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.25; min-height: 1em; }
   .trj-aviso .note { margin: 0; }
   .trj-btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .trj-btns .btn { flex: 1 1 auto; }
-  .trj-cola { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .trj-cola { margin-top: 12px; border-top: 2px solid var(--line2); padding-top: 18px; display: flex; flex-direction: column; gap: 8px; }
   .trj-cola-l { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
   .trj-cola-i { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; line-height: 1.3; }
   .trj-cola-n { font-weight: 800; color: var(--muted); min-width: 18px; text-align: center; }

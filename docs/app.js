@@ -4018,22 +4018,26 @@ function pintarTareas(el) {
   const tarjeta = x => {
     const [, ic, nom] = tareaTipo(x.tipo), pend = x.estado === "PENDIENTE";
     const puedeEd = pend && (x.por === yo || rot), puedeRe = !pend && (x.hechaPor === yo || rot);
-    return `<article class="card tar-card tar-${x.tipo.toLowerCase()} ${pend ? "pend" : "hecha"}" data-tar="${h(x.id)}">
-      <div class="row sb tar-top"><span class="pill tar-p">${ic} ${h(nom)}</span>${pend ? `<span class="pill warn">Pendiente</span>` : `<span class="pill ok">✓ Hecha</span>`}</div>
-      <div class="tar-txt">${h(x.texto)}</div>
-      <div class="tar-quien">Creada por <b>${h(x.por)}</b> · ${h(fechaBog(x.en))}${x.turno ? ` · T${h(x.turno)}` : ""}${x.editadaPor ? ` · <span class="muted">corregida por ${h(x.editadaPor)}</span>` : ""}</div>
-      ${pend ? "" : `<div class="tar-hecha">✅ Hecha por <b>${h(x.hechaPor)}</b> · ${h(fechaBog(x.hechaEn))}${x.nota ? `<div class="tar-nota">📝 ${h(x.nota)}</div>` : ""}</div>`}
-      <div class="tar-acc">${puedeEd ? `<button class="btn sm icon del" data-tan="${h(x.id)}" title="Quitar la tarea" aria-label="Quitar la tarea">${ICO_DEL}</button><button class="btn sm" data-ted="${h(x.id)}">✎ Corregir</button>` : ""}${pend ? `<button class="btn sm b-verde" data-tok="${h(x.id)}">✔ Marcar hecha</button>` : ""}${puedeRe ? `<button class="btn sm" data-tre="${h(x.id)}">↩ Reabrir</button>` : ""}</div>
+    // Fila compacta: ícono de la clasificación, el texto (toca para verlo completo), quién y cuándo, y los botones a la derecha
+    return `<article class="tar-card tar-row tar-${x.tipo.toLowerCase()} ${pend ? "pend" : "hecha"}" data-tar="${h(x.id)}">
+      <span class="tar-ic" title="${h(nom)}" aria-label="${h(nom)}">${ic}</span>
+      <div class="tar-b">
+        <div class="tar-txt" data-tx title="Toca para ver todo">${h(x.texto)}</div>
+        <div class="tar-quien"><b>${h(x.por)}</b> · ${h(fechaBog(x.en))}${x.turno ? ` · T${h(x.turno)}` : ""}${x.editadaPor ? ` · corregida por ${h(x.editadaPor)}` : ""}</div>
+        ${pend ? "" : `<div class="tar-hecha">✓ Hecha por <b>${h(x.hechaPor)}</b> · ${h(fechaBog(x.hechaEn))}${x.nota ? `<span class="tar-nota"> · 📝 ${h(x.nota)}</span>` : ""}</div>`}
+      </div>
+      <div class="tar-acc">${puedeEd ? `<button class="btn sm icon del" data-tan="${h(x.id)}" title="Quitar la tarea" aria-label="Quitar la tarea">${ICO_DEL}</button><button class="btn sm icon" data-ted="${h(x.id)}" title="Corregir" aria-label="Corregir la tarea">✎</button>` : ""}${pend ? `<button class="btn sm b-verde tar-ok" data-tok="${h(x.id)}" title="Marcar hecha" aria-label="Marcar hecha">✔<span> Hecha</span></button>` : ""}${puedeRe ? `<button class="btn sm icon" data-tre="${h(x.id)}" title="Reabrir" aria-label="Reabrir la tarea">↩</button>` : ""}</div>
     </article>`;
   };
   el.innerHTML = cab("✅ Tareas", "Lo que queda por hacer en bodega, para cualquier turno. Toca ＋ para crear una (FEFO, Bloqueos u Otros). Quien la haga la marca como hecha y puede dejar una nota. Quien la creó o un rotador la puede corregir o quitar; quien la hizo o un rotador la puede reabrir. Se ven las pendientes y las hechas de los últimos 60 días.") +
-    `<div class="seg seg-sm tar-est" id="tarE"><button data-te="PEND" class="${estado === "PEND" ? "on" : ""}">⏳ Pendientes <span class="sec-n">${nP}</span></button><button data-te="HECHA" class="${estado === "HECHA" ? "on" : ""}">✅ Terminadas <span class="sec-n">${nH}</span></button></div>
-    <div class="seg seg-sm tar-tipos" id="tarT"><button data-tt="" class="${!tipo ? "on" : ""}">Todas</button>${TAREA_TIPOS.map(([k, ic, t]) => `<button data-tt="${k}" class="${tipo === k ? "on" : ""}">${ic} ${t} <span class="sec-n">${nTipo(k)}</span></button>`).join("")}</div>
-    <div id="tarL">${vis.length ? `<div class="grid tarjetas">${vis.map(tarjeta).join("")}</div>` : vacio(estado === "PEND" ? (tipo ? `No hay tareas pendientes de ${tareaTipo(tipo)[2]}.` : "No hay tareas pendientes.") : "No hay tareas terminadas en los últimos 60 días.", estado === "PEND" ? "🎉" : "📭")}</div>
+    `<div class="tar-fil"><div class="seg seg-sm tar-est" id="tarE"><button data-te="PEND" class="${estado === "PEND" ? "on" : ""}">⏳ Pendientes <span class="sec-n">${nP}</span></button><button data-te="HECHA" class="${estado === "HECHA" ? "on" : ""}">✅ Terminadas <span class="sec-n">${nH}</span></button></div>
+    <div class="seg seg-sm tar-tipos" id="tarT"><button data-tt="" class="${!tipo ? "on" : ""}">Todas</button>${TAREA_TIPOS.map(([k, ic, t]) => `<button data-tt="${k}" class="${tipo === k ? "on" : ""}">${ic} ${t} <span class="sec-n">${nTipo(k)}</span></button>`).join("")}</div></div>
+    <div id="tarL">${vis.length ? `<div class="tar-lista">${vis.map(tarjeta).join("")}</div>` : vacio(estado === "PEND" ? (tipo ? `No hay tareas pendientes de ${tareaTipo(tipo)[2]}.` : "No hay tareas pendientes.") : "No hay tareas terminadas en los últimos 60 días.", estado === "PEND" ? "🎉" : "📭")}</div>
     ${fab("tarnueva", "Nueva tarea")}`;
   el.onclick = e => onTareasClick(e);
 }
 async function onTareasClick(e) {
+  const tx0 = e.target.closest("[data-tx]"); if (tx0) { tx0.classList.toggle("abierto"); return; }
   const te = e.target.closest("[data-te]"); if (te) { ls.set("tarEstado", te.dataset.te); pintarTareas(); return; }
   const tt = e.target.closest("[data-tt]"); if (tt) { ls.set("tarTipo", tt.dataset.tt); pintarTareas(); return; }
   if (e.target.closest('[data-a="tarnueva"]')) { modalTarea(null); return; }

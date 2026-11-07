@@ -1892,7 +1892,7 @@
   .ft-prev .err, .ft-prev .loader { background: var(--card); }
 
   /* ---------- ✅ Tareas ---------- */
-  .tar-est, .tar-tipos { margin: 0 0 10px; flex-wrap: wrap; }
+  .tar-est, .tar-tipos { margin: 0; }
   .tar-card { border-left: 6px solid var(--line2); display: flex; flex-direction: column; gap: 6px; }
   .tar-card.tar-fefo { border-left-color: #38bdf8; } .tar-card.tar-bloqueos { border-left-color: var(--bad); } .tar-card.tar-otros { border-left-color: #a78bfa; }
   .tar-card.hecha { opacity: .92; }
@@ -1907,9 +1907,6 @@
   .tar-acc:empty { display: none; }
   .tar-sel { flex-wrap: wrap; } .tar-sel button { flex: 1 1 30%; min-height: 42px; font-weight: 800; }
   .tar-mt { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; margin: 6px 0 10px; }
-</style>
-
-<style>
   /* Marcación de bodega: volver (flecha amarilla), Generar PDF (azul), Imprimir (verde), lo demás alineado */
   .tools.mrc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .tools.mrc-tools > .btn { min-height: 36px; margin: 0; }
@@ -1919,7 +1916,49 @@
   .btn.mrc-imp { background: #22c55e; border-color: transparent; color: #04210f; font-weight: 800; }
   .btn.mrc-gen:hover, .btn.mrc-imp:hover { filter: brightness(1.08); }
   .rot-ok { color: var(--brand); }
-  html[data-tema="claro"] .rot-ok { color: #0f7a43; }/* ============ Versión web (Supabase) ============ */
+  html[data-tema="claro"] .rot-ok { color: #0f7a43; }
+  /* Tareas: filtros en una sola fila (se desliza si no caben) y lista compacta */
+  .tar-fil { display: flex; gap: 8px; align-items: center; overflow-x: auto; margin: 0 0 10px; padding-bottom: 2px; scrollbar-width: none; }
+  .tar-fil::-webkit-scrollbar { display: none; }
+  .tar-fil .seg { flex: none; flex-wrap: nowrap; margin: 0; }
+  .tar-fil .seg button { white-space: nowrap; }
+  @media (max-width: 640px) {   /* celular: estado y clasificación, cada uno en una fila de botones iguales */
+    .tar-fil { flex-direction: column; align-items: stretch; overflow: visible; gap: 6px; }
+    .tar-fil .seg { display: flex; width: 100%; }
+    .tar-fil .seg button { flex: 1 1 0; min-width: 0; padding: 0 4px; }
+  }
+  .tar-lista { display: flex; flex-direction: column; gap: 6px; }
+  .tar-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line2); border-radius: 10px; }
+  .tar-row.tar-fefo { border-left-color: #38bdf8; } .tar-row.tar-bloqueos { border-left-color: var(--bad); } .tar-row.tar-otros { border-left-color: #a78bfa; }
+  .tar-row.hecha { opacity: .85; }
+  .tar-ic { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--card2); font-size: 15px; }
+  .tar-b { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .tar-row .tar-txt { font-size: 14px; font-weight: 650; line-height: 1.3; cursor: pointer;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tar-row .tar-txt.abierto { display: block; -webkit-line-clamp: unset; }
+  .tar-row .tar-quien { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tar-row .tar-quien b { color: var(--ink); font-weight: 700; }
+  .tar-row .tar-hecha { font-size: 11.5px; padding: 0; background: none; color: var(--ok); }
+  .tar-row .tar-hecha b { color: var(--ink); }
+  .tar-row .tar-nota { margin: 0; color: var(--muted); white-space: normal; }
+  .tar-row .tar-acc { flex-wrap: nowrap; gap: 4px; align-items: center; }
+  .tar-row .tar-acc .btn.sm { min-height: 32px; }
+  .tar-row .tar-acc .btn.icon { width: 32px; padding: 0; justify-content: center; }
+  .tar-row .tar-ok { padding: 0 10px; white-space: nowrap; }
+  @media (max-width: 520px) {
+    .tar-row { gap: 8px; padding: 7px 8px; }
+    .tar-ic { width: 26px; height: 26px; font-size: 13px; }
+    .tar-row .tar-ok { width: 34px; padding: 0; justify-content: center; }
+    .tar-row .tar-ok span { display: none; }
+  }
+  /* Tarjetas rojas · tipo y modo: lo escogido en morado suave, «Cambiar» en azul; los botones con borde negro */
+  .trj-sel-r b { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #ddd6fe; color: #4c1d95; border: 1.5px solid #000; }
+  .trj-sel-c { padding: 6px 12px; border-radius: 8px; background: #2563eb; color: #fff; }
+  .trj-sel .trj-seg { background: transparent; border: 0; padding: 0; gap: 6px; }
+  .trj-sel .trj-seg button { background: #fff; color: #1f2937; border: 1.5px solid #000; font-weight: 800; min-height: 40px; }
+  .trj-sel .trj-seg button:hover { background: #f5f3ff; }
+  .trj-sel .trj-seg button.on { background: #c4b5fd; color: #3b0764; border-color: #000; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

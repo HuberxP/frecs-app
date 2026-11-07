@@ -1669,6 +1669,7 @@
   @font-face { font-family: "Frecs Tarjeta"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/tarjeta-700.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Marcacion"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-400.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Marcacion"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-700.woff2") format("woff2"); }
+  @font-face { font-family: "Patrick Hand"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/patrick-hand-400.woff2") format("woff2"); }
   @font-face { font-family: "Fira Code"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/fira-code-700.woff2") format("woff2"); }
   .trj, .mrc, .trj-fuera { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; font-kerning: normal; letter-spacing: 0; word-spacing: 0; }
   .trj { display: grid; box-sizing: border-box; border-top: .5mm solid #000; border-left: .5mm solid #000; background: #fff; color: #000;
@@ -1689,14 +1690,14 @@
   .mrc-box { border: .6mm solid #000; border-radius: 2.6mm; display: flex; align-items: center; overflow: hidden; min-width: 0; padding: 0 1.8mm; box-sizing: border-box; }
   .mrc-lab { font-size: 3.4mm; font-weight: 700; text-align: center; margin-bottom: .8mm; white-space: nowrap; }
   .mrc-lab.azul { color: #1d3fcf; font-size: 4.2mm; }
-  .mrc-cab { display: grid; grid-template-columns: 32mm 1fr; height: 23mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
+  .mrc-cab { display: grid; grid-template-columns: 32mm 1fr 48mm; height: 23mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
   .mrc-cod { display: flex; flex-direction: column; border-right: .3mm solid #000; font-size: 2.5mm; }
   .mrc-cod > div { flex: 1; display: flex; align-items: center; padding: 0 1.2mm; border-bottom: .2mm solid #000; }
   .mrc-cod > div:last-child { border-bottom: 0; }
   .mrc-tit { display: flex; flex-direction: column; text-align: center; }
   .mrc-t1 { font-size: 4mm; font-weight: 700; border-bottom: .3mm solid #000; padding: .8mm 0; }
   .mrc-t2 { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 8.5mm; font-weight: 700; color: #e01b1b; }
-  .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; }
+  .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; border-left: .3mm solid #000; }
   .mrc-logo img { max-width: 100%; max-height: 100%; }
   .mrc-prod { display: grid; grid-template-columns: 1fr 42mm; gap: 3mm; flex: none; }
   /* Nombre del producto en Bernard MT Condensed (si el equipo la tiene instalada; si no, una condensada parecida) */
@@ -1722,14 +1723,15 @@
   /* Hojas para imprimir o pasar a PDF: fuera de la pantalla hasta imprimir */
   .trj-fuera { position: fixed; left: -30000px; top: 0; background: #fff; }
   /* Cada hoja es la carta completa (se imprime sin margen: el navegador no pone su enlace): la tarjeta centrada,
-     «Frecs!» arriba a la izquierda y «Aexx» abajo a la derecha, fuera de la tarjeta */
+     «𝐹𝓇𝑒𝒸𝓈! ツ» arriba a la izquierda y «HuberHxH» abajo a la derecha, fuera de la tarjeta */
   .trj-hoja { position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; background: #fff; }
   .trj-hoja.pag-h { width: 279.4mm; height: 215.4mm; }
   .trj-hoja.pag-v { width: 215.9mm; height: 278.9mm; }
   .trj-hoja > .trj, .trj-hoja > .mrc { position: relative; flex: none; }
-  .trj-mk { position: absolute; font: 700 3.2mm/1 "Frecs Marcacion", Arial, sans-serif; color: #5a5a5a; letter-spacing: .02em; }
-  .trj-mk-f { left: 5mm; top: 3mm; }
-  .trj-mk-a { right: 5mm; bottom: 2.6mm; }
+  .trj-mk { position: absolute; line-height: 1; white-space: nowrap; }
+  .trj-mk-f { left: 5mm; top: 1.4mm; font: 700 4.2mm/1 Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif; color: #111; }
+  /* HuberHxH en Ink Free (viene con Windows); donde no está, Patrick Hand, que se parece */
+  .trj-mk-a { right: 5mm; bottom: 1.6mm; font: 400 3.6mm/1 "Ink Free", "Patrick Hand", cursive; color: #4a4a4a; }
   @media print {
     body.trj-imprimiendo > *:not(#trjPrint) { display: none !important; }
     body.trj-imprimiendo { margin: 0 !important; padding: 0 !important; background: #fff !important; }

@@ -4138,7 +4138,7 @@ function trjEnlazar(el, campos, t, pintar) {
 let trjFuentesOk = false;
 function trjFuentes() {
   if (trjFuentesOk || !document.fonts || !document.fonts.load) return Promise.resolve();
-  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\"", "700 20px \"Fira Code\""].map(f => document.fonts.load(f)))
+  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\"", "700 20px \"Fira Code\"", "400 20px \"Patrick Hand\"", "400 20px \"Ink Free\""].map(f => document.fonts.load(f)))
     .then(() => { trjFuentesOk = true; }).catch(() => { trjFuentesOk = true; });
 }
 // Vista previa: la hoja a tamaño real, reducida al ancho de la pantalla
@@ -4159,9 +4159,20 @@ function trjAjustar(raiz) {
   });
 }
 // Hojas listas (con la letra ajustada) en un contenedor fuera de la pantalla
-// Cada hoja es la hoja carta completa: la tarjeta centrada, «Frecs!» arriba a la izquierda y «Aexx» abajo a la derecha
-// (fuera de la tarjeta). Se imprime sin margen para que el navegador no ponga su enlace ni la fecha.
-const TRJ_MARCAS = `<span class="trj-mk trj-mk-f">Frecs!</span><span class="trj-mk trj-mk-a">Aexx</span>`;
+// Cada hoja es la hoja carta completa: la tarjeta centrada, «𝐹𝓇𝑒𝒸𝓈! ツ» arriba a la izquierda y «HuberHxH» (letra Ink Free)
+// abajo a la derecha, fuera de la tarjeta. Se imprime sin margen para que el navegador no ponga su enlace ni la fecha.
+const TRJ_MK = {
+  f: { t: "𝐹𝓇𝑒𝒸𝓈! ツ", fam: 'Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif', peso: 700, mm: 4.2, color: "#111111" },
+  a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.6, color: "#4a4a4a" } };
+const TRJ_MARCAS = `<span class="trj-mk trj-mk-f">${TRJ_MK.f.t}</span><span class="trj-mk trj-mk-a">${TRJ_MK.a.t}</span>`;
+// Para el PDF: la marca como imagen (jsPDF no tiene esas letras); medidas en mm
+function trjMarcaImg(m) {
+  const k = 14, c = document.createElement("canvas"), x = c.getContext("2d"), font = `${m.peso} ${m.mm * k}px ${m.fam}`;
+  x.font = font; const me = x.measureText(m.t), asc = me.actualBoundingBoxAscent || m.mm * k * .8, des = me.actualBoundingBoxDescent || m.mm * k * .25;
+  c.width = Math.ceil(me.width + 6); c.height = Math.ceil(asc + des + 6);
+  x.font = font; x.fillStyle = m.color; x.fillText(m.t, 3, 3 + asc);
+  return { url: c.toDataURL("image/png"), w: c.width / k, h: c.height / k };
+}
 async function trjArmar(htmls, orient) {
   const caja = document.createElement("div"); caja.className = "trj-fuera";
   caja.innerHTML = htmls.map(x => `<div class="trj-hoja ${orient === "landscape" ? "pag-h" : "pag-v"}">${x}${TRJ_MARCAS}</div>`).join("");
@@ -4198,6 +4209,7 @@ async function trjPdf(htmls, orient, nombre) {
   try {
     const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: orient, compress: true });
     const hechas = {};   // las copias iguales se dibujan una sola vez
+    const mf = trjMarcaImg(TRJ_MK.f), ma = trjMarcaImg(TRJ_MK.a);
     const cards = $$(".trj-hoja > .trj, .trj-hoja > .mrc", caja);
     for (let k = 0; k < cards.length; k++) {
       const card = cards[k], w = parseFloat(card.dataset.w), hh = parseFloat(card.dataset.h), clave = htmls[k];
@@ -4207,8 +4219,7 @@ async function trjPdf(htmls, orient, nombre) {
       }
       if (k) pdf.addPage("letter", orient);
       pdf.addImage(hechas[clave], "JPEG", (hoja.w - w) / 2, (hoja.h - hh) / 2, w, hh);
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(90, 90, 90);
-      pdf.text("Frecs!", 5, 5.5); pdf.text("Aexx", hoja.w - 5, hoja.h - 3.5, { align: "right" });
+      pdf.addImage(mf.url, "PNG", 4.5, 0.6, mf.w, mf.h); pdf.addImage(ma.url, "PNG", hoja.w - 4.5 - ma.w, hoja.h - 0.6 - ma.h, ma.w, ma.h);
     }
     pdf.save(nombre);
   } finally { caja.remove(); }
@@ -4335,7 +4346,7 @@ function trjHtml(d) {
   const vl = (col, txt, pt) => celda(col, h(txt || ""), pt || 55, "vl");
   const fila = (l, v) => lb("1 / 9", l) + vl("9 / 15", v);
   return `<div class="trj" data-w="${P.w}" data-h="${P.h}" style="width:${P.w}mm;height:${P.h}mm;grid-template-columns:${TRJ_COLS.map(w => w + "fr").join(" ")};grid-template-rows:${filas.map(mm).join(" ")}">
-    <div class="trj-c trj-cab" style="grid-column:1 / 15;font-size:${mm(26)}"><span>MA-APP4-VPOQ-A5-101-TAG ID / v1.2 / 2021 05 16</span></div>
+    <div class="trj-c trj-cab" style="grid-column:1 / 15;font-size:${mm(26)}"><span>MA-APP4-VPOQ-A5-101-TAG ID / v1.2 / 2021 05 16</span><img src="vendor/tarjeta-logo.png" alt=""></div>
     ${celda("1 / 15", "PRODUCTO BLOQUEADO", 100, "tt ce")}${celda("1 / 15", h(T.titulo), 100, "tt ce")}
     ${fila(T.lote || "a. CODIGO DE LOTE", d.lote)}${fila(T.desc || "b. DESCRIPCION DEL PRODUCTO", d.desc)}${fila("c. SOLICITANTE BLOQUEO", d.sol)}
     ${fila("d. FECHA ENVASADO (ddmmaaaa)", trjDmy(d.env))}${fila("e. FECHA BLOQUEO (ddmmaaaa)", trjDmy(d.bloq))}${fila("f. FECHA VENCIMIENTO (ddmmaaaa)", trjDmy(d.vence))}
@@ -4456,7 +4467,8 @@ function marcaHtml(d) {
   const fe = (l, v) => `<div class="mrc-f"><div class="mrc-fl">${h(l)}</div>${caja("mrc-fv", trjDma(v))}</div>`;
   return `<div class="mrc" data-w="${P.w}" data-h="${P.h}" style="width:${P.w}mm;height:${P.h}mm">
     <div class="mrc-cab"><div class="mrc-cod"><div>06-003216</div><div>Actualización: 04</div><div>1/1/2025</div><div>Página 1 de 1</div></div>
-      <div class="mrc-tit"><div class="mrc-t1">TARJETA DE MARCACION</div><div class="mrc-t2">ITAGÜÍ</div></div></div>
+      <div class="mrc-tit"><div class="mrc-t1">TARJETA DE MARCACION</div><div class="mrc-t2">ITAGÜÍ</div></div>
+      <div class="mrc-logo"><img src="vendor/marcacion-logo.png" alt=""></div></div>
     <div class="mrc-prod"><div><div class="mrc-lab azul">PRODUCTO</div>${caja("mrc-pn", d.prod)}</div><div><div class="mrc-lab">CÓDIGO SAP</div>${caja("mrc-sn", d.sku)}</div></div>
     <div class="mrc-red"><div class="mrc-4">${k4(d.etq, d.val)}${k4("CAJAS POR ESTIBA", trjN(d.cpe))}${k4("ESTIBAS", trjN(d.est))}${k4("TOTAL CAJAS", trjN(d.total))}</div>
       <div class="mrc-dim"><div class="mrc-diml">DIMENSIONES DEL LOTE:</div>${dim("ANCHO", trjN(d.ancho))}${dim("ALTO", trjN(d.alto))}${dim("LARGO", trjN(d.largo))}</div></div>

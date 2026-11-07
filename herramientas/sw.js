@@ -3,7 +3,7 @@
 // los maneja la página (última copia en este equipo).
 const VERSION = "frecs-__VERSION__";
 const BASICOS = ["./", "index.html", "app.css", "app.js", "motor.js", "puente.js", "config.js", "manifest.webmanifest",
-  "vendor/tarjeta-logo.png", "vendor/marcacion-logo.png", "vendor/fuentes/tarjeta-400.woff2", "vendor/fuentes/tarjeta-700.woff2", "vendor/fuentes/marcacion-400.woff2", "vendor/fuentes/marcacion-700.woff2", "vendor/fuentes/fira-code-700.woff2", "iconos/icon-192.png", "iconos/icon-512.png", "iconos/icon-maskable-512.png", "iconos/apple-touch-icon.png"];
+  "vendor/tarjeta-logo.png", "vendor/marcacion-logo.png", "vendor/fuentes/tarjeta-400.woff2", "vendor/fuentes/tarjeta-700.woff2", "vendor/fuentes/marcacion-400.woff2", "vendor/fuentes/marcacion-700.woff2", "vendor/fuentes/fira-code-700.woff2", "vendor/fuentes/patrick-hand-400.woff2", "iconos/icon-192.png", "iconos/icon-512.png", "iconos/icon-maskable-512.png", "iconos/apple-touch-icon.png"];
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(BASICOS)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {

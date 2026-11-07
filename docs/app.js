@@ -4138,7 +4138,7 @@ function trjEnlazar(el, campos, t, pintar) {
 let trjFuentesOk = false;
 function trjFuentes() {
   if (trjFuentesOk || !document.fonts || !document.fonts.load) return Promise.resolve();
-  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\"", "700 20px \"Fira Code\"", "400 20px \"Patrick Hand\"", "400 20px \"Ink Free\""].map(f => document.fonts.load(f)))
+  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\"", "700 20px \"Fira Code\"", "700 20px \"Frecs Rotulo\"", "400 20px \"Patrick Hand\"", "400 20px \"Ink Free\""].map(f => document.fonts.load(f)))
     .then(() => { trjFuentesOk = true; }).catch(() => { trjFuentesOk = true; });
 }
 // Vista previa: la hoja a tamaño real, reducida al ancho de la pantalla

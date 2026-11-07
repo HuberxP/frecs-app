@@ -565,6 +565,14 @@
         webTrjColaQuitar: a => ["trj_cola_quitar", { p_id: Number(a[1]) }],
         webTrjColaVaciar: a => ["trj_cola_vaciar", { p_seccion: String(a[1] || "") }]
       };
+      // Entradas de producto (se registran al imprimir en Rótulos de entrada)
+      const ENTR = {
+        webEntradas: a => ["entradas_listar", { p_dia: a[1] ? String(a[1]).slice(0, 10) : null }],
+        webEntradaRegistrar: a => ["entrada_registrar", { p_datos: a[1] || {}, p_forzar: a[2] === true }],
+        webEntradaAnular: a => ["entrada_anular", { p_id: Number(a[1]), p_motivo: String(a[2] || "") }],
+        webEntradaRevisar: a => ["entrada_revisar", { p_id: Number(a[1]), p_nota: String(a[2] || "") }]
+      };
+      if (ENTR[fn]) { const [f, p] = ENTR[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       if (TRJC[fn]) { const [f, p] = TRJC[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       if (TAREAS[fn]) { const [f, p] = TAREAS[fn](args); return ok(await rpc(f, Object.assign({ p_token: args[0] }, p))); }
       // Secciones por rol (solo el administrador)

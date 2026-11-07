@@ -1620,6 +1620,30 @@
   .trj-btns .btn.trj-b-lim:hover { background: #fdb4b4; }
   .trj-btns .btn.trj-b-pdf { background: #facc15; border-color: #eab308; color: #3b2f00; font-weight: 800; }
   .trj-btns .btn.trj-b-pdf:hover { filter: brightness(1.06); }
+  /* Entradas de producto */
+  .epr-row { border-left: 4px solid var(--line2); }
+  .epr-row.ok { background: rgba(57,255,136,.10); border-left-color: var(--ok); }
+  html[data-tema="claro"] .epr-row.ok { background: #e7f8ee; }
+  .epr-row.tarde { border-left-color: var(--bad); background: var(--bad-soft); }
+  .epr-row.anul { opacity: .6; }
+  .epr-row.anul .prod { text-decoration: line-through; }
+  .epr-hora { font-weight: 800; font-size: 15px; }
+  .epr-ok { font-weight: 800; }
+  .epr-g { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0 4px; }
+  .epr-g > span { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .epr-g small { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; color: var(--muted); }
+  .epr-g b { font-size: 16px; }
+  .epr-g em { font-style: normal; font-size: 11px; color: var(--muted); }
+  @media (max-width: 520px) { .epr-g { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .epr-al { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: var(--warn-soft); }
+  .epr-al.rev { background: var(--ok-soft); }
+  .epr-acc { margin-top: 8px; gap: 6px; }
+  .epr-dia { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .epr-dia .field { margin: 0; min-width: 190px; }
+  .epr-res { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .epr-res-f { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+  .sec-n.bad { background: var(--bad); color: #fff; padding: 0 6px; border-radius: 999px; }
+  .rot-card.cerrada { opacity: .78; }
   .trj-h { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.25; min-height: 1em; }
   .trj-aviso .note { margin: 0; }
   .trj-btns { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1660,11 +1684,11 @@
   .mrc-box { border: .6mm solid #000; border-radius: 2.6mm; display: flex; align-items: center; overflow: hidden; min-width: 0; padding: 0 1.8mm; box-sizing: border-box; }
   .mrc-lab { font-size: 3.4mm; font-weight: 700; text-align: center; margin-bottom: .8mm; white-space: nowrap; }
   .mrc-lab.azul { color: #1d3fcf; font-size: 4.2mm; }
-  .mrc-cab { display: grid; grid-template-columns: 32mm 1fr 48mm; height: 23mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
+  .mrc-cab { display: grid; grid-template-columns: 32mm 1fr; height: 23mm; border: .3mm solid #000; border-radius: 2.6mm; overflow: hidden; flex: none; }
   .mrc-cod { display: flex; flex-direction: column; border-right: .3mm solid #000; font-size: 2.5mm; }
   .mrc-cod > div { flex: 1; display: flex; align-items: center; padding: 0 1.2mm; border-bottom: .2mm solid #000; }
   .mrc-cod > div:last-child { border-bottom: 0; }
-  .mrc-tit { display: flex; flex-direction: column; text-align: center; border-right: .3mm solid #000; }
+  .mrc-tit { display: flex; flex-direction: column; text-align: center; }
   .mrc-t1 { font-size: 4mm; font-weight: 700; border-bottom: .3mm solid #000; padding: .8mm 0; }
   .mrc-t2 { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 8.5mm; font-weight: 700; color: #e01b1b; }
   .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; }
@@ -1687,13 +1711,24 @@
   .mrc-firm > div { height: 8mm; border-bottom: .3mm solid #000; display: flex; align-items: center; justify-content: center; font-size: 3.3mm; }
   .mrc-firm > div:nth-child(odd) { border-right: .3mm solid #000; }
   .mrc-firm > div:nth-last-child(-n+2) { border-bottom: 0; }
+  .mrc-firm > .mrc-nom { justify-content: flex-start; padding: 0 3mm; font-size: 3.8mm; font-weight: 700; }
   .mrc-venc { flex: none; height: 38mm; margin: 0 8mm; display: flex; align-items: center; overflow: hidden; font-size: 24mm; font-weight: 700; padding: 0 4mm; }
   /* Hojas para imprimir o pasar a PDF: fuera de la pantalla hasta imprimir */
   .trj-fuera { position: fixed; left: -30000px; top: 0; background: #fff; }
+  /* Cada hoja es la carta completa (se imprime sin margen: el navegador no pone su enlace): la tarjeta centrada,
+     «Frecs!» arriba a la izquierda y «Aexx» abajo a la derecha, fuera de la tarjeta */
+  .trj-hoja { position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; background: #fff; }
+  .trj-hoja.pag-h { width: 279.4mm; height: 215.4mm; }
+  .trj-hoja.pag-v { width: 215.9mm; height: 278.9mm; }
+  .trj-hoja > .trj, .trj-hoja > .mrc { position: relative; flex: none; }
+  .trj-mk { position: absolute; font: 700 3.2mm/1 "Frecs Marcacion", Arial, sans-serif; color: #5a5a5a; letter-spacing: .02em; }
+  .trj-mk-f { left: 5mm; top: 3mm; }
+  .trj-mk-a { right: 5mm; bottom: 2.6mm; }
   @media print {
     body.trj-imprimiendo > *:not(#trjPrint) { display: none !important; }
     body.trj-imprimiendo { margin: 0 !important; padding: 0 !important; background: #fff !important; }
     body.trj-imprimiendo #trjPrint { position: static; left: auto; }
+    .trj-mk { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     #trjPrint .trj-hoja { break-after: page; page-break-after: always; }
     #trjPrint .trj-hoja:last-child { break-after: auto; page-break-after: auto; }
   }

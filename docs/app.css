@@ -1593,32 +1593,36 @@
   .trj-form .ac-item .sub { color: #4b5563; }
   /* Rótulos: lo automático va plegado debajo de un botón */
   .trj-mas-b { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 14px; border-radius: 10px;
-    border: 1.5px solid #fb923c; background: #fed7aa; color: #7c2d12; font: inherit; font-size: 13px; font-weight: 800; letter-spacing: .03em; cursor: pointer; text-align: left; }
+    border: 0; background: #fed7aa; color: #7c2d12; font: inherit; font-size: 13px; font-weight: 800; letter-spacing: .03em; cursor: pointer; text-align: left; }
   .trj-mas-b:hover { background: #fdc795; }
-  .trj-mas-b[aria-expanded="true"] { background: #fdba74; border-color: #f97316; }
+  .trj-mas-b[aria-expanded="true"] { background: #fdba74; }
   .trj-mas-f { font-size: 16px; line-height: 1; }
   .trj-mas-n { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #fff7ed; color: #9a3412; border: 1px solid #fb923c; font-size: 11px; }
   /* Tarjetas rojas: tipo y modo en un recuadro plegable que muestra lo escogido */
   .trj-sel-b { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; width: 100%; min-height: 46px; padding: 8px 14px; border-radius: 12px; cursor: pointer; text-align: left;
-    border: 1.5px solid var(--line2); background: var(--card2); color: var(--ink); font: inherit; font-size: 13px; }
-  .trj-sel-b:hover, .trj-sel-b[aria-expanded="true"] { border-color: var(--cyan); }
+    border: 0; background: #fed7aa; color: #7c2d12; font: inherit; font-size: 13px; }
+  .trj-sel-b:hover, .trj-sel-b[aria-expanded="true"] { background: #fdc795; }
   .trj-sel-r { display: inline-flex; align-items: baseline; gap: 6px; }
-  .trj-sel-k { font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--muted); }
-  .trj-sel-r b { font-size: 14px; color: var(--brand); }
-  html[data-tema="claro"] .trj-sel-r b { color: #0f7a43; }
-  .trj-sel-c { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--cyan); }
-  .trj-sel { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .trj-sel-k { font-size: 11px; font-weight: 800; letter-spacing: .06em; color: #9a3412; }
+  .trj-sel-r b { font-size: 14px; color: #7c2d12; }
+  .trj-sel-c { margin-left: auto; font-size: 12px; font-weight: 800; color: #9a3412; }
+  .trj-sel { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 0; border-radius: 12px; background: #ffedd5; color: #431407; }
+  .trj-sel .trj-sel-k, .trj-sel label, .trj-sel .small { color: #7c2d12; }
+  /* Pallets, cajas sueltas y copias uno al lado del otro (toda la fila) */
+  .trj-fila { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; grid-column: 1 / -1; }
+  .trj-fila .field { min-width: 0; margin: 0; }
+  .trj-fila .field label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trj-sel.hidden { display: none; }
   .trj-mas { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
   .trj-mas.hidden { display: none; }
   /* Botones de rótulos: imprimir verde, guardar azul, limpiar rojo claro */
-  .trj-btns .btn.trj-b-imp { background: #22c55e; border-color: #22c55e; color: #04210f; font-weight: 800; }
+  .trj-btns .btn.trj-b-imp { background: #22c55e; border-color: transparent; color: #04210f; font-weight: 800; }
   .trj-btns .btn.trj-b-imp:hover { filter: brightness(1.08); }
-  .trj-btns .btn.trj-b-gua { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 800; }
+  .trj-btns .btn.trj-b-gua { background: #2563eb; border-color: transparent; color: #fff; font-weight: 800; }
   .trj-btns .btn.trj-b-gua:hover { filter: brightness(1.1); }
-  .trj-btns .btn.trj-b-lim { background: #fecaca; border-color: #fca5a5; color: #7f1d1d; font-weight: 800; }
+  .trj-btns .btn.trj-b-lim { background: #fecaca; border-color: transparent; color: #7f1d1d; font-weight: 800; }
   .trj-btns .btn.trj-b-lim:hover { background: #fdb4b4; }
-  .trj-btns .btn.trj-b-pdf { background: #facc15; border-color: #eab308; color: #3b2f00; font-weight: 800; }
+  .trj-btns .btn.trj-b-pdf { background: #facc15; border-color: transparent; color: #3b2f00; font-weight: 800; }
   .trj-btns .btn.trj-b-pdf:hover { filter: brightness(1.06); }
   /* Entradas de producto */
   .epr-row { border-left: 4px solid var(--line2); }
@@ -1665,6 +1669,7 @@
   @font-face { font-family: "Frecs Tarjeta"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/tarjeta-700.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Marcacion"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-400.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Marcacion"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-700.woff2") format("woff2"); }
+  @font-face { font-family: "Fira Code"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/fira-code-700.woff2") format("woff2"); }
   .trj, .mrc, .trj-fuera { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; font-kerning: normal; letter-spacing: 0; word-spacing: 0; }
   .trj { display: grid; box-sizing: border-box; border-top: .5mm solid #000; border-left: .5mm solid #000; background: #fff; color: #000;
     font-family: "Frecs Tarjeta", Calibri, Carlito, "Segoe UI", Arial, sans-serif; }
@@ -1694,7 +1699,8 @@
   .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; }
   .mrc-logo img { max-width: 100%; max-height: 100%; }
   .mrc-prod { display: grid; grid-template-columns: 1fr 42mm; gap: 3mm; flex: none; }
-  .mrc-pn { height: 14mm; font-size: 7.5mm; font-weight: 700; }
+  /* Nombre del producto en Bernard MT Condensed (si el equipo la tiene instalada; si no, una condensada parecida) */
+  .mrc-pn { height: 14mm; font-size: 8mm; font-weight: 400; font-family: "Bernard MT Condensed", "Bernard MT", "BernardMT-Condensed", "Arial Narrow", "Frecs Marcacion", sans-serif; font-stretch: condensed; }
   .mrc-sn { height: 14mm; font-size: 10mm; font-weight: 700; }
   .mrc-red { border: .7mm solid #000; border-radius: 7mm; padding: 2.5mm 4mm 3mm; flex: none; }
   .mrc-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 2.5mm; }
@@ -1711,7 +1717,7 @@
   .mrc-firm > div { height: 8mm; border-bottom: .3mm solid #000; display: flex; align-items: center; justify-content: center; font-size: 3.3mm; }
   .mrc-firm > div:nth-child(odd) { border-right: .3mm solid #000; }
   .mrc-firm > div:nth-last-child(-n+2) { border-bottom: 0; }
-  .mrc-firm > .mrc-nom { justify-content: flex-start; padding: 0 3mm; font-size: 3.8mm; font-weight: 700; }
+  .mrc-firm > .mrc-nom { justify-content: center; text-align: center; padding: 0 3mm; font-size: 3.6mm; font-weight: 700; font-family: "Fira Code", monospace; }
   .mrc-venc { flex: none; height: 38mm; margin: 0 8mm; display: flex; align-items: center; overflow: hidden; font-size: 24mm; font-weight: 700; padding: 0 4mm; }
   /* Hojas para imprimir o pasar a PDF: fuera de la pantalla hasta imprimir */
   .trj-fuera { position: fixed; left: -30000px; top: 0; background: #fff; }
@@ -1894,7 +1900,20 @@
   .tar-acc { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
   .tar-acc:empty { display: none; }
   .tar-sel { flex-wrap: wrap; } .tar-sel button { flex: 1 1 30%; min-height: 42px; font-weight: 800; }
-  .tar-mt { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; margin: 6px 0 10px; }/* ============ Versión web (Supabase) ============ */
+  .tar-mt { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 10px; margin: 6px 0 10px; }
+</style>
+
+<style>
+  /* Marcación de bodega: volver (flecha amarilla), Generar PDF (azul), Imprimir (verde), lo demás alineado */
+  .tools.mrc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .tools.mrc-tools > .btn { min-height: 36px; margin: 0; }
+  .btn.mrc-volver { background: #facc15; border-color: transparent; color: #3b2f00; font-size: 18px; font-weight: 900; min-width: 44px; padding: 0 12px; }
+  .btn.mrc-volver:hover { filter: brightness(1.06); }
+  .btn.mrc-gen { background: #2563eb; border-color: transparent; color: #fff; font-weight: 800; }
+  .btn.mrc-imp { background: #22c55e; border-color: transparent; color: #04210f; font-weight: 800; }
+  .btn.mrc-gen:hover, .btn.mrc-imp:hover { filter: brightness(1.08); }
+  .rot-ok { color: var(--brand); }
+  html[data-tema="claro"] .rot-ok { color: #0f7a43; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

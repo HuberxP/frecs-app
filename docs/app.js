@@ -25,12 +25,12 @@ const NAV = [
   { g: "Historial", cls: "turnos", items: [
     { id: "hval", ic: "🗂️", t: "Historial de validaciones" },
     { id: "hent", ic: "🗂️", t: "Historial de entregas" },
-    { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" } ] },
+    { id: "hconc", ic: "🗂️", t: "Historial de conciliaciones" },
+    { id: "entradas", ic: "🚛", t: "Entradas de producto", web: true } ] },
   { g: "Tarjetas", items: [
     { id: "tarjetas", ic: "🟥", t: "Tarjetas rojas", web: true },
     { id: "rotulos", ic: "🏷️", t: "Rótulos bodega", web: true },
-    { id: "rotentrada", ic: "📥", t: "Rótulos de entrada", web: true },
-    { id: "entradas", ic: "🚛", t: "Entradas de producto", web: true },
+    { id: "rotentrada", ic: "📥", t: "Rótulos para T1", web: true },
     { id: "rotular", ic: "🗂️", t: "Marcación bodegas", rol: "validador" } ] },
   { g: "Operación", items: [
     { id: "actualizar", ic: "✍️", t: "Actualizar módulos", rol: "validador" },
@@ -1249,7 +1249,7 @@ function botonesPDF(tipo, etiqueta, id) {
   const et = h(etiqueta && !/^(PDF|Descargar( PDF)?)$/i.test(etiqueta) ? etiqueta : "PDF");
   return (web ? `<button class="btn sm ic-only" data-verinf="${tipo}"${d} title="Ver ${et}" aria-label="Ver ${et}"><span class="ic">👁</span></button>` : "") +
     `<button class="btn sm btn-ico ic-only" data-pdf="${tipo}"${d} title="Descargar ${et}" aria-label="Descargar ${et}"><span class="ic">${ICO.pdf}</span></button>` +
-    (web ? `<button class="btn sm btn-ico btn-wa ic-only" data-wa="${tipo}"${d} title="Compartir por WhatsApp" aria-label="Compartir ${et} por WhatsApp"><span class="ic">${ICO.wa}</span></button>` : "") + `${S.grupoTg && puede("validador") ? `<button class="btn sm btn-ico ghost ic-only" data-tg="${tipo}"${d} title="Enviar al grupo de Telegram" aria-label="Enviar ${et} al grupo de Telegram"><span class="ic">${ICO.tg}</span></button>` : ""}`;
+    (web ? `<button class="btn sm btn-ico btn-wa ic-only" data-wa="${tipo}"${d} title="Compartir por WhatsApp" aria-label="Compartir ${et} por WhatsApp"><span class="ic">${ICO.wa}</span></button>` : "") + "";   // (ya no se envía al grupo de Telegram desde la app)
 }
 // Barras de botones en una sola fila: si no caben con su texto, quedan solo los íconos
 function ajustarBarras(raiz) {
@@ -2200,7 +2200,7 @@ VISTAS.reportes = async el => {
     ["CONCILIACION", "⚖️ Conciliación (abierta o la última)", "Conteos por área contra facturación"]
   ];
   if (S.instructivo) pdfs.push(["INSTRUCTIVO", "📘 Instructivo", "Manual de uso del bot"]);
-  el.innerHTML = cab("📄 Reportes PDF", "Descárgalos; para enviarlos al grupo de Telegram usa el botón ✈️ de cada uno") +
+  el.innerHTML = cab("📄 Reportes PDF", "Descárgalos, míralos o compártelos por WhatsApp") +
     `<div style="display:flex;flex-direction:column;gap:10px">${pdfs.map(p => `<div class="card pdf-row"><div class="t"><b>${p[1]}</b><div class="sub ayuda">${p[2]}</div></div><div class="row">${botonesPDF(p[0], "Descargar", p[3])}</div></div>`).join("")}</div>
     <p class="muted small ayuda" style="margin-top:14px">Los PDF de turnos y conciliaciones anteriores están en <button class="link" id="goH">Historial</button>.</p>`;
   $("#goH", el).onclick = () => ir("historial");
@@ -2219,7 +2219,6 @@ function turnoPorHora() {
 // Tres formas de guardar (cerrar): solo guardar · guardar y descargar el PDF · guardar y enviarlo al grupo
 const botonesCierre = (id, dis) => `<div class="modal-actions cierre-acc">
   <button class="btn sm c-verde" data-modo="solo" id="${id}S" ${dis}>💾 Solo guardar</button>
-  ${S.grupoTg ? `<button class="btn sm c-azul btn-ico" data-modo="tg" id="${id}T" ${dis}><span class="ic">${ICO.tg}</span> Guardar y enviar al grupo</button>` : ""}
   <button class="btn sm c-amar btn-ico" data-modo="pdf" id="${id}P" ${dis}><span class="ic">${ICO.pdf}</span> Guardar y descargar PDF</button>
   <button class="btn sm c-rojo" data-x>Cancelar</button></div>`;
 // Al final de la página, pequeños: cancelar (borde rojo) o guardar (borde verde) el turno o la conciliación
@@ -4139,7 +4138,7 @@ function trjEnlazar(el, campos, t, pintar) {
 let trjFuentesOk = false;
 function trjFuentes() {
   if (trjFuentesOk || !document.fonts || !document.fonts.load) return Promise.resolve();
-  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\""].map(f => document.fonts.load(f)))
+  return Promise.all(["400 20px \"Frecs Tarjeta\"", "700 20px \"Frecs Tarjeta\"", "400 20px \"Frecs Marcacion\"", "700 20px \"Frecs Marcacion\"", "700 20px \"Fira Code\""].map(f => document.fonts.load(f)))
     .then(() => { trjFuentesOk = true; }).catch(() => { trjFuentesOk = true; });
 }
 // Vista previa: la hoja a tamaño real, reducida al ancho de la pantalla
@@ -4289,7 +4288,8 @@ const TRJ_TIPOS = {
   FRESCURA: { b: "FRESCURA", titulo: "PNC FRESCURA", altoT: 145.5, uni: true, lab: 36, centro: false, bloqueo: "VENCIMIENTO MENOS LOS DÍAS DE T2" }
 };
 function trjEstado() {
-  if (!S.trj) S.trj = { tipo: TRJ_TIPOS[ls.get("trjTipo", "")] ? ls.get("trjTipo", "") : "CALIDAD", modo: ls.get("trjModo", "estiba") === "bolsillo" ? "bolsillo" : "estiba",
+  // Por defecto PNC Calidad y por estiba
+  if (!S.trj) S.trj = { tipo: "CALIDAD", modo: "estiba",
     sku: "", lote: "", sol: "CALIDAD", vence: "", env: "", bloq: "", pallets: "1", sueltas: "", cajas: "", uni: "", copias: "1", man: {} };
   return S.trj;
 }
@@ -4355,7 +4355,7 @@ VISTAS.tarjetas = async (el, p, vigente) => {
     { id: "trjV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
     { id: "trjPa", k: "pallets", l: "TOTAL DE PALLETS", tipo: 'type="number" min="0" inputmode="numeric"', user: true, reinicia: ["cajas", "uni"] },
     { id: "trjSu", k: "sueltas", l: "CAJAS SUELTAS", tipo: 'type="number" min="0" inputmode="numeric"', user: true, reinicia: ["cajas", "uni"] },
-    { id: "trjN", k: "copias", l: "COPIAS EN EL PDF", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
+    { id: "trjN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
     { id: "trjS", k: "sol", l: "SOLICITANTE DEL BLOQUEO", extra: 'autocapitalize="characters"', def: "CALIDAD" },
     { id: "trjE", k: "env", l: "FECHA DE ENVASADO", tipo: 'type="date"', auto: true },
     { id: "trjB", k: "bloq", l: "FECHA DE BLOQUEO", tipo: 'type="date"', auto: true },
@@ -4364,6 +4364,8 @@ VISTAS.tarjetas = async (el, p, vigente) => {
   ];
   // Visibles: lote, vencimiento, pallets (y sueltas en bolsillo) y copias. Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
   const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
+  // Pallets, sueltas (bolsillo) y copias en una sola fila
+  const FILA = ["trjPa", "trjSu", "trjN"], camposUsuario = USUARIO.filter(f => !FILA.includes(f.id)).map(trjCampo).join("") + `<div class="trj-fila">${USUARIO.filter(f => FILA.includes(f.id)).map(trjCampo).join("")}</div>`;
   el.innerHTML = cab("TARJETAS ROJAS", "Producto bloqueado: escoge el producto, escribe el lote, la fecha de vencimiento, los pallets y las copias. El tipo de tarjeta y el modo se cambian arriba (toca el recuadro para abrirlo). El solicitante, las fechas de envasado y bloqueo, las cajas y las unidades se calculan solos; para cambiar alguno toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca esta tarjeta ya; GUARDAR la deja en tu lista para generar al final un solo PDF con todas (hoja carta horizontal).") +
     `<div class="trj-wrap"><div class="card trj-form">
       <button type="button" class="trj-sel-b" id="trjSelB" aria-expanded="false" aria-controls="trjSel"></button>
@@ -4372,11 +4374,10 @@ VISTAS.tarjetas = async (el, p, vigente) => {
         <div class="seg trj-seg" id="trjT">${Object.keys(TRJ_TIPOS).map(k => `<button data-tt="${k}">${TRJ_TIPOS[k].b}</button>`).join("")}</div>
         <div class="trj-st">MODO</div>
         <div class="seg trj-seg" id="trjM"><button data-tm="estiba">POR ESTIBA</button><button data-tm="bolsillo">BOLSILLO</button></div>
-        <div class="small muted trj-modoh" id="trjMH"></div>
       </div>
       <div class="trj-f trj-in">${campoAuto("trjP", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="trjAv"></div>
-      <div class="trj-g">${USUARIO.map(trjCampo).join("")}</div>
+      <div class="trj-g">${camposUsuario}</div>
       <button type="button" class="trj-mas-b" id="trjMasB" aria-expanded="false" aria-controls="trjMas"></button>
       <div class="trj-mas hidden" id="trjMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div></div>
       <div class="trj-btns"><button class="btn trj-b-imp" id="trjImp">IMPRIMIR</button><button class="btn trj-b-gua" id="trjOk">GUARDAR</button><button class="btn trj-b-lim" id="trjNue" title="Empezar otra tarjeta">LIMPIAR</button></div>
@@ -4401,16 +4402,17 @@ VISTAS.tarjetas = async (el, p, vigente) => {
     pintarSel(); pintarMas();
     $$("#trjT [data-tt]", el).forEach(b => b.classList.toggle("on", b.dataset.tt === t.tipo));
     $$("#trjM [data-tm]", el).forEach(b => b.classList.toggle("on", b.dataset.tm === t.modo));
-    $("#trjMH", el).textContent = t.modo === "bolsillo" ? "BOLSILLO: VA AL FRENTE DEL PRODUCTO. PON CUÁNTAS ESTIBAS ESTÁN BLOQUEADAS Y LAS CAJAS SUELTAS." : "POR ESTIBA: UNA TARJETA EN CADA ESTIBA. SI SON VARIAS ESTIBAS, PON LAS COPIAS.";
     $("#trjSuW", el).classList.toggle("hidden", t.modo !== "bolsillo");
     $("#trjUW", el).classList.toggle("hidden", !T.uni);
     trjMostrar(el, CAMPOS, t, a, desde);
-    $("#trjAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LA VIDA ÚTIL Y LAS CAJAS.</div>`
+    $("#trjAv", el).innerHTML = !a.c ? ""
       : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. TOCA «CAMBIAR DATOS AUTOMÁTICOS» Y ESCRÍBELO AHÍ${puede("administrador") ? ", O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
     clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
   };
-  $("#trjT", el).onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; ls.set("trjTipo", t.tipo); delete t.man.bloq; delete t.man.uni; pintar(); };
-  $("#trjM", el).onclick = e => { const b = e.target.closest("[data-tm]"); if (!b) return; t.modo = b.dataset.tm; ls.set("trjModo", t.modo); if (t.modo === "estiba") { t.pallets = "1"; t.sueltas = ""; } delete t.man.cajas; delete t.man.uni; pintar(); };
+  $("#trjT", el).onclick = e => { const b = e.target.closest("[data-tt]"); if (!b) return; t.tipo = b.dataset.tt; delete t.man.bloq; delete t.man.uni; pintar(); };
+  // Al tocar el producto se cierra el recuadro de tipo y modo
+  $("#trjP", el).addEventListener("focus", () => { if (S.trjSelAb) { S.trjSelAb = false; pintarSel(); } });
+  $("#trjM", el).onclick = e => { const b = e.target.closest("[data-tm]"); if (!b) return; t.modo = b.dataset.tm; if (t.modo === "estiba") { t.pallets = "1"; t.sueltas = ""; } delete t.man.cajas; delete t.man.uni; pintar(); };
   // Otro producto: se borra lo escrito (lote, fechas, pallets, copias); quedan el tipo, el modo y el solicitante
   autoSku($("#trjP", el), c => {
     if (c.sku !== t.sku) Object.assign(t, { sku: c.sku, lote: "", vence: "", env: "", bloq: "", pallets: "1", sueltas: "", cajas: "", uni: "", copias: "1", man: {} });
@@ -4486,7 +4488,7 @@ function marcaDeModulo(it, rot) {
 // =====================================================================
 function rtuEstado(entrada) {
   const k = entrada ? "rte" : "rtu";
-  if (!S[k]) S[k] = { sku: "", vence: "", copias: "1", n: "", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
+  if (!S[k]) S[k] = { sku: "", vence: "", copias: "", n: "", cpe: "", total: "", fp: "", fr: "", fl: "", man: {} };
   return S[k];
 }
 function rtuCalcular(t) {
@@ -4505,8 +4507,9 @@ function rtuCalcular(t) {
   if (c) { if (!vida) a.falta.push("VIDA ÚTIL"); if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
   return a;
 }
-const rtuDatos = (t, a, val) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: val || 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1,
-  fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: S.usuario ? S.usuario.nombre : "", rotad: "" });
+// El nombre de quien imprime va solo en los rótulos para T1 (los de bodega son reimpresiones)
+const rtuDatos = (t, a, val, entrada) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: val || 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1,
+  fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: entrada && S.usuario ? S.usuario.nombre : "", rotad: "" });
 VISTAS.rotulos = (el, p, vigente) => vistaRotulos(el, p, vigente, false);
 VISTAS.rotentrada = (el, p, vigente) => vistaRotulos(el, p, vigente, true);
 async function vistaRotulos(el, p, vigente, entrada) {
@@ -4515,8 +4518,8 @@ async function vistaRotulos(el, p, vigente, entrada) {
   const t = rtuEstado(entrada), c0 = trjCat(t.sku), vista = entrada ? "rotentrada" : "rotulos";
   const CAMPOS = [
     { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
-    entrada ? { id: "rtN", k: "n", l: "NÚMERO DE RÓTULOS (ESTIBAS)", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
-      : { id: "rtN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric"', user: true },
+    entrada ? { id: "rtN", k: "n", l: "RÓTULOS (ESTIBAS)", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
+      : { id: "rtN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric" placeholder="OBLIGATORIO"', user: true },
     { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, reinicia: ["total"] },
     { id: "rtT", k: "total", l: "TOTAL CAJAS (POR ESTIBA)", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
     { id: "rtP", k: "fp", l: "FECHA DE ENVASADO", tipo: 'type="date"', auto: true },
@@ -4526,32 +4529,31 @@ async function vistaRotulos(el, p, vigente, entrada) {
   // Visibles: producto, vencimiento y copias (o número de rótulos). Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
   const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
   el.innerHTML = (entrada
-    ? cab("RÓTULOS DE ENTRADA", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» y salen los rótulos numerados (ESTIBA 1 DE 5…). En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
-    : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas): escoge el producto, la fecha de vencimiento y las copias. Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
+    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen los rótulos numerados (ESTIBA 1 DE 5…), con tu nombre en «Verificador». En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
+    : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>
-      <div class="trj-g">${USUARIO.map(trjCampo).join("")}</div>
+      <div class="trj-g"><div class="trj-fila">${USUARIO.map(trjCampo).join("")}</div></div>
       <button type="button" class="trj-mas-b" id="rtMasB" aria-expanded="false" aria-controls="rtMas"></button>
       <div class="trj-mas hidden" id="rtMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div>
         <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div></div>
-      ${entrada ? `<div class="trj-btns"><button class="btn trj-b-imp" id="rtImp">IMPRIMIR Y REGISTRAR</button><button class="btn trj-b-lim" id="rtNue">LIMPIAR</button></div>
-        <div class="small muted">LO REGISTRADO SE VE EN <button type="button" class="link" data-ir-ent>ENTRADAS DE PRODUCTO →</button></div>`
+      ${entrada ? `<div class="trj-btns"><button class="btn trj-b-imp" id="rtImp">IMPRIMIR Y REGISTRAR</button><button class="btn trj-b-lim" id="rtNue">LIMPIAR</button></div>`
       : `<div class="trj-btns"><button class="btn trj-b-imp" id="rtImp">IMPRIMIR</button><button class="btn trj-b-gua" id="rtOk">GUARDAR</button><button class="btn trj-b-lim" id="rtNue">LIMPIAR</button></div>
       <div class="trj-cola" id="rtCola"></div>`}
     </div><div class="trj-prev-w"><div class="trj-prev" id="rtPrev"></div></div></div>`;
   let a = null, tPrev = 0;
-  const copias = () => Math.max(1, Math.min(50, trjEnt(t.copias) || 1));
+  const copias = () => Math.max(0, Math.min(50, trjEnt(t.copias) || 0));
   const cola = entrada ? null : trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", pagina: x => marcaHtml(x.d),
     etiqueta: x => `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">ESTIBA #${h(x.d.val)} · VENCE ${h(trjDmy(x.d.fVen) || "—")}</span>` });
   const numN = () => { const n = trjEnt(t.n); return n && n > 0 ? Math.min(200, n) : 0; };
-  const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, entrada && numN() ? `1 DE ${numN()}` : 1)));
+  const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, entrada && numN() ? `1 DE ${numN()}` : 1, entrada)));
   const pintarMas = trjMas(el, "rtMasB", "rtMas", AUTOS, t, entrada ? "rteMas" : "rtuMas");
   const pintar = desde => {
     a = rtuCalcular(t);
     trjMostrar(el, CAMPOS, t, a, desde);
     pintarMas();
-    $("#rtAv", el).innerHTML = !a.c ? `<div class="note small">ESCOGE EL PRODUCTO: CON ESO SALEN EL NOMBRE, EL SKU, LAS CAJAS POR ESTIBA Y LAS FECHAS.</div>`
+    $("#rtAv", el).innerHTML = !a.c ? ""
       : a.falta.length ? `<div class="note warn small">${h(a.c.sku)} NO TIENE EN LA HOJA SKU: <b>${h(a.falta.join(", "))}</b>. TOCA «CAMBIAR DATOS AUTOMÁTICOS» Y ESCRÍBELO AHÍ${puede("administrador") ? ", O COMPLÉTALO EN PRODUCTOS (HOJA SKU)" : ""}.</div>` : "";
     clearTimeout(tPrev); tPrev = setTimeout(previa, desde ? 150 : 0);
   };
@@ -4562,7 +4564,12 @@ async function vistaRotulos(el, p, vigente, entrada) {
   alLimpiar($("#rtPr", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#rtNue", el).onclick = () => { S[entrada ? "rte" : "rtu"] = null; ir(vista); };
-  const listo = () => { if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return false; } if (!t.vence) toast("Ojo: no pusiste la fecha de vencimiento.", "warn", 3500); return true; };
+  const listo = () => {
+    if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return false; }
+    if (!entrada && !copias()) { toast("Escribe cuántas copias.", "warn"); $("#rtN", el).focus(); return false; }
+    if (!t.vence) toast("Ojo: no pusiste la fecha de vencimiento.", "warn", 3500);
+    return true;
+  };
   if (!entrada) {
     // Imprimir ya este rótulo (con sus copias)
     $("#rtImp", el).onclick = () => { if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait"); };
@@ -4573,13 +4580,12 @@ async function vistaRotulos(el, p, vigente, entrada) {
       try { await cola.agregar(rtuDatos(t, a), copias()); }
       catch (er) { ocupado(btn, false); toast(er.message, "bad", 6000); return; }
       ocupado(btn, false); toast("Rótulo guardado", "ok", 2000);
-      t.copias = "1";
+      t.copias = "";
       pintar();
     };
   } else {
-    el.addEventListener("click", e => { if (e.target.closest("[data-ir-ent]")) ir("entradas"); });
     // Imprimir y registrar: un rótulo por estiba (ESTIBA 1 DE N…). Si hace poco se registró una igual, se pregunta.
-    const imprimir = n => trjImprimir(Array.from({ length: n }, (_, k) => marcaHtml(rtuDatos(t, a, `${k + 1} DE ${n}`))), "portrait");
+    const imprimir = n => trjImprimir(Array.from({ length: n }, (_, k) => marcaHtml(rtuDatos(t, a, `${k + 1} DE ${n}`, true))), "portrait");
     $("#rtImp", el).onclick = async () => {
       if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
       if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }
@@ -4634,8 +4640,8 @@ VISTAS.entradas = async (el, p, vigente) => {
   const yo = S.usuario ? S.usuario.nombre : "";
   const poner = x => { d = x; S.entAlertas = (d.alertas || []).length; if (S.usuario) pintarNav(); pintar(); };
   S.entAlertas = (d.alertas || []).length; if (S.usuario) pintarNav();
-  el.innerHTML = cab("🚛 Entradas de producto", "Lo que se registró al imprimir en «Rótulos de entrada». Historial del día (en verde con ✓ lo que ya está en el WMS), alertas de producto que entró con menos de 90 días para vencer (las marca revisadas un rotador o administrador) y lo que todavía no aparece en el WMS (en rojo después de 8 horas).",
-      vistaPermitida("rotentrada") ? `<button class="btn primary" data-ir="rotentrada">📥 Rótulos de entrada</button>` : "") +
+  el.innerHTML = cab("🚛 Entradas de producto", "Lo que se registró al imprimir en «Rótulos para T1». Historial del día (en verde con ✓ lo que ya está en el WMS), alertas de producto que entró con menos de 90 días para vencer (las marca revisadas un rotador o administrador) y lo que todavía no aparece en el WMS (en rojo después de 8 horas).",
+      vistaPermitida("rotentrada") ? `<button class="btn primary" data-ir="rotentrada">📥 Rótulos para T1</button>` : "") +
     `<div class="lista-tools"><div class="seg" id="enT"></div></div><div id="enC"></div>`;
   const fila = (x, conAcc) => {
     const anul = x.estado === "ANULADA", puedeAn = !anul && (x.por === yo || puede("validador"));
@@ -4810,7 +4816,7 @@ async function vistaRotulo(el, id, vigente) {
       <span class="rot-k">${k + 1}</span>
       <div class="rot-info"><div class="rot-l1">${modChip(it.m)} <b class="rot-est">${it.est === null || it.est === undefined ? "—" : fm(it.est)} est.</b>${it.estSis !== null && it.estSis !== undefined && Number(it.est) !== Number(it.estSis) ? ` <span class="small muted" title="Lo que calculó el sistema">(sistema ${fm(it.estSis)})</span>` : ""}</div>
         <div class="rot-l2">${it.sku ? skuTxt(it.sku, it.prod) : `<span class="muted">${h(it.prod || "Sin producto")}</span>`}</div>
-        <div class="rot-l3">Vence <b>${it.vence ? h(fechaDMY(it.vence)) : "—"}</b>${it.vence ? ` · ${diasA(it.vence)}` : ""}</div></div>
+        <div class="rot-l3">Vence <b>${it.vence ? h(fechaDMY(it.vence)) : "—"}</b>${it.vence ? ` · ${diasA(it.vence)}` : ""}${it.rotulado ? ` · <b class="rot-ok">✓ ROTULADO</b>` : ""}</div></div>
       ${rot.cerrada ? "" : `<div class="rot-acc"><div class="rot-ed"><button class="btn sm icon" data-ed title="Corregir" aria-label="Corregir">✎</button><button class="btn sm icon del" data-q title="Quitar" aria-label="Quitar">${ICO_DEL}</button></div></div>`}</div>`;
   const pintarLista = () => {
     const its = rot.items;
@@ -4843,7 +4849,7 @@ async function vistaRotulo(el, id, vigente) {
     pintarForm();
   };
   el.innerHTML = `<div class="vh"><div><h1>🗂️ Marcación · T${h(rot.turno)} · ${h(fechaDMY(rot.fecha))} <span class="pill ${rot.cerrada ? "" : "warn"}" style="vertical-align:middle">${rot.cerrada ? "Cerrada" : "En curso"}</span></h1><div class="sub">Generada por <b>${h(rot.por)}</b>${rot.en ? ` · ${h(horaDe(rot.en))}` : ""}${rot.cerrada ? " · ya no se le agregan módulos (se cerró el turno o se abrió otra marcación)" : ""}</div></div>
-      <div class="tools"><button class="btn sm" data-volver>← Marcaciones</button>${window.FRECS_WEB ? `<button class="btn sm primary" data-mrc="pdf" title="Tarjeta de marcación de cada módulo, carta vertical">PDF marcación</button><button class="btn sm" data-mrc="imp" title="Imprimir las tarjetas de marcación">Imprimir marcación</button>` : ""}${botonesPDF("ROTULACION", "PDF rotulación", rot.id)}${window.FRECS_WEB ? `<button class="btn sm ic-only" data-jpg="ROTULACION" data-id="${h(rot.id)}" title="Descargar foto" aria-label="Descargar foto de la rotulación"><span class="ic">🖼️</span></button>` : ""}<button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
+      <div class="tools mrc-tools"><button class="btn sm mrc-volver" data-volver title="Volver a las marcaciones" aria-label="Volver a las marcaciones">←</button>${window.FRECS_WEB ? `<button class="btn sm mrc-gen" data-mrc="pdf" title="Tarjeta de marcación de cada módulo, carta vertical">Generar PDF</button><button class="btn sm mrc-imp" data-mrc="imp" title="Imprimir las tarjetas de marcación">Imprimir marcación</button>` : ""}${botonesPDF("ROTULACION", "Lista de la marcación", rot.id)}${window.FRECS_WEB ? `<button class="btn sm ic-only" data-jpg="ROTULACION" data-id="${h(rot.id)}" title="Descargar foto" aria-label="Descargar foto de la rotulación"><span class="ic">🖼️</span></button>` : ""}<button class="btn sm icon del" data-elim title="Quitar esta rotulación" aria-label="Quitar esta rotulación">${ICO_DEL}</button></div></div>
     <section class="card rot-agregar ${rot.cerrada ? "hidden" : ""}"><div id="roB"><h3 style="margin-top:0">＋ Agregar módulo</h3><div class="rep-busca"><input type="search" id="roQ" placeholder="Módulo (ej: B12)" autocomplete="off" autocapitalize="characters" enterkeyhint="done"></div><div id="roN"></div></div>
       <div id="roF" class="hidden"></div></section>
     <section id="roL"></section>`;

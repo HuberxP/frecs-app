@@ -142,7 +142,7 @@ function vistaPermitida(id, rol, cfg) {
   const o = (cfg || S.vistasRol || {})[rol];
   return o && typeof o[id] === "boolean" ? o[id] : vistaDefecto(id, rol);
 }
-const primeraVista = () => vistaPermitida("inicio") ? "inicio" : ((NAV.flatMap(g => g.items).find(i => vistaPermitida(i.id)) || { id: "inicio" }).id);
+const primeraVista = () => vistaPermitida("inicio") ? "inicio" : ROLES_VERIF.has(S.usuario && S.usuario.rol) && vistaPermitida("stock") ? "stock" : ((NAV.flatMap(g => g.items).find(i => vistaPermitida(i.id)) || { id: "inicio" }).id);
 // Sugerencias de cantidades del WMS en validación: cada persona decide (apagadas por defecto)
 const verWms = () => !!(S.usuario && S.usuario.prefs && S.usuario.prefs.wmsSug === true);
 // Switch de canal (cada persona el suyo, queda guardado hasta que lo cambie): T1, T2 (PK) o KA.
@@ -1323,7 +1323,9 @@ function invCard(i, o) {
     : `<span class="tag t-mod" title="Misma fecha que ${h(md.primero)}, que se creó antes en el WMS">🏭 Modulando · el primero es ${h(md.primero)}</span>`);
   if (esCuar(i)) tags.unshift(`<span class="tag t-cuar" title="Bloqueado por PNC cuarentena: solo puede salir por T1">🟠 PNC cuarentena · solo T1</span>`);
   // Estibas del módulo respecto a lo que le cabe (como en Consumo) y si es el único módulo con el producto
-  if (o.ocup && S.ocup[i.m] && S.ocup[i.m].capTot) { const oc = S.ocup[i.m]; tags.unshift(oc.usadas >= oc.capTot ? `<span class="tag t-lleno" title="Estibas en el módulo / capacidad">Lleno ${fm(oc.usadas)}/${fm(oc.capTot)}</span>` : `<span class="tag t-inc" title="Estibas en el módulo / capacidad">Incompleto ${fm(oc.usadas)}/${fm(oc.capTot)}</span>`); }
+  // (compacta: va al lado de los canales)
+  let capTag = "";
+  if (o.ocup && S.ocup[i.m] && S.ocup[i.m].capTot) { const oc = S.ocup[i.m], t = oc.usadas >= oc.capTot ? `<span class="tag t-lleno" title="Estibas en el módulo / capacidad">Lleno ${fm(oc.usadas)}/${fm(oc.capTot)}</span>` : `<span class="tag t-inc" title="Estibas en el módulo / capacidad">Incompleto ${fm(oc.usadas)}/${fm(oc.capTot)}</span>`; if (o.compacto) capTag = t; else tags.unshift(t); }
   if (o.unico) tags.unshift(`<span class="tag t-unico">⚠️ Único módulo</span>`);
   // Reportes pendientes del módulo: el vacío no lleva puesto FEFO (lo hace quien llama con fefoN)
   const rp = repDe(i.m);
@@ -1341,6 +1343,21 @@ function invCard(i, o) {
   else if (i.obs) obs = `<div class="obs">📝 ${h(i.obs)}</div>`;
   // Módulo marcado en consumo: la tarjeta cambia de color y el borde late, para verlo de una en la lista
   const enCons = typeof marcasDe === "function" && marcasDe(i.s, i.m).length > 0;
+  const canH = o.canales === false || i.T1 === undefined ? "" : canalesHtml(i);
+  const actH = (i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : "") + (() => { const r = typeof revisionDe === "function" ? revisionDe(i.m) : null; return r ? `<div class="act act-mano">✍️ Actualizado a mano: ${h(r.que)} · @${h(r.por)} · ${h(fechaCorta(r.en))}</div>` : ""; })();
+  const accH = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (o.ajustes && typeof botonSacar === "function" ? botonSacar(i) : "");
+  // Compacta (Stock por SKU): canales con la capacidad del módulo al lado; abajo la actualización y a la derecha «Marcar»
+  if (o.compacto) return `<article class="card inv inv-c v-${h(i.vida)} ${rp.v ? "rep-v" : ""} ${enCons ? "en-cons" : ""}">
+    <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}${i.prio ? botonFoto(i.s, i.m) : ""}</span>${est}</div>
+    ${o.producto === false ? "" : `<div class="prod">${skuTxt(i.s, i.p)}</div>`}
+    <div class="inv-qv">${qty(i.e, i.c, i.u, i.emp)}<span class="vence">${vencTxt(i)}</span></div>
+    ${canH || capTag ? `<div class="inv-can">${canH}${capTag}</div>` : ""}
+    ${tags.length ? `<div class="tags">${tags.join("")}</div>` : ""}
+    ${obs}
+    ${o.acomp ? acompHtml(i) : ""}
+    ${o.extra ? `<div class="extra">${o.extra}</div>` : ""}
+    ${actH || accH ? `<div class="inv-pie"><div class="inv-pie-i">${actH}</div>${accH ? `<div class="inv-acc">${accH}</div>` : ""}</div>` : ""}
+  </article>`;
   return `<article class="card inv v-${h(i.vida)} ${rp.v ? "rep-v" : ""} ${enCons ? "en-cons" : ""}">
     <div class="row sb"><span class="mod-l">${modChip(i.m)}${o.fefo ? `<span class="fefo" title="Orden FEFO: primero lo que vence antes">#${o.fefo} FEFO</span>` : ""}${i.prio ? botonFoto(i.s, i.m) : ""}</span>${est}</div>
     ${o.producto === false ? "" : `<div class="prod">${skuTxt(i.s, i.p)}</div>${i.fam ? `<div class="sub">${h(i.fam)}</div>` : ""}`}
@@ -1546,7 +1563,7 @@ VISTAS.stock = async (el, p, vigente) => {
       <div class="lista-tools"><div class="seg" id="sf">${segBtn("DISP", "Disponible")}${segBtn("ALL", "Todos")}${segBtn("T1", "T1")}${segBtn("T2", "T2")}${segBtn("KA", "KA")}</div>
         <label class="toggle"><input type="checkbox" id="sk" ${verKA ? "checked" : ""}> Mostrar KA / PREV</label><span class="count">${fm(lis.length)} ubicaciones</span></div>
       ${LEYENDA}${avisoModulacion(sku)}${lis.length ? listaConsumoPrimero(lis, filtro, unico) : ""}${lis.length ? ""
-        : noCumple.length ? `<div class="note warn no-cumple">⛔ <b>Sí hay este producto, pero no cumple los requisitos de ${h(CANALES[filtro])}</b>${minC ? ` (mínimo ${minC} días)` : ""}. Esto es lo que hay en bodega:</div><div class="grid">${noCumple.map(i => invCard(i, { producto: false, ocup: true, acomp: true })).join("")}</div>`
+        : noCumple.length ? `<div class="note warn no-cumple">⛔ <b>Sí hay este producto, pero no cumple los requisitos de ${h(CANALES[filtro])}</b>${minC ? ` (mínimo ${minC} días)` : ""}. Esto es lo que hay en bodega:</div><div class="grid">${noCumple.map(i => invCard(i, { producto: false, ocup: true, acomp: true, compacto: true })).join("")}</div>`
         : (fis.some(i => i.esOp) && !verKA ? vacio("Agotado en bodega general. Hay stock en KA / PREV: activa «Mostrar KA / PREV».", "⚠️") : vacio("Nada con este filtro.", "🔎"))}`;
     $("#sf", r).onclick = e => { const b = e.target.closest("button"); if (b) { filtro = b.dataset.f; pintar(); } };
     $("#sk", r).onchange = e => { verKA = e.target.checked; pintar(); };
@@ -1573,7 +1590,7 @@ function listaConsumoPrimero(lis, filtro, unico) {
   const conN = lis.map(i => ({ i, n: dispEn(i, filtro) && !i.esOp && !repVacio(i.m) ? ++n : 0 }));
   const canal = CANALES[filtro] ? filtro : "";
   const marcado = i => typeof marcasDe === "function" && marcasDe(i.s, i.m).some(x => !canal || x.canal === canal);
-  const card = x => invCard(x.i, { producto: false, ocup: true, acomp: true, unico: x.i.m === unico && x.i.disp, fefo: x.n });
+  const card = x => invCard(x.i, { producto: false, ocup: true, acomp: true, compacto: true, unico: x.i.m === unico && x.i.disp, fefo: x.n });
   const cons = conN.filter(x => marcado(x.i)), resto = conN.filter(x => !marcado(x.i));
   if (!cons.length) return `<div class="grid">${resto.map(card).join("")}</div>`;
   return `<h3 class="st-sec">🚚 En consumo${canal ? " para " + h(CANALES[canal]) : ""}</h3><div class="grid">${cons.map(card).join("")}</div>` +
@@ -3587,15 +3604,22 @@ VISTAS.consumo = async (el, p, vigente) => {
   // Dos tarjetas desplegables: los módulos a consumir y los módulos completos (la lista se edita en Administración)
   const abS = S.abiertos.consv ? !!S.abiertos.consv.solo : true, abT = !!(S.abiertos.consv && S.abiertos.consv.todo);
   const tarjetaV = (k, ab, tit, cuerpo) => `<section class="card plegable cons-sec ${ab ? "abierto" : ""}"><div class="pl-cab" data-plegar="consv|${k}" role="button" tabindex="0" aria-expanded="${ab}"><h3>${tit}</h3><span class="pl-flecha" aria-hidden="true">▾</span></div><div class="pl-cuerpo">${cuerpo}</div></section>`;
+  // Canales que cumple el lote del módulo (T1 · T2 · KA), del inventario
+  const canDe = (sku, m) => { const it = (S.inv || []).find(i => i.s === String(sku) && i.m === m && i.fis && i.disp && i.T1 !== undefined); return it ? canalesHtml(it) : ""; };
+  // Cada producto en una fila desplegable: cerrada, el nombre, el módulo de donde tomar y los canales; abierta, lo demás
   const fila = x => { const t = x.locs.filter(l => l.sel); const l = t[0];
-    return `<div class="cs-row ${x.unico ? "unico" : ""} ${l ? "" : "sin"}"><div class="cs-p">${skuTxt(x.sku, x.nom)}${x.unico ? ` <span class="pill unico-p">⚠️ Único módulo</span>` : ""}${x.modo === "manual" ? ` <span class="pill">✋ a mano</span>` : ""}</div>
-      ${l ? `<div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}</div><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b></div>` : `<div class="cs-sin">${sinTxt(x)}</div>`}</div>`; };
+    if (!l) return `<div class="cs-row sin ${x.unico ? "unico" : ""}"><div class="cs-p">${skuTxt(x.sku, x.nom)}</div><div class="cs-sin">${sinTxt(x)}</div></div>`;
+    const ab = abierto("csr", x.sku), mc = typeof tagsMarcas === "function" ? tagsMarcas(x.sku, l.m).join("") : "";
+    return `<article class="cs-row plegable ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
+      <div class="pl-cab cs-cab" data-plegar="csr|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div class="cs-p">${skuTxt(x.sku, x.nom)}</div><div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}${x.unico ? " ⚠️" : ""}</div><div class="cs-can">${canDe(x.sku, l.m)}</div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo cs-det"><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b>${l.d === 9999 ? "" : ` · ${l.d} d`}</div>
+        ${x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span>` : ""}${x.modo === "manual" ? `<span class="pill">✋ Elegido a mano${x.elegidoPor ? " por " + h(x.elegidoPor) : ""}</span>` : `<span class="pill">⚙️ Automático</span>`}${mc ? `<span class="cs-mc">${mc}</span>` : ""}</div></article>`; };
   const solo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO_SOLO", "PDF")}</div><div class="cs-lista">${lis.map(fila).join("")}</div>`;
   const todo = `<div class="barra-acc barra-mini">${botonesPDF("CONSUMO", "PDF completo")}</div>
     <p class="small muted ayuda" style="margin-top:0">Orden FEFO (criterios): 1) prioridad · 2) fecha más corta y módulo incompleto · 3) fecha · 4) con la misma fecha, el más incompleto. ${esc ? "Toca «Elegir» para cambiar el módulo: escoges el canal (T1, T2 o KA), queda marcado en consumo y se ve también al consultar el stock. " : "El módulo lo escoge el rotador o el administrador. "}KA y PREV no se usan: se surten desde bodega y lo que hay allá ya está listo para despachar.</p>
     <div class="lista-tools"><button class="btn sm" id="cAll">Abrir todas</button><button class="btn sm" id="cNone">Cerrar todas</button><label class="toggle"><input type="checkbox" id="cOp" ${verOp ? "checked" : ""}> Mostrar KA / PREV</label></div>
     <div class="grid tarjetas">${lis.map(x => { const sel = x.locs.find(l => l.sel), ab = abierto("cons", x.sku); return `<article class="card plegable cons-card ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
-      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)}` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cab" data-plegar="cons|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div><div class="prod">${skuTxt(x.sku, x.nom)}</div>${x.unico ? `<span class="pill unico-p">⚠️ Observación: único módulo</span>` : ""}<div class="sub">${sel ? `🎯 Consumir en ${modChip(sel.m)} <span class="cs-can">${canDe(x.sku, sel.m)}</span>` : sinTxt(x)}</div></div><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo">
       <div class="sub" style="margin:4px 0 8px">${x.modo === "manual" ? `✋ Elegido a mano por <b>${h(x.elegidoPor)}</b> · ${h(fechaCorta(x.elegidoEn))} ${esc ? `<button class="link" data-auto="${h(x.sku)}">volver a automático</button>` : ""}` : "⚙️ Automático (criterios)"}${x.manualVencido ? ` · <span style="color:var(--warn)">el módulo elegido a mano se vació</span>` : ""}</div>
       ${x.estado === "sin_fisico" ? `<div class="mini">❌ Sin existencias físicas en bodega. Quizás haya en PK o KA.</div>` : ""}
@@ -5908,7 +5932,10 @@ async function pintarPush(box) {
 function vistaInicial() {
   let v = "";
   try { const q = new URLSearchParams(location.search); v = q.get("ir") || ""; if (v) history.replaceState(null, "", location.pathname + location.hash); } catch (e) { v = ""; }
-  return v && VISTAS[v] && (typeof vistaPermitida !== "function" || vistaPermitida(v)) ? v : ls.get("vista", "inicio");
+  if (v && VISTAS[v] && (typeof vistaPermitida !== "function" || vistaPermitida(v))) return v;
+  // Verificador y OPM no tienen Inicio: arrancan siempre en Stock por SKU
+  if (S.usuario && ROLES_VERIF.has(S.usuario.rol) && vistaPermitida("stock")) return "stock";
+  return ls.get("vista", "inicio");
 }
 if (typeof navigator !== "undefined" && navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", e => {
   const v = e.data && e.data.ir;

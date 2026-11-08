@@ -1334,7 +1334,7 @@ function invCard(i, o) {
   // Fecha larga que puede estar tapando la corta (mismo producto, 2 fechas en el módulo)
   if (typeof tagsTapado === "function") tags.unshift(...tagsTapado(i));
   // Módulo en consumo para un canal (lo marcó un verificador / rotador)
-  if (typeof tagsMarcas === "function") tags.unshift(...tagsMarcas(i.s, i.m));
+  if (typeof tagsMarcas === "function") tags.unshift(...tagsMarcas(i.s, i.m, i.v));
   // Anotado a mano sin WMS (WMS caído): lo que se sacó o se guardó aquí
   if (typeof tagsAjuste === "function") tags.unshift(...tagsAjuste(i.s, i.m));
   const est = i.disp ? `<span class="pill ok">DISPONIBLE</span>` : `<span class="pill bad">BLOQ · ${h(i.est)}</span>`;
@@ -1342,7 +1342,7 @@ function invCard(i, o) {
   if (!i.disp && (i.cand || i.obs)) obs = `<div class="obs">🔑 ${i.cand ? `<b>${h(i.cand)}</b> ` : ""}${h(i.obs || "")}</div>`;
   else if (i.obs) obs = `<div class="obs">📝 ${h(i.obs)}</div>`;
   // Módulo marcado en consumo: la tarjeta cambia de color y el borde late, para verlo de una en la lista
-  const enCons = typeof marcasDe === "function" && marcasDe(i.s, i.m).length > 0;
+  const enCons = typeof marcasDe === "function" && marcasDe(i.s, i.m, i.v).length > 0;
   const canH = o.canales === false || i.T1 === undefined ? "" : canalesHtml(i);
   const actH = (i.actTxt ? `<div class="act">Act: ${h(i.actTxt)}</div>` : "") + (() => { const r = typeof revisionDe === "function" ? revisionDe(i.m) : null; return r ? `<div class="act act-mano">✍️ Actualizado a mano: ${h(r.que)} · @${h(r.por)} · ${h(fechaCorta(r.en))}</div>` : ""; })();
   const accH = o.marcar === false ? "" : (typeof botonMarcar === "function" ? botonMarcar(i) : "") + (o.ajustes && typeof botonSacar === "function" ? botonSacar(i) : "");
@@ -1534,7 +1534,7 @@ VISTAS.stock = async (el, p, vigente) => {
   let sku = p.sku || ls.get("ultSku", ""), filtro = canalAct() || "DISP", verKA = false;
   const ficha0 = sku && S.cat.find(c => c.sku === sku);
   el.innerHTML = cab("📡 Stock por SKU", "Existencias físicas en bodega, ordenadas por prioridad y vencimiento") +
-    barraBusqueda("sq", "SKU o nombre (ej: 3659 · pony go 2l)", ficha0 ? `${sku} · ${ficha0.prod}` : sku, "Consultar") + `<div id="sCan">${canalBanner()}</div><div id="sr"></div>`;
+    `<div class="st-busca">${barraBusqueda("sq", "SKU o nombre (ej: 3659 · pony go 2l)", ficha0 ? `${sku} · ${ficha0.prod}` : sku, "Consultar")}</div>` + `<div id="sCan">${canalBanner()}</div><div id="sr"></div>`;
   const inp = $("#sq", el);
   // Un solo cuadro: si escribe el SKU o el nombre, igual encuentra
   autoSku(inp, c => { sku = c.sku; ls.set("ultSku", sku); pintar(); });
@@ -1589,7 +1589,7 @@ function listaConsumoPrimero(lis, filtro, unico) {
   let n = 0;
   const conN = lis.map(i => ({ i, n: dispEn(i, filtro) && !i.esOp && !repVacio(i.m) ? ++n : 0 }));
   const canal = CANALES[filtro] ? filtro : "";
-  const marcado = i => typeof marcasDe === "function" && marcasDe(i.s, i.m).some(x => !canal || x.canal === canal);
+  const marcado = i => typeof marcasDe === "function" && marcasDe(i.s, i.m, i.v).some(x => !canal || x.canal === canal);
   const card = x => invCard(x.i, { producto: false, ocup: true, acomp: true, compacto: true, unico: x.i.m === unico && x.i.disp, fefo: x.n });
   const cons = conN.filter(x => marcado(x.i)), resto = conN.filter(x => !marcado(x.i));
   if (!cons.length) return `<div class="grid">${resto.map(card).join("")}</div>`;
@@ -1605,7 +1605,7 @@ function avisoModulacion(sku) {
     const lt = (S.inv || []).find(i => i.s === String(sku) && i.m === md.primero && i.v === v);
     return `<div class="note warn st-modu">🏭 <b>Se están llenando ${h(md.mods.join(", "))}</b> con la misma fecha (${h(lt ? lt.vf : v)}), ingresados al WMS el mismo día.
       Sugerido para consumo: <b>${h(md.primero)}</b>, el primero que se creó en el WMS. ¿Es el que se empezó primero?
-      ${typeof puedeMarcar === "function" && puedeMarcar() ? `<div class="row" style="margin-top:6px;gap:6px">${md.mods.map(m => `<button class="btn sm ${m === md.primero ? "primary" : ""}" data-marcar="${h(sku)}|${h(m)}">🚚 Marcar ${h(m)}</button>`).join("")}</div>` : ""}</div>`;
+      ${typeof puedeMarcar === "function" && puedeMarcar() ? `<div class="row" style="margin-top:6px;gap:6px">${md.mods.map(m => `<button class="btn sm ${m === md.primero ? "primary" : ""}" data-marcar="${h(sku)}|${h(m)}|${h(v)}">🚚 Marcar ${h(m)}</button>`).join("")}</div>` : ""}</div>`;
   }).join("");
 }
 
@@ -3592,11 +3592,11 @@ VISTAS.consumo = async (el, p, vigente) => {
   const esc = puede("validador");
   // Los módulos van en su orden FEFO; el elegido (automático o a mano) solo se resalta, no sube
   const lote = (x, l) => `<div class="lote v-${h(l.vida)} ${l.sel ? "sel" : ""} ${l.sel && x.modo === "manual" ? "manual" : ""} ${l.sel && x.unico ? "unico" : ""} ${!l.disp ? "bloq" : ""}"><div>
-      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${typeof tagsMarcas === "function" ? " " + tagsMarcas(x.sku, l.m).join("") : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
+      ${l.sel ? `🎯 <b style="color:var(--brand)">CONSUMIR AQUÍ</b>${x.modo === "manual" ? ` <span class="pill mano-p">✋ Elegido a mano</span>` : ""}<br>` : ""}${l.sel && x.unico ? `<span class="pill unico-p">⚠️ Único módulo con este producto</span><br>` : ""}${l.fefo ? `<span class="fefo-n" title="Puesto en el FEFO">${l.fefo}</span>` : ""}${modChip(l.m)}${l.rv ? ` <span class="tag t-rv">🟠 Reportado vacío</span>` : ""}${typeof tagsMarcas === "function" ? " " + tagsMarcas(x.sku, l.m, l.v).join("") : ""}${l.esOp ? ` <span class="pill info">KA/PREV</span>` : ""}${l.prio ? " 🚨" + botonFoto(x.sku, l.m) : ""}
       ${l.lleno === false ? ` <span class="pill warn">Incompleto ${fm(l.usadas)}/${fm(l.capTot)}</span>` : (l.lleno ? ` <span class="pill">Lleno</span>` : "")}
       ${!l.disp ? ` <span class="pill bad">BLOQ · ${h(l.est)}</span>` : ""}<br>${qty(l.e, l.c, l.u)}<br>
       <span class="small">Vence <b>${h(l.vf)}</b> (${l.d === 9999 ? "sin fecha" : l.d + " d"})</span></div>
-      ${esc && l.disp && !l.sel && !l.esOp && !l.rv ? `<button class="btn sm" data-el="${h(l.m)}" data-sku="${h(x.sku)}">Elegir</button>` : ""}</div>`;
+      ${esc && l.disp && !l.sel && !l.esOp && !l.rv ? `<button class="btn sm" data-el="${h(l.m)}" data-sku="${h(x.sku)}" data-v="${h(l.v || "")}">Elegir</button>` : ""}</div>`;
   // KA y PREV se surten desde bodega (ya están listos para despachar): se ocultan salvo que se pidan
   const verOp = ls.get("consVerOp", "") === "1";
   const visibles = x => x.locs.filter(l => verOp || !l.esOp);
@@ -3609,7 +3609,7 @@ VISTAS.consumo = async (el, p, vigente) => {
   // Cada producto en una fila desplegable: cerrada, el nombre, el módulo de donde tomar y los canales; abierta, lo demás
   const fila = x => { const t = x.locs.filter(l => l.sel); const l = t[0];
     if (!l) return `<div class="cs-row sin ${x.unico ? "unico" : ""}"><div class="cs-p">${skuTxt(x.sku, x.nom)}</div><div class="cs-sin">${sinTxt(x)}</div></div>`;
-    const ab = abierto("csr", x.sku), mc = typeof tagsMarcas === "function" ? tagsMarcas(x.sku, l.m).join("") : "";
+    const ab = abierto("csr", x.sku), mc = typeof tagsMarcas === "function" ? tagsMarcas(x.sku, l.m, l.v).join("") : "";
     return `<article class="cs-row plegable ${x.unico ? "unico" : ""} ${ab ? "abierto" : ""}">
       <div class="pl-cab cs-cab" data-plegar="csr|${h(x.sku)}" role="button" tabindex="0" aria-expanded="${ab}"><div class="cs-p">${skuTxt(x.sku, x.nom)}</div><div class="cs-m">${modChip(l.m)}${l.prio ? " 🚨" : ""}${x.unico ? " ⚠️" : ""}</div><div class="cs-can">${canDe(x.sku, l.m)}</div><span class="pl-flecha" aria-hidden="true">▾</span></div>
       <div class="pl-cuerpo cs-det"><div class="cs-q">${qty(t.reduce((a, y) => a + y.e, 0), t.reduce((a, y) => a + y.c, 0), t.reduce((a, y) => a + y.u, 0))}</div><div class="cs-v">Vence <b>${h(l.vf)}</b>${l.d === 9999 ? "" : ` · ${l.d} d`}</div>
@@ -3635,7 +3635,7 @@ VISTAS.consumo = async (el, p, vigente) => {
     if (e.target.closest("[data-lista]")) return ir("consumolista");
     const s = e.target.closest("[data-el]");
     // Elegir = marcar el módulo en consumo para un canal (con la validación de días del canal); Pony y las marcas van juntos
-    if (s) { if (typeof modalMarcar === "function") modalMarcar(s.dataset.sku, s.dataset.el); else { try { await api("webConsumoElegir", s.dataset.sku, s.dataset.el); ir("consumo"); } catch (er) { toast(er.message, "bad", 6000); } } return; }
+    if (s) { if (typeof modalMarcar === "function") modalMarcar(s.dataset.sku, s.dataset.el, s.dataset.v || ""); else { try { await api("webConsumoElegir", s.dataset.sku, s.dataset.el); ir("consumo"); } catch (er) { toast(er.message, "bad", 6000); } } return; }
     const a = e.target.closest("[data-auto]");
     if (a) { try { await api("webConsumoElegir", a.dataset.auto, ""); toast("Volvió al cálculo automático", "ok"); ir("consumo"); } catch (er) { toast(er.message, "bad"); } }
   };
@@ -4632,7 +4632,8 @@ async function vistaRotulos(el, p, vigente, entrada) {
       const n = numN();
       if (!n) { toast("Escribe cuántos rótulos (estibas) son.", "warn"); $("#rtN", el).focus(); return; }
       const cp = trjNum(a.cpe);
-      const datos = { sku: a.c.sku, prod: trjMay(a.c.prod), pres: a.c.pres || "", vence: t.vence, env: a.fp, lim: a.fl, cpe: cp, est: n, tot: cp !== null ? Math.round(cp * n) : null };
+      // cpeSku: las cajas por estiba de la hoja Sku (si el rótulo trae otras, la entrada sale con estibado distinto)
+      const datos = { sku: a.c.sku, prod: trjMay(a.c.prod), pres: a.c.pres || "", vence: t.vence, env: a.fp, lim: a.fl, cpe: cp, cpeSku: trjEnt(a.c.cantEst), est: n, tot: cp !== null ? Math.round(cp * n) : null };
       const btn = $("#rtImp", el); ocupado(btn, true, "REGISTRANDO…");
       let r;
       try { r = await api("webEntradaRegistrar", datos, false); }
@@ -4671,60 +4672,79 @@ async function vistaRotulos(el, p, vigente, entrada) {
 //   · Alertas: entró con menos de 90 días para vencer; solo rotador / administrador la marca revisada.
 //   · Pendientes en el WMS: aún no aparece; en rojo después de 8 horas.
 // =====================================================================
-const ENT_TABS = { HIST: "HISTORIAL", ALER: "ALERTAS", PEND: "PENDIENTES EN EL WMS" };
+// Pestañas: arriba Historial y Pendientes en el WMS; abajo las novedades: Fecha corta (menos de 90 días) y Estibado distinto
+const ENT_TABS = { HIST: "HISTORIAL", PEND: "PENDIENTES WMS", ALER: "FECHA CORTA", ESTB: "ESTIBADO" };
 const horaDe = en => { const m = /\s(\d{2}):(\d{2})/.exec(en || ""); if (!m) return ""; let hh = +m[1]; const ap = hh >= 12 ? "p. m." : "a. m."; hh = hh % 12 || 12; return `${hh}:${m[2]} ${ap}`; };
+// Novedades sin revisar (para el número del menú): fecha corta + estibado distinto
+const entNovedades = d => (d.alertas || []).length + (d.estibado || []).filter(x => !x.revisadaPor && !x.alerta).length;
 VISTAS.entradas = async (el, p, vigente) => {
   let dia = p.dia || trjHoy(), tab = ENT_TABS[p.tab] ? p.tab : (ENT_TABS[ls.get("entTab", "HIST")] ? ls.get("entTab", "HIST") : "HIST");
   let d = await api("webEntradas", dia);
   if (!vigente()) return;
   const yo = S.usuario ? S.usuario.nombre : "";
-  const poner = x => { d = x; S.entAlertas = (d.alertas || []).length; if (S.usuario) pintarNav(); pintar(); };
-  S.entAlertas = (d.alertas || []).length; if (S.usuario) pintarNav();
-  el.innerHTML = cab("🚛 Entradas de producto", "Lo que se registró al imprimir en «Rótulos para T1». Historial del día (en verde con ✓ lo que ya está en el WMS), alertas de producto que entró con menos de 90 días para vencer (las marca revisadas un rotador o administrador) y lo que todavía no aparece en el WMS (en rojo después de 8 horas).",
+  const poner = x => { d = x; S.entAlertas = entNovedades(d); if (S.usuario) pintarNav(); pintar(); };
+  S.entAlertas = entNovedades(d); if (S.usuario) pintarNav();
+  el.innerHTML = cab("🚛 Entradas de producto", "Lo que se registró al imprimir en «Rótulos para T1». Toca una entrada para ver todo. Colores: rojo claro = entró con menos de 90 días para vencer; amarillo = estibado distinto al de la hoja Sku; azul claro = ya revisada (la revisa un rotador o administrador).",
       vistaPermitida("rotentrada") ? `<button class="btn primary" data-ir="rotentrada">📥 Rótulos para T1</button>` : "") +
-    `<div class="lista-tools"><div class="seg" id="enT"></div></div><div id="enC"></div>`;
-  const fila = (x, conAcc) => {
+    `<div class="epr-tabs"><div class="seg seg-sm" id="enT1"></div><div class="seg seg-sm" id="enT2"></div></div><div id="enC"></div>`;
+  // Cada entrada: cerrada, el producto y las estibas; abierta, lo demás (al final la hora y quién)
+  const fila = x => {
     const anul = x.estado === "ANULADA", puedeAn = !anul && (x.por === yo || puede("validador"));
-    return `<article class="card epr-row ${x.wms && !anul ? "ok" : ""} ${anul ? "anul" : ""} ${!x.wms && !anul && x.horas >= 8 ? "tarde" : ""}">
-      <div class="row sb" style="flex-wrap:nowrap;align-items:flex-start"><div><span class="epr-hora">${h(horaDe(x.en))}</span> <span class="small muted">T${h(x.turno)} · ${h(trjMay(x.por))}</span></div>
-        ${anul ? `<span class="pill">ANULADA</span>` : x.wms ? `<span class="pill ok epr-ok" title="Verificado en el WMS ${h(x.wmsEn)}">✓ VERIFICADO EN WMS</span>` : x.horas >= 8 ? `<span class="pill bad">NO ESTÁ EN EL WMS · ${fm(Math.floor(x.horas))} H</span>` : ""}</div>
-      <div class="prod">${skuTxt(x.sku, x.prod)}</div>
-      <div class="epr-g"><span><small>VENCE</small><b>${h(trjDmy(x.vence))}</b><em>${fm(x.dias)} días</em></span><span><small>ESTIBAS</small><b>${fm(x.est)}</b></span>
-        <span><small>ESTIBADO</small><b>${x.cpe ? fm(x.cpe) : "—"}</b><em>cajas x estiba</em></span><span><small>TOTAL</small><b>${x.tot ? fm(x.tot) : "—"}</b><em>cajas</em></span></div>
-      ${x.alerta && !anul ? `<div class="small epr-al ${x.revisadaPor ? "rev" : ""}">${x.revisadaPor ? `✔ Alerta revisada por <b>${h(x.revisadaPor)}</b> · ${h(x.revisadaEn)}${x.nota ? ` · 📝 ${h(x.nota)}` : ""}` : `⚠️ Entró con ${fm(x.dias)} días para vencer (menos de 90)`}</div>` : ""}
-      ${x.wms && !anul && x.wmsEst !== null && x.wmsEst !== undefined && Number(x.wmsEst) !== Number(x.est) ? `<div class="small muted">En el WMS: ${fm(x.wmsEst)} estibas de ese vencimiento</div>` : ""}
-      ${anul ? `<div class="small muted">Anulada por ${h(x.anuladaPor)} · ${h(x.motivo)}</div>` : ""}
-      ${conAcc ? `<div class="row epr-acc">${conAcc(x)}${puedeAn ? `<button class="btn sm b-rojo" data-an="${h(x.id)}">Anular</button>` : ""}</div>` : (puedeAn ? `<div class="row epr-acc"><button class="btn sm b-rojo" data-an="${h(x.id)}">Anular</button></div>` : "")}</article>`;
+    const nov = !anul && (x.alerta || x.estDif), rev = nov && !!x.revisadaPor;
+    const col = anul ? "anul" : rev ? "rev" : x.alerta ? "corta" : x.estDif ? "estb" : "";
+    const ab = abierto("epr", String(x.id));
+    const marca = anul ? `<span class="epr-mk">ANULADA</span>` : x.wms ? `<span class="epr-mk ok" title="Ya está en el WMS">✓ WMS</span>` : x.horas >= 8 ? `<span class="epr-mk bad">${fm(Math.floor(x.horas))} H SIN WMS</span>` : "";
+    const revBtn = nov && !rev && puede("validador") ? `<button class="btn sm epr-b-rev" data-rev="${h(x.id)}">✔ Marcar revisada</button>` : "";
+    return `<article class="epr-row plegable ${col} ${ab ? "abierto" : ""}">
+      <div class="pl-cab epr-cab" data-plegar="epr|${h(x.id)}" role="button" tabindex="0" aria-expanded="${ab}">
+        <div class="epr-n">${skuTxt(x.sku, x.prod)}</div><div class="epr-est"><b>${fm(x.est)}</b> est.</div>${marca}<span class="pl-flecha" aria-hidden="true">▾</span></div>
+      <div class="pl-cuerpo epr-det">
+        <div class="epr-g"><span><small>VENCE</small><b>${h(trjDmy(x.vence))}</b><em>${fm(x.dias)} días al entrar</em></span>
+          <span><small>ESTIBADO</small><b>${x.cpe ? fm(x.cpe) : "—"}</b><em>${x.estDif ? `Sku dice ${fm(x.cpeSku)}` : "cajas x estiba"}</em></span><span><small>TOTAL</small><b>${x.tot ? fm(x.tot) : "—"}</b><em>cajas</em></span></div>
+        ${x.alerta && !anul ? `<div class="epr-nov">⚠️ Entró con ${fm(x.dias)} días para vencer (menos de 90)</div>` : ""}
+        ${x.estDif && !anul ? `<div class="epr-nov">📦 Estibado distinto: ${fm(x.cpe)} cajas por estiba (en Sku: ${fm(x.cpeSku)})</div>` : ""}
+        ${rev ? `<div class="epr-nov rev">✔ Revisada por <b>${h(x.revisadaPor)}</b> · ${h(x.revisadaEn)}${x.nota ? ` · 📝 ${h(x.nota)}` : ""}</div>` : ""}
+        ${!anul ? `<div class="small">${x.wms ? `✓ En el WMS desde ${h(x.wmsEn)}${x.wmsEst !== null && x.wmsEst !== undefined && Number(x.wmsEst) !== Number(x.est) ? ` · allá dice ${fm(x.wmsEst)} estibas de ese vencimiento` : ""}` : `⏳ Todavía no aparece en el WMS${x.horas >= 8 ? ` (${fm(Math.floor(x.horas))} horas)` : ""}`}</div>` : `<div class="small">Anulada por ${h(x.anuladaPor)} · ${h(x.motivo)}</div>`}
+        ${revBtn || puedeAn ? `<div class="row epr-acc">${revBtn}${puedeAn ? `<button class="btn sm b-rojo" data-an="${h(x.id)}">Anular</button>` : ""}</div>` : ""}
+        <div class="epr-quien">${h(fechaDMY(x.dia))} · ${h(horaDe(x.en))} · T${h(x.turno)} · ${h(trjMay(x.por))}</div>
+      </div></article>`;
   };
+  const lista = (l, vacioTxt, emo) => l.length ? `<div class="epr-l">${l.map(fila).join("")}</div>` : vacio(vacioTxt, emo);
   const pintar = () => {
-    const n = { HIST: d.lista.filter(x => x.estado === "ACTIVA").length, ALER: d.alertas.length, PEND: d.pendientes.length };
-    $("#enT", el).innerHTML = Object.keys(ENT_TABS).map(k => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${ENT_TABS[k]} <span class="sec-n ${k !== "HIST" && n[k] ? "bad" : ""}">${n[k]}</span></button>`).join("");
+    const nAl = (d.cortas || d.alertas).filter(x => !x.revisadaPor).length, nEs = (d.estibado || []).filter(x => !x.revisadaPor).length;
+    const n = { HIST: d.lista.filter(x => x.estado === "ACTIVA").length, PEND: d.pendientes.length, ALER: nAl, ESTB: nEs };
+    const bt = k => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${ENT_TABS[k]} <span class="sec-n ${k !== "HIST" && n[k] ? "bad" : ""}">${n[k]}</span></button>`;
+    $("#enT1", el).innerHTML = bt("HIST") + bt("PEND");
+    $("#enT2", el).innerHTML = bt("ALER") + bt("ESTB");
     let html = "";
     if (tab === "HIST") {
-      const act = d.lista.filter(x => x.estado === "ACTIVA"), tot = {};
-      act.forEach(x => { const t = tot[x.sku] = tot[x.sku] || { sku: x.sku, prod: x.prod, est: 0, tot: 0 }; t.est += x.est || 0; t.tot += x.tot || 0; });
-      const res = Object.values(tot).sort((a, b) => b.est - a.est);
+      // Las anuladas van aparte, al final, y solo si se piden
+      const act = d.lista.filter(x => x.estado === "ACTIVA"), anuladas = d.lista.filter(x => x.estado !== "ACTIVA");
       html = `<div class="epr-dia"><button class="btn sm" data-dmov="-1" aria-label="Día anterior">◀</button><label class="field"><span>DÍA</span><input type="date" id="enD" value="${h(d.dia)}"></label><button class="btn sm" data-dmov="1" aria-label="Día siguiente" ${d.dia >= trjHoy() ? "disabled" : ""}>▶</button>${d.dia !== trjHoy() ? `<button class="btn sm" data-dhoy>HOY</button>` : ""}</div>
-        ${res.length ? `<div class="card epr-res"><div class="small muted">${act.length} ${act.length === 1 ? "entrada" : "entradas"} · ${fm(res.reduce((a, x) => a + x.est, 0))} estibas · ${act.filter(x => x.wms).length} verificadas en el WMS</div>${res.map(x => `<div class="epr-res-f"><span>${skuTxt(x.sku, x.prod)}</span><b>${fm(x.est)} est.${x.tot ? ` · ${fm(x.tot)} cj` : ""}</b></div>`).join("")}</div>` : ""}
-        ${d.lista.length ? `<div class="grid epr-l">${d.lista.map(x => fila(x)).join("")}</div>` : vacio("No hubo entradas ese día.", "🚛")}`;
+        ${act.length ? `<div class="small muted epr-res">${act.length} ${act.length === 1 ? "entrada" : "entradas"} · ${fm(act.reduce((a, x) => a + (x.est || 0), 0))} estibas · ${act.filter(x => x.wms).length} en el WMS</div>` : ""}
+        ${lista(act, d.lista.length ? "Ese día solo hay entradas anuladas." : "No hubo entradas ese día.", "🚛")}
+        ${anuladas.length ? `<button type="button" class="btn sm ghost epr-anul-b" data-veran>${verAnul ? "Ocultar" : "Ver"} ${anuladas.length} ${anuladas.length === 1 ? "anulada" : "anuladas"}</button>${verAnul ? `<div class="epr-l">${anuladas.map(fila).join("")}</div>` : ""}` : ""}`;
+    } else if (tab === "PEND") {
+      html = lista(d.pendientes, "Todo lo que entró ya aparece en el WMS.", "✅");
     } else if (tab === "ALER") {
-      html = d.alertas.length ? `<div class="grid epr-l">${d.alertas.map(x => fila(x, y => puede("validador") ? `<button class="btn sm b-verde" data-rev="${h(y.id)}">✔ Marcar revisada</button>` : `<span class="small muted">La revisa un rotador o administrador</span>`)).join("")}</div>`
-        : vacio("No hay alertas: todo lo que entró tiene 90 días o más para vencer, o ya se revisó.", "✅");
+      html = lista(d.cortas || d.alertas, "Nada entró con menos de 90 días para vencer.", "✅");
     } else {
-      html = d.pendientes.length ? `<div class="note small ayuda" style="margin-bottom:10px">Se quitan solas cuando la sincronización con el WMS encuentra el producto con esa fecha de vencimiento. En rojo: más de 8 horas.</div><div class="grid epr-l">${d.pendientes.map(x => fila(x)).join("")}</div>`
-        : vacio("Todo lo que entró ya aparece en el WMS.", "✅");
+      html = lista(d.estibado || [], "Todo entró con el estibado de la hoja Sku.", "✅");
     }
     $("#enC", el).innerHTML = html;
     const di = $("#enD", el); if (di) di.onchange = () => { if (di.value) ir("entradas", { dia: di.value, tab: "HIST" }); };
   };
+  let verAnul = false;
+  const todas = () => d.lista.concat(d.alertas || [], d.cortas || [], d.estibado || [], d.pendientes);
   el.onclick = async e => {
-    const ti = e.target.closest("#enT [data-t]"); if (ti) { tab = ti.dataset.t; ls.set("entTab", tab); pintar(); return; }
+    const ti = e.target.closest(".epr-tabs [data-t]"); if (ti) { tab = ti.dataset.t; ls.set("entTab", tab); pintar(); return; }
+    if (e.target.closest("[data-veran]")) { verAnul = !verAnul; pintar(); return; }
     const go = e.target.closest("[data-ir]"); if (go) return ir(go.dataset.ir);
     const mv = e.target.closest("[data-dmov]"); if (mv) return ir("entradas", { dia: trjMenos(d.dia, -Number(mv.dataset.dmov)), tab: "HIST" });
     if (e.target.closest("[data-dhoy]")) return ir("entradas", { dia: trjHoy(), tab: "HIST" });
     const an = e.target.closest("[data-an]");
     if (an) {
-      const x = d.lista.concat(d.alertas, d.pendientes).find(y => String(y.id) === an.dataset.an); if (!x) return;
+      const x = todas().find(y => String(y.id) === an.dataset.an); if (!x) return;
       const c = abrirModal(`<h3>Anular entrada</h3><p>${skuTxt(x.sku, x.prod)} · vence ${h(trjDmy(x.vence))} · <b>${fm(x.est)} estibas</b></p>
         <label class="field"><span>Motivo</span><input type="text" id="anM" maxlength="200" placeholder="Ej: reimpresión, error en la fecha" list="anML"><datalist id="anML"><option>Reimpresión</option><option>Error en la fecha</option><option>Error en el producto</option><option>Error en la cantidad</option></datalist></label>
         <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn danger" id="anOk">Anular</button></div>`);
@@ -4738,13 +4758,14 @@ VISTAS.entradas = async (el, p, vigente) => {
     }
     const rv = e.target.closest("[data-rev]");
     if (rv) {
-      const x = d.alertas.find(y => String(y.id) === rv.dataset.rev); if (!x) return;
-      const c = abrirModal(`<h3>Marcar alerta revisada</h3><p>${skuTxt(x.sku, x.prod)} · vence ${h(trjDmy(x.vence))} (${fm(x.dias)} días al entrar) · ${fm(x.est)} estibas</p>
+      const x = todas().find(y => String(y.id) === rv.dataset.rev); if (!x) return;
+      const que = [x.alerta ? `entró con ${fm(x.dias)} días para vencer` : "", x.estDif ? `estibado de ${fm(x.cpe)} (Sku: ${fm(x.cpeSku)})` : ""].filter(Boolean).join(" · ");
+      const c = abrirModal(`<h3>Marcar revisada</h3><p>${skuTxt(x.sku, x.prod)} · vence ${h(trjDmy(x.vence))} · ${fm(x.est)} estibas</p><p class="small muted">${h(que)}</p>
         <label class="field"><span>Nota (opcional)</span><input type="text" id="rvN" maxlength="300" placeholder="Ej: sale por T1, se habló con calidad"></label>
         <div class="modal-actions"><button class="btn" data-x>Cancelar</button><button class="btn b-verde" id="rvOk">✔ Revisada</button></div>`);
       $("#rvOk", c).onclick = async () => {
         const b = $("#rvOk", c); ocupado(b, true);
-        try { const r = await api("webEntradaRevisar", x.id, $("#rvN", c).value.trim()); ocupado(b, false); cerrarModal(true); toast("Alerta revisada", "ok"); poner(r.dia === d.dia ? r : Object.assign({}, d, { alertas: r.alertas, pendientes: r.pendientes })); }
+        try { const r = await api("webEntradaRevisar", x.id, $("#rvN", c).value.trim()); ocupado(b, false); cerrarModal(true); toast("Revisada", "ok"); poner(r.dia === d.dia ? r : Object.assign({}, d, { alertas: r.alertas, cortas: r.cortas, estibado: r.estibado, pendientes: r.pendientes })); }
         catch (er) { ocupado(b, false); toast(er.message, "bad", 6000); }
       };
       return;
@@ -5087,26 +5108,29 @@ VISTAS.actualizacion = async (el, p, vigente) => {
 // =====================================================================
 const puedeMarcar = () => !!S.usuario && ["verificador", "validador", "administrador"].includes(S.usuario.rol);
 // S.marcas: [id, sku, producto, módulo, canal, forzado, días, mínimo, por, en, nota]
-const marcaObj = r => ({ id: r[0], sku: r[1], prod: r[2], m: r[3], canal: r[4], forzado: !!r[5], dias: r[6], min: r[7], por: r[8], en: r[9], nota: r[10] || "" });
+// v = fecha de vencimiento del lote marcado ("" en las marcas viejas: valen para todo el producto en el módulo)
+const marcaObj = r => ({ id: r[0], sku: r[1], prod: r[2], m: r[3], canal: r[4], forzado: !!r[5], dias: r[6], min: r[7], por: r[8], en: r[9], nota: r[10] || "", v: r[11] || "" });
 // Lotes con marca forzada: salen en «Disponible» (y en el canal marcado) aunque no cumplan o estén bloqueados
-const forzadoEn = (i, canal) => typeof marcasDe === "function" && marcasDe(i.s, i.m).some(x => x.forzado && (!canal || x.canal === canal));
+const forzadoEn = (i, canal) => typeof marcasDe === "function" && marcasDe(i.s, i.m, i.v).some(x => x.forzado && (!canal || x.canal === canal));
 const marcasTodas = () => (S.marcas || []).map(marcaObj);
-const marcasDe = (sku, m) => marcasTodas().filter(x => x.sku === String(sku) && x.m === String(m)).sort((a, b) => a.canal.localeCompare(b.canal));
+// Con v (fecha del lote): solo la marca de ese lote; sin v: todas las del producto en el módulo
+const marcasDe = (sku, m, v) => marcasTodas().filter(x => x.sku === String(sku) && x.m === String(m) && (!v || !x.v || x.v === String(v).slice(0, 10))).sort((a, b) => a.canal.localeCompare(b.canal));
 function guardarMarcas(lista) { S.marcas = Array.isArray(lista) ? lista : []; ls.setJ("marcas", S.marcas); if (S.usuario) pintarNav(); }
 // Etiquetas para las tarjetas
-function tagsMarcas(sku, m) {
-  return marcasDe(sku, m).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}${x.nota ? " · Nota: " + h(x.nota) : ""}">⚠️ Forzado ${h(x.canal)}${x.nota ? ` · 📝 ${h(x.nota.length > 60 ? x.nota.slice(0, 58) + "…" : x.nota)}` : ""}</span>` : ""}`);
+function tagsMarcas(sku, m, v) {
+  return marcasDe(sku, m, v).map(x => `<span class="tag t-cons" title="Marcado por ${h(x.por)} · ${h(fechaCorta(x.en))}${x.v ? ` · lote que vence ${h(fechaDMY(x.v))}` : ""}">🚚 Consumo ${h(CANALES[x.canal] || x.canal)} · @${h(x.por)}</span>${x.forzado ? `<span class="tag t-forz" title="La fecha no cumple los días mínimos de ${h(x.canal)}${x.nota ? " · Nota: " + h(x.nota) : ""}">⚠️ Forzado ${h(x.canal)}${x.nota ? ` · 📝 ${h(x.nota.length > 60 ? x.nota.slice(0, 58) + "…" : x.nota)}` : ""}</span>` : ""}`);
 }
-const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}" title="Marcar módulo en consumo">🚚 ${marcasDe(i.s, i.m).length ? "Marcado" : "Marcar"}</button>` : "";
+const botonMarcar = i => puedeMarcar() && i.fis ? `<button type="button" class="btn sm mc-btn" data-marcar="${h(i.s)}|${h(i.m)}|${h(i.v || "")}" title="Marcar este producto (este lote) en consumo">🚚 ${marcasDe(i.s, i.m, i.v).length ? "Marcado" : "Marcar"}</button>` : "";
 // Ventana: escoger el canal (o quitar el que ya está)
-function modalMarcar(sku, m) {
-  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis);
+// Marca solo el lote tocado (producto + fecha de vencimiento) en el módulo; sin fecha, el que vence primero
+function modalMarcar(sku, m, v) {
+  const lotes = (S.inv || []).filter(i => i.s === sku && i.m === m && i.fis && (!v || i.v === v));
   if (!lotes.length) return toast("Ese producto ya no está en el módulo.", "warn");
   const i = lotes.slice().sort((a, b) => a.d - b.d)[0];   // el que vence primero manda
   const tot = lotes.reduce((a, x) => ({ e: a.e + x.e, c: a.c + x.c, u: a.u + x.u }), { e: 0, c: 0, u: 0 });
   const pintar = () => {
-    const ya = marcasDe(sku, m);
-    return `<h3>🚚 Módulo en consumo</h3><div class="mc-info">${modChip(m)} <b>${skuTxt(sku, i.p)}</b><div class="small">${qty(tot.e, tot.c, tot.u)} · vence <b>${h(i.vf)}</b> (${i.d === 9999 ? "sin fecha" : i.d + " días"})${!i.disp ? ` · <span class="pill bad">BLOQ</span>` : ""}</div></div>
+    const ya = marcasDe(sku, m, i.v);
+    return `<h3>🚚 Módulo en consumo</h3><div class="mc-info">${modChip(m)} <b>${skuTxt(sku, i.p)}</b><div class="small">${qty(tot.e, tot.c, tot.u)} · lote que vence <b>${h(i.vf)}</b> (${i.d === 9999 ? "sin fecha" : i.d + " días"})${!i.disp ? ` · <span class="pill bad">BLOQ</span>` : ""}</div></div>
       <p class="small muted">¿Para qué canal se está cargando de este módulo? Puede estar en varios.</p>
       <div class="mc-cans">${["T1", "T2", "KA"].map(c => { const mk = ya.find(x => x.canal === c), ok = cumpleCanal(i, c), mn = (i.min || {})[c];
         return `<div class="mc-can ${mk ? "on" : ""} ${ok ? "si" : "no"}"><div><b>${h(CANALES[c])}</b><div class="small">${ok ? `✅ Cumple (mínimo ${h(mn)} días)` : `⛔ No cumple${!i.disp ? " (bloqueado)" : ` · mínimo ${h(mn)} días`}`}</div>
@@ -5145,7 +5169,7 @@ async function marcarCanal(sku, m, canal, i) {
     nota = r.nota;
   }
   try {
-    guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn), nota: nota }));
+    guardarMarcas(await api("webMarcaPoner", { sku: sku, producto: i.p, modulo: m, vence: i.v || "", canal: canal, forzado: !ok, dias: i.d === 9999 ? "" : String(i.d), minimo: mn === undefined ? "" : String(mn), nota: nota }));
     toast(`${m} en consumo para ${CANALES[canal]}${ok ? "" : " (forzado)"}`, ok ? "ok" : "warn", 3500);
     return true;
   } catch (er) { toast(er.message, "bad", 6000); return false; }
@@ -5159,7 +5183,7 @@ function confirmarForzado(titulo, texto) {
     $("#mfOk", c).onclick = () => { const nota = $("#mfN", c).value.trim(); modalOnClose = null; cerrarModal(true); res({ nota: nota }); };
   });
 }
-document.addEventListener("click", e => { const b = e.target.closest("[data-marcar]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m] = b.dataset.marcar.split("|"); modalMarcar(s, m); }, true);
+document.addEventListener("click", e => { const b = e.target.closest("[data-marcar]"); if (!b) return; e.preventDefault(); e.stopPropagation(); const [s, m, v] = b.dataset.marcar.split("|"); modalMarcar(s, m, v || ""); }, true);
 
 // Sección «Módulos en consumo»: las marcas activas con lo que hay hoy en el módulo y su última actualización
 VISTAS.enconsumo = async (el, p, vigente) => {
@@ -5173,7 +5197,7 @@ VISTAS.enconsumo = async (el, p, vigente) => {
     $$("#mcF button", el).forEach(b => b.classList.toggle("on", b.dataset.c === canal));
     const nq = norm(q).split(/\s+/).filter(x => x);
     const lis = marcasTodas().filter(x => (!canal || x.canal === canal) && (!nq.length || coincide(norm(`${x.sku} ${x.prod} ${x.m}`), nq) > 0)).map(x => {
-      const lotes = inv.filter(i => i.s === x.sku && i.m === x.m && i.fis);
+      const lotes = inv.filter(i => i.s === x.sku && i.m === x.m && i.fis && (!x.v || i.v === x.v));
       const t = lotes.reduce((a, i) => { const tt = i.act ? new Date(i.act).getTime() : NaN; return isNaN(tt) ? a : Math.max(a, tt); }, 0);
       const hrs = t ? Math.max(0, (Date.now() - t) / 36e5) : null;
       return Object.assign(x, { lotes: lotes, hrs: hrs, niv: nivelAct(hrs), tot: lotes.reduce((a, i) => ({ e: a.e + i.e, c: a.c + i.c, u: a.u + i.u }), { e: 0, c: 0, u: 0 }), vf: lotes[0] ? lotes[0].vf : "", d: lotes.length ? Math.min(...lotes.map(i => i.d)) : null, vida: lotes[0] ? lotes[0].vida : "sin" });

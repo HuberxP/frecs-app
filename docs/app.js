@@ -4192,10 +4192,10 @@ function trjAjustar(raiz) {
 const TRJ_MK = {
   f: { t: "𝐹𝓇𝑒𝒸𝓈! ツ", fam: 'Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif', peso: 700, mm: 4.2, color: "#111111" },
   a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.6, color: "#4a4a4a" },
-  s: { t: "", fam: '"Frecs Marcacion", Arial, sans-serif', peso: 700, mm: 2.8, color: "#222222" } };
-// Sello de los rótulos: fecha y hora de impresión y quién lo imprimió
+  s: { t: "", fam: '"Frecs Marcacion", Arial, sans-serif', peso: 400, mm: 2.8, color: "#222222" } };
+// Sello de los rótulos: solo la fecha y la hora de impresión
 const rtuSello = () => { const d = new Date(); let hh = "", fe = trjDmy(trjHoy()); try { hh = d.toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).replace(/\s+/g, " "); } catch (e) { hh = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; }
-  return `IMPRESO ${fe} ${hh}${S.usuario ? " · " + trjMay(S.usuario.nombre) : ""}`; };
+  return `${fe} ${hh}`; };
 const TRJ_MARCAS = `<span class="trj-mk trj-mk-f">${TRJ_MK.f.t}</span><span class="trj-mk trj-mk-a">${TRJ_MK.a.t}</span>`;
 // Para el PDF: la marca como imagen (jsPDF no tiene esas letras); medidas en mm
 function trjMarcaImg(m) {
@@ -4531,7 +4531,7 @@ function marcaDeModulo(it, rot) {
 //   · Rótulos bodega: imprimir o reimprimir (no registra nada); con lista para un solo PDF.
 //   · Rótulos de entrada: igual, pero al imprimir registra la entrada (Entradas de producto).
 // Envasado = vencimiento − vida útil · recibo = el día en que se imprime · límite = vencimiento − T2
-// Verificador y Rotador van en blanco; arriba a la derecha de la hoja, la fecha, la hora y quién imprimió.
+// Verificador y Rotador van en blanco; arriba a la derecha de la hoja, la fecha y la hora de impresión.
 // =====================================================================
 function rtuEstado(entrada) {
   const k = entrada ? "rte" : "rtu";
@@ -4576,7 +4576,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   // Visibles: producto, vencimiento y copias (o número de rótulos). Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
   const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
   el.innerHTML = (entrada
-    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con la fecha, la hora y quién lo imprimió arriba a la derecha de la hoja. En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
+    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con la fecha y la hora de impresión arriba a la derecha de la hoja. En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
     : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>

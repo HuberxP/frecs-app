@@ -470,6 +470,8 @@
       await rpc("usuario_guardar", { p_token: tk, p_original: o.nombreOriginal || "", p_nombre: o.nombre || "", p_rol: o.rol || "", p_pin: o.pin || "", p_activo: o.activo !== false });
     }
     if (fn === "webUsuarioEliminar") await rpc("usuario_eliminar", { p_token: tk, p_nombre: args[1] });
+    // Cerrar las sesiones de un usuario (tendrá que ingresar de nuevo con su PIN)
+    if (fn === "webUsuarioCerrarSesiones") return ok(await rpc("usuario_cerrar_sesiones", { p_token: tk, p_nombre: String(args[1] || "") }));
     if (fn === "webCambiarPin") { await rpc("cambiar_pin", { p_token: tk, p_actual: args[1], p_nuevo: args[2] }); return ok(true); }
     return ok(await rpc("usuarios_listar", { p_token: tk }));
   }
@@ -538,7 +540,7 @@
       }
       if (fn === "webPushSuscribir") return ok(await rpc("push_suscribir", { p_token: args[0], p_sub: args[1] || {} }));
       if (fn === "webPushQuitar") return ok(await rpc("push_quitar", { p_token: args[0], p_endpoint: String(args[1] || "") }));
-      if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
+      if (["webUsuarios", "webUsuarioGuardar", "webUsuarioEliminar", "webUsuarioCerrarSesiones", "webCambiarPin"].includes(fn)) return await usuarios(fn, args, ok);
       if (["webReportes", "webReporteCrear", "webReporteCerrar"].includes(fn)) return await reportes(fn, args, ok);
       // Rotulación de módulos (funciones de Supabase)
       const ROT = {

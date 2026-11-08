@@ -5973,17 +5973,24 @@ VISTAS.usuarios = async (el, p, vigente) => {
   const lis = await api("webUsuarios");
   if (!vigente()) return;
   const pintar = lis2 => {
-    el.innerHTML = cab("👥 Usuarios y PIN", "Quién entra al dashboard y qué puede hacer", `<button class="btn primary" data-a="nuevo">＋ Nuevo usuario</button>`) +
+    el.innerHTML = cab("👥 Usuarios y PIN", "Quién entra al dashboard y qué puede hacer. En «Sesión» se ve quién tiene la sesión abierta (dura 7 días desde la última vez que usó la app) y en cuántos equipos; «Cerrar sesión» lo obliga a ingresar de nuevo con su PIN.", `<button class="btn primary" data-a="nuevo">＋ Nuevo usuario</button>`) +
       `<div class="note ayuda">Roles: <b>verificador</b> solo ve Stock, Información de producto y Por módulo, y reporta módulos vacíos o con conflicto · <b>opm</b> igual que el verificador y además ve prioridades, tapacódigos y reempaques; es el que surte PK (T2), T1 o KA y usa el switch 🚦 de canal · <b>lector</b> solo consulta · <b>rotador</b> abre y cierra turnos, valida, hace la entrega, la conciliación y limbo · <b>administrador</b> además maneja usuarios, la hoja Sku, los canales, la lista de consumo y la alerta de pocos.</div>
-      <table class="tabla resp"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Creado</th><th></th></tr></thead><tbody>
+      <table class="tabla resp"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Sesión</th><th>Último acceso</th><th>Creado</th><th></th></tr></thead><tbody>
       ${lis2.map(u => `<tr><td data-l="Nombre"><b>${h(u.nombre)}</b></td><td data-l="Rol">${h(rolTxt(u.rol))}</td><td data-l="Estado">${u.activo ? `<span class="pill ok">Activo</span>` : `<span class="pill bad">Inactivo</span>`}</td>
+        <td data-l="Sesión">${sesionTxt(u)}</td>
         <td data-l="Último acceso">${h(fechaCorta(u.ultimo) || "—")}</td><td data-l="Creado" class="small">${h(fechaCorta(u.creado))} · ${h(u.creadoPor)}</td>
-        <td class="acc"><button class="btn sm" data-a="editar" data-n="${h(u.nombre)}">Editar</button> <button class="btn sm del" data-a="borrar" data-n="${h(u.nombre)}">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`;
+        <td class="acc">${u.sesiones ? `<button class="btn sm" data-a="cerrar" data-n="${h(u.nombre)}" title="Cerrar sus sesiones: tendrá que ingresar de nuevo con su PIN">Cerrar sesión</button> ` : ""}<button class="btn sm" data-a="editar" data-n="${h(u.nombre)}">Editar</button> <button class="btn sm del" data-a="borrar" data-n="${h(u.nombre)}">${ICO_DEL}</button></td></tr>`).join("")}</tbody></table>`;
     el.onclick = async e => {
       const b = e.target.closest("[data-a]"); if (!b) return;
       if (b.dataset.a === "nuevo") return modalUsuario(null, pintar);
       const u = lis2.find(x => x.nombre === b.dataset.n);
       if (b.dataset.a === "editar") return modalUsuario(u, pintar);
+      if (b.dataset.a === "cerrar") {
+        const yo = S.usuario && S.usuario.nombre === u.nombre;
+        if (!(await confirmar("Cerrar sesión", `¿Cerrar la sesión de <b>${h(u.nombre)}</b> en ${u.sesiones === 1 ? "su equipo" : `sus ${u.sesiones} equipos`}? Tendrá que ingresar de nuevo con su nombre y PIN.${yo ? "<br><br>Es tu usuario: se cierran tus otros equipos, este no." : ""}`, "Cerrar sesión", true))) return;
+        try { pintar(await api("webUsuarioCerrarSesiones", u.nombre)); toast(`Sesión de ${u.nombre} cerrada`, "ok"); } catch (er) { toast(er.message, "bad", 6000); }
+        return;
+      }
       if (b.dataset.a === "borrar") {
         if (!(await confirmar("Borrar usuario", `¿Borrar a <b>${h(u.nombre)}</b>? Ya no podrá entrar.`, "Borrar", true))) return;
         try { pintar(await api("webUsuarioEliminar", u.nombre)); toast("Usuario borrado", "ok"); } catch (er) { toast(er.message, "bad", 6000); }
@@ -5992,6 +5999,13 @@ VISTAS.usuarios = async (el, p, vigente) => {
   };
   pintar(lis);
 };
+// Sesiones abiertas de un usuario: «En uso» si la usó en los últimos 15 minutos
+function sesionTxt(u) {
+  if (!u.sesiones) return `<span class="muted">—</span>`;
+  const min = u.min === null || u.min === undefined ? null : Number(u.min);
+  const uso = min !== null && min < 15 ? `<span class="pill ok">🟢 En uso</span>` : `<span class="pill">Abierta</span>`;
+  return `${uso} <span class="small muted">${u.sesiones === 1 ? "1 equipo" : `${u.sesiones} equipos`}${u.usado ? ` · usó ${h(fechaCorta(u.usado))}` : ""}</span>`;
+}
 function modalUsuario(u, alGuardar) {
   const c = abrirModal(`<h3>${u ? "Editar usuario" : "Nuevo usuario"}</h3>
     <label class="field"><span>Nombre</span><input type="text" id="uN" maxlength="40" value="${h(u ? u.nombre : "")}"></label>

@@ -4569,7 +4569,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   // Visibles: producto, vencimiento y copias (o número de rótulos). Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
   const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
   el.innerHTML = (entrada
-    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen los rótulos numerados (ESTIBA 1 DE 5…), con tu nombre en «Verificador». En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
+    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con tu nombre en «Verificador». En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
     : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
@@ -4587,7 +4587,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   const cola = entrada ? null : trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", pagina: x => marcaHtml(x.d),
     etiqueta: x => `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">ESTIBA #${h(x.d.val)} · VENCE ${h(trjDmy(x.d.fVen) || "—")}</span>` });
   const numN = () => { const n = trjEnt(t.n); return n && n > 0 ? Math.min(200, n) : 0; };
-  const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, entrada && numN() ? `1 DE ${numN()}` : 1, entrada)));
+  const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, 1, entrada)));
   const pintarMas = trjMas(el, "rtMasB", "rtMas", AUTOS, t, entrada ? "rteMas" : "rtuMas");
   const pintar = desde => {
     a = rtuCalcular(t);
@@ -4624,8 +4624,8 @@ async function vistaRotulos(el, p, vigente, entrada) {
       pintar();
     };
   } else {
-    // Imprimir y registrar: un rótulo por estiba (ESTIBA 1 DE N…). Si hace poco se registró una igual, se pregunta.
-    const imprimir = n => trjImprimir(Array.from({ length: n }, (_, k) => marcaHtml(rtuDatos(t, a, `${k + 1} DE ${n}`, true))), "portrait");
+    // Imprimir y registrar: un rótulo por estiba (N copias iguales; «ESTIBA #» siempre 1). Si hace poco se registró una igual, se pregunta.
+    const imprimir = n => trjImprimir(Array.from({ length: n }, () => marcaHtml(rtuDatos(t, a, 1, true))), "portrait");
     $("#rtImp", el).onclick = async () => {
       if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
       if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }

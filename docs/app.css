@@ -1670,9 +1670,6 @@
   @font-face { font-family: "Frecs Marcacion"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-400.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Marcacion"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/marcacion-700.woff2") format("woff2"); }
   @font-face { font-family: "Frecs Rotulo"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/rotulo-700.woff2") format("woff2"); }
-  /* Rótulos y marcación: todo en negrilla tipo Times New Roman (salvo el producto y los nombres) */
-  .mrc * { font-weight: 700; }
-  .mrc .mrc-pn { font-weight: 400; }
   @font-face { font-family: "Patrick Hand"; font-weight: 400; font-style: normal; font-display: block; src: url("vendor/fuentes/patrick-hand-400.woff2") format("woff2"); }
   @font-face { font-family: "Fira Code"; font-weight: 700; font-style: normal; font-display: block; src: url("vendor/fuentes/fira-code-700.woff2") format("woff2"); }
   .trj, .mrc, .trj-fuera { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; font-kerning: normal; letter-spacing: 0; word-spacing: 0; }
@@ -1688,7 +1685,7 @@
   .trj-pie { font-weight: 400; justify-content: flex-end; }
   .trj-pie > span { text-align: right; }
   /* Tarjeta de marcación (carta vertical): rótulos y marcación de bodega */
-  .mrc { box-sizing: border-box; background: #fff; color: #000; font-family: "Times New Roman", "Frecs Rotulo", Times, serif; font-weight: 700; border: .3mm solid #000; border-radius: 3mm;
+  .mrc { box-sizing: border-box; background: #fff; color: #000; font-family: "Frecs Marcacion", Arial, "Liberation Sans", Helvetica, sans-serif; border: .3mm solid #000; border-radius: 3mm;
     padding: 3.5mm 4mm 4mm; display: flex; flex-direction: column; justify-content: space-between; line-height: 1.05; }
   .mrc .fit { display: block; width: 100%; text-align: center; overflow-wrap: normal; word-break: normal; }
   .mrc-box { border: .6mm solid #000; border-radius: 2.6mm; display: flex; align-items: center; overflow: hidden; min-width: 0; padding: 0 1.8mm; box-sizing: border-box; }
@@ -1704,8 +1701,8 @@
   .mrc-logo { display: flex; align-items: center; justify-content: center; padding: 1.5mm; border-left: .3mm solid #000; }
   .mrc-logo img { max-width: 100%; max-height: 100%; }
   .mrc-prod { display: grid; grid-template-columns: 1fr 42mm; gap: 3mm; flex: none; }
-  /* Nombre del producto en Bernard MT Condensed (si el equipo la tiene instalada; si no, una condensada parecida) */
-  .mrc-pn { height: 14mm; font-size: 8mm; font-weight: 400; font-family: "Bernard MT Condensed", "Bernard MT", "BernardMT-Condensed", "Frecs Rotulo", "Times New Roman", serif; }
+  /* Nombre del producto: negrilla tipo Times New Roman, grande (lo demás con la letra de siempre) */
+  .mrc-pn { height: 14mm; font-size: 9.5mm; font-weight: 700; font-family: "Times New Roman", "Frecs Rotulo", Times, serif; }
   .mrc-sn { height: 14mm; font-size: 10mm; font-weight: 700; }
   .mrc-red { border: .7mm solid #000; border-radius: 7mm; padding: 2.5mm 4mm 3mm; flex: none; }
   .mrc-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 2.5mm; }

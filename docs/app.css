@@ -1703,6 +1703,9 @@
   .mrc-prod { display: grid; grid-template-columns: 1fr 42mm; gap: 3mm; flex: none; }
   /* Nombre del producto: negrilla tipo Times New Roman, grande (lo demás con la letra de siempre) */
   .mrc-pn { height: 14mm; font-size: 9.5mm; font-weight: 700; font-family: "Times New Roman", "Frecs Rotulo", Times, serif; }
+  /* Aire entre el texto y el borde: el nombre largo se achica antes de tocar el recuadro */
+  .mrc-box.mrc-pn { padding: 1mm 5mm; }
+  .mrc-box.mrc-sn { padding: 0 3mm; }
   .mrc-sn { height: 14mm; font-size: 10mm; font-weight: 700; }
   .mrc-red { border: .7mm solid #000; border-radius: 7mm; padding: 2.5mm 4mm 3mm; flex: none; }
   .mrc-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 2.5mm; }

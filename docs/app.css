@@ -2005,7 +2005,7 @@
   .epr-tabs .seg button { flex: 1 1 0; min-width: 0; padding: 0 6px; white-space: nowrap; }
   .epr-l { display: flex; flex-direction: column; gap: 6px; }
   .epr-row.plegable { background: #fff; color: #111827; border: 1px solid #cbd5e1; border-left: 5px solid #94a3b8; border-radius: 10px; padding: 8px 12px; }
-  .epr-row.plegable.corta { background: #fee2e2; border-color: #fca5a5; border-left-color: #ef4444; }
+  .epr-row.plegable.corta { background: #fff; border-color: #cbd5e1; border-left-color: #ef4444; }
   .epr-row.plegable.estb { background: #fef9c3; border-color: #fde047; border-left-color: #eab308; }
   .epr-row.plegable.rev { background: #dbeafe; border-color: #93c5fd; border-left-color: #3b82f6; }
   .epr-row.plegable.anul { background: #f1f5f9; opacity: .75; }
@@ -2040,7 +2040,21 @@
   .trj-fila.rt-fila { grid-template-columns: minmax(0, 1fr) 92px; }
   .trj-fila.rt-fila.rt-ent { grid-template-columns: minmax(0, 1fr) 120px; }
   .rt-fila #rtN { text-align: center; padding-left: 4px; padding-right: 4px; }
-  .rt-fila #rtN::placeholder { font-size: 9.5px; letter-spacing: .02em; }/* ============ Versión web (Supabase) ============ */
+  .rt-fila #rtN::placeholder { font-size: 9.5px; letter-spacing: .02em; }
+
+  /* Entradas: vencimiento, estibado y total en cuadros pequeños, centrados y en negrilla (no se salen en el celular) */
+  .epr-row .epr-g { gap: 6px; }
+  .epr-row .epr-g > span { align-items: center; text-align: center; padding: 5px 4px; min-width: 0; }
+  .epr-row .epr-g small { font-size: 9.5px; font-weight: 800; letter-spacing: .03em; }
+  .epr-row .epr-g b { font-size: 13.5px; font-weight: 800; white-space: nowrap; }
+  .epr-row .epr-g em { font-size: 10px; font-weight: 700; line-height: 1.2; }
+  @media (max-width: 520px) {
+    .epr-row .epr-g { gap: 4px; }
+    .epr-row .epr-g b { font-size: 12.5px; }
+    .epr-row .epr-g small { font-size: 9px; }
+    .epr-row .epr-g em { font-size: 9.5px; }
+  }
+  @media (max-width: 520px) { .epr-dia { flex-wrap: nowrap; } .epr-dia .field { min-width: 0; flex: 1 1 auto; } }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

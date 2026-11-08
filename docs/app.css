@@ -2037,7 +2037,13 @@
     .epr-row .pl-cab.epr-cab { grid-template-columns: minmax(0, 1fr) auto auto; }
     .epr-row .epr-cab .epr-n { grid-column: 1 / -1; }
     .epr-row .epr-g { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  }/* ============ Versión web (Supabase) ============ */
+  }
+
+  /* Rótulos: la fecha de vencimiento ancha y las copias (o rótulos) en un cuadro pequeño al lado */
+  .trj-fila.rt-fila { grid-template-columns: minmax(0, 1fr) 92px; }
+  .trj-fila.rt-fila.rt-ent { grid-template-columns: minmax(0, 1fr) 120px; }
+  .rt-fila #rtN { text-align: center; padding-left: 4px; padding-right: 4px; }
+  .rt-fila #rtN::placeholder { font-size: 9.5px; letter-spacing: .02em; }/* ============ Versión web (Supabase) ============ */
 .web-aviso { margin-top: var(--top-h); padding: 6px 14px; font-size: 12.5px; background: var(--cyan-soft); color: #bff4fb; border-bottom: 1px solid rgba(34,211,238,.3); text-align: center; }
 body.con-aviso .layout { padding-top: 0; }
 @media (min-width: 1024px) { .web-aviso { margin-left: 262px; } }

@@ -4558,7 +4558,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   const t = rtuEstado(entrada), c0 = trjCat(t.sku), vista = entrada ? "rotentrada" : "rotulos";
   const CAMPOS = [
     { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
-    entrada ? { id: "rtN", k: "n", l: "RÓTULOS (ESTIBAS)", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
+    entrada ? { id: "rtN", k: "n", l: "RÓTULOS", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
       : { id: "rtN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric" placeholder="OBLIGATORIO"', user: true },
     { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, reinicia: ["total"] },
     { id: "rtT", k: "total", l: "TOTAL CAJAS (POR ESTIBA)", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
@@ -4574,7 +4574,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>
-      <div class="trj-g"><div class="trj-fila">${USUARIO.map(trjCampo).join("")}</div></div>
+      <div class="trj-g"><div class="trj-fila rt-fila ${entrada ? "rt-ent" : ""}">${USUARIO.map(trjCampo).join("")}</div></div>
       <button type="button" class="trj-mas-b" id="rtMasB" aria-expanded="false" aria-controls="rtMas"></button>
       <div class="trj-mas hidden" id="rtMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div>
         <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div></div>

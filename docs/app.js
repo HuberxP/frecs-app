@@ -4191,7 +4191,11 @@ function trjAjustar(raiz) {
 // abajo a la derecha, fuera de la tarjeta. Se imprime sin margen para que el navegador no ponga su enlace ni la fecha.
 const TRJ_MK = {
   f: { t: "𝐹𝓇𝑒𝒸𝓈! ツ", fam: 'Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif', peso: 700, mm: 4.2, color: "#111111" },
-  a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.6, color: "#4a4a4a" } };
+  a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.6, color: "#4a4a4a" },
+  s: { t: "", fam: '"Frecs Marcacion", Arial, sans-serif', peso: 700, mm: 2.8, color: "#222222" } };
+// Sello de los rótulos: fecha y hora de impresión y quién lo imprimió
+const rtuSello = () => { const d = new Date(); let hh = "", fe = trjDmy(trjHoy()); try { hh = d.toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).replace(/\s+/g, " "); } catch (e) { hh = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; }
+  return `IMPRESO ${fe} ${hh}${S.usuario ? " · " + trjMay(S.usuario.nombre) : ""}`; };
 const TRJ_MARCAS = `<span class="trj-mk trj-mk-f">${TRJ_MK.f.t}</span><span class="trj-mk trj-mk-a">${TRJ_MK.a.t}</span>`;
 // Para el PDF: la marca como imagen (jsPDF no tiene esas letras); medidas en mm
 function trjMarcaImg(m) {
@@ -4201,9 +4205,11 @@ function trjMarcaImg(m) {
   x.font = font; x.fillStyle = m.color; x.fillText(m.t, 3, 3 + asc);
   return { url: c.toDataURL("image/png"), w: c.width / k, h: c.height / k };
 }
-async function trjArmar(htmls, orient) {
+// sello: texto pequeño arriba a la derecha de la hoja (rótulos: cuándo y quién lo imprimió)
+async function trjArmar(htmls, orient, sello) {
   const caja = document.createElement("div"); caja.className = "trj-fuera";
-  caja.innerHTML = htmls.map(x => `<div class="trj-hoja ${orient === "landscape" ? "pag-h" : "pag-v"}">${x}${TRJ_MARCAS}</div>`).join("");
+  const se = sello ? `<span class="trj-mk trj-mk-s">${h(sello)}</span>` : "";
+  caja.innerHTML = htmls.map(x => `<div class="trj-hoja ${orient === "landscape" ? "pag-h" : "pag-v"}">${x}${TRJ_MARCAS}${se}</div>`).join("");
   document.body.appendChild(caja);
   await Promise.all($$("img", caja).map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })));
   await trjFuentes();
@@ -4212,10 +4218,10 @@ async function trjArmar(htmls, orient) {
   return caja;
 }
 // Imprimir desde la página: solo las hojas, en carta horizontal (tarjetas rojas) o vertical (rótulos y marcación)
-async function trjImprimir(htmls, orient) {
+async function trjImprimir(htmls, orient, sello) {
   const viejo = $("#trjPrint"); if (viejo) viejo.remove();
   const viejoSt = $("#trjPage"); if (viejoSt) viejoSt.remove();
-  const raiz = await trjArmar(htmls, orient); raiz.id = "trjPrint";
+  const raiz = await trjArmar(htmls, orient, sello); raiz.id = "trjPrint";
   const st = document.createElement("style"); st.id = "trjPage";
   st.textContent = `@page { size: letter ${orient}; margin: 0; }`;
   document.head.appendChild(st);
@@ -4231,13 +4237,13 @@ function trjCargarLibs() {
   if (!trjLibs) trjLibs = Promise.all([window.html2canvas ? 0 : carga("vendor/html2canvas.min.js"), window.jspdf ? 0 : carga("vendor/jspdf.umd.min.js")]).catch(e => { trjLibs = null; throw e; });
   return trjLibs;
 }
-async function trjPdf(htmls, orient, nombre) {
+async function trjPdf(htmls, orient, nombre, sello) {
   await trjCargarLibs();
-  const caja = await trjArmar(htmls, orient), hoja = orient === "landscape" ? { w: 279.4, h: 215.9 } : { w: 215.9, h: 279.4 };
+  const caja = await trjArmar(htmls, orient, sello), hoja = orient === "landscape" ? { w: 279.4, h: 215.9 } : { w: 215.9, h: 279.4 };
   try {
     const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: orient, compress: true });
     const hechas = {};   // las copias iguales se dibujan una sola vez
-    const mf = trjMarcaImg(TRJ_MK.f), ma = trjMarcaImg(TRJ_MK.a);
+    const mf = trjMarcaImg(TRJ_MK.f), ma = trjMarcaImg(TRJ_MK.a), ms = sello ? trjMarcaImg(Object.assign({}, TRJ_MK.s, { t: sello })) : null;
     const cards = $$(".trj-hoja > .trj, .trj-hoja > .mrc", caja);
     for (let k = 0; k < cards.length; k++) {
       const card = cards[k], w = parseFloat(card.dataset.w), hh = parseFloat(card.dataset.h), clave = htmls[k];
@@ -4248,6 +4254,7 @@ async function trjPdf(htmls, orient, nombre) {
       if (k) pdf.addPage("letter", orient);
       pdf.addImage(hechas[clave], "JPEG", (hoja.w - w) / 2, (hoja.h - hh) / 2, w, hh);
       pdf.addImage(mf.url, "PNG", 4.5, 0.6, mf.w, mf.h); pdf.addImage(ma.url, "PNG", hoja.w - 4.5 - ma.w, hoja.h - 0.6 - ma.h, ma.w, ma.h);
+      if (ms) pdf.addImage(ms.url, "PNG", hoja.w - 4.5 - ms.w, 1.2, ms.w, ms.h);
     }
     pdf.save(nombre);
   } finally { caja.remove(); }
@@ -4277,9 +4284,9 @@ function trjCola(el, o) {
       return;
     }
     const htmls = cola.flatMap(paginas);
-    if (b.dataset.cola === "imp") return trjImprimir(htmls, o.orient);
+    if (b.dataset.cola === "imp") return trjImprimir(htmls, o.orient, o.sello ? o.sello() : "");
     ocupado(b, true, "ARMANDO…");
-    try { await trjPdf(htmls, o.orient, `${o.nombre}_${trjHoy().replace(/-/g, "")}.pdf`); }
+    try { await trjPdf(htmls, o.orient, `${o.nombre}_${trjHoy().replace(/-/g, "")}.pdf`, o.sello ? o.sello() : ""); }
     catch (er) { toast(er.message || "No se pudo armar el PDF.", "bad", 6000); }
     ocupado(b, false);
   };
@@ -4524,7 +4531,7 @@ function marcaDeModulo(it, rot) {
 //   · Rótulos bodega: imprimir o reimprimir (no registra nada); con lista para un solo PDF.
 //   · Rótulos de entrada: igual, pero al imprimir registra la entrada (Entradas de producto).
 // Envasado = vencimiento − vida útil · recibo = el día en que se imprime · límite = vencimiento − T2
-// En la fila «Verificador» va el nombre de quien imprime.
+// Verificador y Rotador van en blanco; arriba a la derecha de la hoja, la fecha, la hora y quién imprimió.
 // =====================================================================
 function rtuEstado(entrada) {
   const k = entrada ? "rte" : "rtu";
@@ -4547,9 +4554,9 @@ function rtuCalcular(t) {
   if (c) { if (!vida) a.falta.push("VIDA ÚTIL"); if (!cpe) a.falta.push("CANT X ESTIBAS"); if (t2 === null) a.falta.push("DÍAS DE T2"); }
   return a;
 }
-// El nombre de quien imprime va solo en los rótulos para T1 (los de bodega son reimpresiones)
+// Los rótulos salen con Verificador y Rotador en blanco; quién y cuándo se imprimió va en el sello de arriba a la derecha
 const rtuDatos = (t, a, val, entrada) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: val || 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1,
-  fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: entrada && S.usuario ? S.usuario.nombre : "", rotad: "" });
+  fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: "", rotad: "" });
 VISTAS.rotulos = (el, p, vigente) => vistaRotulos(el, p, vigente, false);
 VISTAS.rotentrada = (el, p, vigente) => vistaRotulos(el, p, vigente, true);
 async function vistaRotulos(el, p, vigente, entrada) {
@@ -4569,7 +4576,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   // Visibles: producto, vencimiento y copias (o número de rótulos). Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
   const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
   el.innerHTML = (entrada
-    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con tu nombre en «Verificador». En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
+    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con la fecha, la hora y quién lo imprimió arriba a la derecha de la hoja. En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
     : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
@@ -4584,7 +4591,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
     </div><div class="trj-prev-w"><div class="trj-prev" id="rtPrev"></div></div></div>`;
   let a = null, tPrev = 0;
   const copias = () => Math.max(0, Math.min(50, trjEnt(t.copias) || 0));
-  const cola = entrada ? null : trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", pagina: x => marcaHtml(x.d),
+  const cola = entrada ? null : trjCola(el, { id: "rtCola", seccion: "ROTULOS", orient: "portrait", nombre: "Rotulos", sello: rtuSello, pagina: x => marcaHtml(x.d),
     etiqueta: x => `<b>${h(x.d.sku)} · ${h(x.d.prod)}</b><br><span class="small muted">ESTIBA #${h(x.d.val)} · VENCE ${h(trjDmy(x.d.fVen) || "—")}</span>` });
   const numN = () => { const n = trjEnt(t.n); return n && n > 0 ? Math.min(200, n) : 0; };
   const previa = () => trjPrevia($("#rtPrev", el), marcaHtml(rtuDatos(t, a, 1, entrada)));
@@ -4612,7 +4619,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   };
   if (!entrada) {
     // Imprimir ya este rótulo (con sus copias)
-    $("#rtImp", el).onclick = () => { if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait"); };
+    $("#rtImp", el).onclick = () => { if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait", rtuSello()); };
     // Guardar en la lista del usuario (si después se escoge otro producto, el formulario empieza de nuevo)
     $("#rtOk", el).onclick = async () => {
       if (!listo()) return;
@@ -4625,7 +4632,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
     };
   } else {
     // Imprimir y registrar: un rótulo por estiba (N copias iguales; «ESTIBA #» siempre 1). Si hace poco se registró una igual, se pregunta.
-    const imprimir = n => trjImprimir(Array.from({ length: n }, () => marcaHtml(rtuDatos(t, a, 1, true))), "portrait");
+    const imprimir = n => trjImprimir(Array.from({ length: n }, () => marcaHtml(rtuDatos(t, a, 1, true))), "portrait", rtuSello());
     $("#rtImp", el).onclick = async () => {
       if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
       if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }

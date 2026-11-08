@@ -1735,6 +1735,7 @@
   .trj-mk { position: absolute; line-height: 1; white-space: nowrap; }
   .trj-mk-f { left: 5mm; top: 1.4mm; font: 700 4.2mm/1 Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif; color: #111; }
   /* HuberHxH en Ink Free (viene con Windows); donde no está, Patrick Hand, que se parece */
+  .trj-mk-s { right: 5mm; top: 1.8mm; font: 700 2.8mm/1 "Frecs Marcacion", Arial, sans-serif; color: #222; letter-spacing: .02em; }
   .trj-mk-a { right: 5mm; bottom: 1.6mm; font: 400 3.6mm/1 "Ink Free", "Patrick Hand", cursive; color: #4a4a4a; }
   @media print {
     body.trj-imprimiendo > *:not(#trjPrint) { display: none !important; }

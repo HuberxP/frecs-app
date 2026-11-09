@@ -4097,9 +4097,10 @@ function cantidadesPdf_(arr, seccion) {
   const mezcla = us.length > 1;
   const total = us.map(u => fM(tot[u]) + " " + (pal[u] || [u, u])[tot[u] === 1 ? 0 : 1]).join(" + ");
   if (seccion === "KA" || seccion === "PK") return `<b class="tt">${escHtml_(total)}</b>`;
+  // (el «+» de las sumas va en negrilla)
   if (arr.length === 1) return `<b class="tt">${escHtml_(total)}</b>${arr[0].m ? ` <span class="md">(${escHtml_(arr[0].m)})</span>` : ""}`;
   const parte = x => `${fM(x.n)}${mezcla ? " " + escHtml_(ab[x.un] || x.un) : ""}${x.m ? ` (${escHtml_(x.m)})` : ""}`;
-  return `<b class="tt">${escHtml_(total)}</b> <span class="md">= ${arr.map(parte).join(" + ")}</span>`;
+  return `<b class="tt">${escHtml_(total)}</b> <span class="md">= ${arr.map(parte).join(" <b>+</b> ")}</span>`;
 }
 
 function cantTexto_(arr) {
@@ -4474,7 +4475,8 @@ function construirPDFEntrega(turnoId) {
 // ---------------------------------------------------------
 const CSS_FOTO_TPC = `table.hdr td.hdr-date{color:transparent}.tpc-f{border:2px solid #003399;border-radius:6px;padding:8px 10px;margin:4px 0 10px;font-size:14px;line-height:1.35}
   .tpc-f .fe{font-size:20px;font-weight:bold;color:#003399}.tpc-f .ho{font-size:16px;font-weight:bold}
-  table.t.tpc td,table.t.tpc th{font-size:14px;padding:6px 7px;line-height:1.25}table.t.tpc b.tt{font-size:15px}table.t.tpc .md{color:#444}
+  table.t.tpc td,table.t.tpc th{font-size:14px;padding:6px 7px;line-height:1.25}table.t.tpc b.tt{font-size:15px;font-weight:800}table.t.tpc .md{color:#444}
+  table.t.tpc td.pn{font-weight:800}
   table.t.tpc tr:nth-child(even) td{background:#f3f6fb}`;
 function construirPDFEntregaTpc(turnoId) {
   prepararTurnos_();
@@ -4496,7 +4498,7 @@ function construirPDFEntregaTpc(turnoId) {
   // Si la foto se saca otro día (de noche, antes de medianoche, o desde el historial), se dice cuándo se sacó
   const [y2, m2, d2] = hoy.split("-").map(Number);
   const cuando = fT === hoy ? `${hora}` : `Foto: ${dias[new Date(Date.UTC(y2, m2 - 1, d2)).getUTCDay()].slice(0, 3)} ${String(d2).padStart(2, "0")}/${String(m2).padStart(2, "0")} · ${hora}`;
-  const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, "TPC")}</td></tr>`).join("")
+  const filas = it.length ? it.map(x => `<tr><td>${escHtml_(x.sku)}</td><td class="izq pn">${escHtml_(x.producto)}</td><td class="izq">${cantidadesPdf_(x.cant, "TPC")}</td></tr>`).join("")
     : `<tr><td colspan="3" class="vacio">Sin productos en TPC.</td></tr>`;
   const cuerpo = `<div class="tpc-f"><div class="fe">${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">${cuando}</div>
       <div>Turno ${escHtml_(String(t.numero))} (${escHtml_(HORARIO_TURNOS[t.numero] || "")}) · ${escHtml_(t.abiertoPor || "")} · ${it.length} producto${it.length === 1 ? "" : "s"}</div></div>

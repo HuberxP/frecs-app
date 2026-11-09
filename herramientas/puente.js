@@ -313,6 +313,18 @@
     return libsPdf;
   }
   const MM = 96 / 25.4;   // px por mm
+  // Marca «HuberHxH» abajo a la derecha de todo lo que se imprime o se comparte (letra Ink Free; donde no está, Patrick Hand)
+  const HXH = { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', color: "#4a4a4a" };
+  async function fuenteHxH() { try { await document.fonts.load('400 20px "Patrick Hand"'); await document.fonts.load('400 20px "Ink Free"'); } catch (e) {} }
+  // La marca en un lienzo de alto «px»
+  function lienzoHxH(px) {
+    const c = document.createElement("canvas"), x = c.getContext("2d"), font = `400 ${Math.round(px)}px ${HXH.fam}`;
+    x.font = font; c.width = Math.ceil(x.measureText(HXH.t).width) + 6; c.height = Math.ceil(px * 1.35);
+    x.font = font; x.fillStyle = HXH.color; x.textBaseline = "middle"; x.fillText(HXH.t, 3, c.height / 2);
+    return c;
+  }
+  // Para ver el informe en pantalla: la marca al final, a la derecha
+  const conHxH = html => { const m = `<style>@font-face{font-family:"Patrick Hand";font-weight:400;src:url("vendor/fuentes/patrick-hand-400.woff2") format("woff2")}</style><div style="text-align:right;font:400 14px 'Ink Free','Patrick Hand',cursive;color:${HXH.color};margin-top:10px">${HXH.t}</div>`; return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, m + "</body>") : html + m; };
   // HTML del motor → PDF tamaño carta. Se dibuja página por página y nunca se corta una fila por la mitad.
   // modo "img": devuelve cada hoja como foto JPG (para compartir por WhatsApp como imagen)
   async function pdfDesdeHtml(html, modo) {
@@ -365,6 +377,8 @@
       const maxPx = 12e6, porTrozo = Math.max(1, Math.floor(maxPx / (anchoPx * escala * altoPag * escala)));
       const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "letter", orientation: horizontal ? "landscape" : "portrait", compress: true });
       const fotos = [];
+      await fuenteHxH();
+      const hxh = lienzoHxH(3.6 * 14), hxhUrl = hxh.toDataURL("image/png"), hxhW = hxh.width / 14, hxhH = hxh.height / 14;   // 3,6 mm de alto
       for (let k = 0; k < paginas.length; k += porTrozo) {
         const grupo = paginas.slice(k, k + porTrozo), y0 = grupo[0][0], y1 = grupo[grupo.length - 1][1];
         const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", x: 0, y: y0, width: anchoPx, height: y1 - y0, windowWidth: anchoPx, windowHeight: alto, logging: false, letterRendering: true });
@@ -379,11 +393,13 @@
             const foto = document.createElement("canvas"), mg = Math.round(margen * MM * escala);
             foto.width = hoja.width + 2 * mg; foto.height = Math.round((pag.h * MM) * escala);
             const fx = foto.getContext("2d"); fx.fillStyle = "#fff"; fx.fillRect(0, 0, foto.width, foto.height); fx.drawImage(hoja, mg, mg);
+            const mk = lienzoHxH(3.6 * MM * escala); fx.drawImage(mk, foto.width - mg - mk.width, foto.height - mk.height - Math.round(2 * MM * escala));
             fotos.push(foto.toDataURL("image/jpeg", 0.92));
             return;
           }
           if (k + n) pdf.addPage();
           pdf.addImage(hoja.toDataURL("image/jpeg", calidad), "JPEG", margen, margen, pag.w - 2 * margen, h / MM);
+          pdf.addImage(hxhUrl, "PNG", pag.w - margen - hxhW, pag.h - 2 - hxhH, hxhW, hxhH);
         });
       }
       if (modo === "img") return fotos;
@@ -401,7 +417,7 @@
     try {
       await new Promise(r => { ifr.onload = r; ifr.srcdoc = html; });
       const doc = ifr.contentDocument, body = doc.body;
-      body.style.margin = "0"; body.style.padding = "14px"; body.style.background = "#fff";
+      body.style.margin = "0"; body.style.padding = "14px 14px 34px"; body.style.background = "#fff";
       try { await doc.fonts.ready; } catch (e) {}
       // El alto del contenido (no el de la ventana): la foto termina donde termina la tabla
       ifr.style.height = "10px";
@@ -410,6 +426,10 @@
       // Escala alta para que se lea bien en el chat, sin pasar el límite de imagen del celular
       const escala = Math.max(1, Math.min(2.5, Math.sqrt(16e6 / (ancho * alto))));
       const lienzo = await window.html2canvas(body, { scale: escala, backgroundColor: "#ffffff", width: ancho, height: alto, windowWidth: ancho, windowHeight: alto, logging: false });
+      await fuenteHxH();
+      const mk = lienzoHxH(14 * escala);
+      const lx = lienzo.getContext("2d"); lx.setTransform(1, 0, 0, 1, 0, 0);   // (html2canvas deja la escala puesta)
+      lx.drawImage(mk, lienzo.width - mk.width - Math.round(14 * escala), lienzo.height - mk.height - Math.round(6 * escala));
       return lienzo.toDataURL("image/jpeg", 0.92);
     } finally { ifr.remove(); }
   }
@@ -641,7 +661,7 @@
         // La rotulación vive solo en Supabase: se trae fresca para armar su PDF o foto
         if (args[1] === "ROTULACION") MOTOR.cargarRot(await rpc("rot_ver", { p_token: args[0], p_id: Number(args[2]) }));
         // Ver el informe tal cual (sin convertirlo) o sacarlo como fotos
-        if (fn === "webPDFHtml") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, html: p.html, caption: p.caption }); }
+        if (fn === "webPDFHtml") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, html: conHxH(p.html), caption: p.caption }); }
         if (fn === "webPDFFotos") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, fotos: await pdfDesdeHtml(p.html, "img") }); }
         if (fn === "webPDFFoto") { const p = MOTOR.pdf(args[1], args[2] || ""); return ok({ nombre: p.nombre, foto: await fotoDesdeHtml(p.html), caption: p.caption }); }
         const p = await pdfDe(args[1], args[2]);

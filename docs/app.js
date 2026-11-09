@@ -360,6 +360,8 @@ function cab(titulo, sub, tools) {
   return `<div class="vh"><div><h1>${titulo} <button class="ayuda-btn" data-ayuda title="Ver la explicación" aria-label="Ver la explicación">?</button></h1>${sub ? `<div class="sub ayuda">${sub}</div>` : ""}</div>${tools ? `<div class="tools">${tools}</div>` : ""}</div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-ayuda]"); if (!b) return; const v = b.closest("#view") || $("#view"); v.classList.toggle("ver-ayuda"); b.classList.toggle("on", v.classList.contains("ver-ayuda")); });
+// La rueda del ratón no cambia los cuadros de números (se suelta el cuadro y la página baja normal)
+document.addEventListener("wheel", e => { const x = e.target; if (x && x.tagName === "INPUT" && x.type === "number" && document.activeElement === x) x.blur(); }, { passive: true });
 // Tarjetas desplegables: se abren y cierran al tocar su cabecera; se recuerda cuáles están abiertas
 S.abiertos = {};
 const abierto = (grupo, clave) => !!(S.abiertos[grupo] && S.abiertos[grupo][clave]);
@@ -2890,7 +2892,7 @@ const SECC = { BODEGA: { t: "🏭 Bodega", un: "Estibas", mod: true }, TPC: { t:
 const UN_PAL = { Estibas: ["estiba", "estibas"], Cajas: ["caja", "cajas"], Unidades: ["unidad", "unidades"] };
 const unPal = (n, un) => `${fm(n)} ${(UN_PAL[un] || [un, un])[Number(n) === 1 ? 0 : 1]}`;
 // Total por unidad (2 estibas + 2 estibas = 4 estibas, y aparte la suma de las cajas)
-const totalUn = arr => { const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); }); return ["Estibas", "Cajas", "Unidades"].filter(u => t[u] !== undefined).map(u => unPal(t[u], u)).join(" + "); };
+const totalUn = arr => { const t = {}; arr.forEach(x => { t[x.un] = (t[x.un] || 0) + (Number(x.n) || 0); }); return ["Estibas", "Cajas", "Unidades"].filter(u => t[u] !== undefined).map(u => unPal(t[u], u)).join(" <b class=\"mas\">+</b> "); };
 // Sin cantidades = «–» (falta contar, sin color) · un 0 contado se ve igual que cualquier número («0 cajas»)
 const cantChips = (arr, s) => {
   if (!arr || !arr.length) return `<span class="cant-pend" title="Falta contar">–</span>`;
@@ -4138,7 +4140,7 @@ const trjT2 = c => c ? trjNum(c.t2 !== null && c.t2 !== undefined && c.t2 !== ""
 
 // ---------- piezas comunes del formulario ----------
 // Cuadros uno debajo del otro: los que escribe el usuario van con color; los automáticos, sin color
-const trjCampo = f => `<label class="field trj-f ${f.user ? "trj-in" : "trj-au"}" id="${f.id}W"><span>${f.l}</span><input ${f.tipo || 'type="text"'} id="${f.id}" autocomplete="off" ${f.extra || ""}><small class="trj-h" id="${f.id}H"></small></label>`;
+const trjCampo = f => `<label class="field trj-f ${f.user || f.vis ? "trj-in" : "trj-au"}" id="${f.id}W"><span>${f.l}</span><input ${f.tipo || 'type="text"'} id="${f.id}" autocomplete="off" ${f.extra || ""}><small class="trj-h" id="${f.id}H"></small></label>`;
 // Muestra en los cuadros lo que va en la tarjeta (menos el que se está escribiendo)
 function trjMostrar(el, campos, t, a, desde) {
   campos.forEach(f => {
@@ -4146,7 +4148,8 @@ function trjMostrar(el, campos, t, a, desde) {
     x.value = f.auto ? (t.man[f.k] ? t[f.k] : (a[f.k] === null || a[f.k] === undefined ? "" : a[f.k])) : (t[f.k] || "");
     const tx = x.type === "date" && x.parentNode.querySelector(".fecha-txt");
     if (tx && document.activeElement !== tx) { tx.value = trjDmy(x.value); tx.classList.remove("mal"); }
-    if (f.auto) $("#" + f.id + "H", el).textContent = t.man[f.k] ? "ESCRITO A MANO (BÓRRALO PARA VOLVER AL CÁLCULO)" : (a.ayuda[f.k] ? "AUTOMÁTICO · " + a.ayuda[f.k] : "AUTOMÁTICO");
+    // (los automáticos que van a la vista solo avisan cuando se escribieron a mano)
+    if (f.auto) $("#" + f.id + "H", el).textContent = t.man[f.k] ? "ESCRITO A MANO (BÓRRALO PARA VOLVER AL CÁLCULO)" : f.vis ? "" : (a.ayuda[f.k] ? "AUTOMÁTICO · " + a.ayuda[f.k] : "AUTOMÁTICO");
   });
 }
 // Escribir en un cuadro: lo automático que se escribe queda a mano; vacío vuelve al cálculo
@@ -4357,6 +4360,9 @@ function trjCalcular(t) {
   if (t.man.cajas) a.cajas = t.cajas;
   else a.cajas = cpe ? String((pal || 0) * cpe + sueM) : (sueM ? String(sueM) : "");
   a.ayuda.cajas = !cpe ? "" : `${fm(pal || 0)} ${pal === 1 ? "PALLET" : "PALLETS"} × ${fm(cpe)} CAJAS${sueM ? ` + ${fm(sueM)} SUELTAS` : ""}`;
+  // Las cajas sueltas son una estiba incompleta: en la tarjeta cuentan como un pallet más (5 pallets + sueltas = 6)
+  a.palTot = (pal || 0) + (sueM > 0 ? 1 : 0);
+  if (sueM > 0) a.ayuda.cajas += ` · EN LA TARJETA ${fm(a.palTot)} PALLETS`;
   const caj = trjNum(a.cajas);
   a.uni = !T.uni ? "" : t.man.uni ? t.uni : (caj !== null && fac ? String(Math.round(caj * fac)) : "");
   a.ayuda.uni = fac && caj !== null ? `${fm(caj)} CAJAS × ${fm(fac)} UNIDADES POR CAJA` : "";
@@ -4369,7 +4375,7 @@ function trjCalcular(t) {
   return a;
 }
 // Lo que se imprime (se guarda así en la lista)
-const trjDatos = (t, a) => ({ tipo: t.tipo, lote: trjMay(t.lote), desc: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", sol: trjMay(t.sol), env: a.env, bloq: a.bloq, vence: t.vence, pallets: t.pallets, cajas: a.cajas, uni: a.uni, vida: a.vida });
+const trjDatos = (t, a) => ({ tipo: t.tipo, lote: trjMay(t.lote), desc: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", sol: trjMay(t.sol), env: a.env, bloq: a.bloq, vence: t.vence, pallets: a.palTot ? String(a.palTot) : t.pallets, cajas: a.cajas, uni: a.uni, vida: a.vida });
 // HTML de una tarjeta roja (tamaño real, en mm)
 function trjHtml(d) {
   const T = TRJ_TIPOS[d.tipo], tq = d.tipo === "CUARENTENA" || d.tipo === "TRANSPORTE", P = TRJ_PAG.H;
@@ -4565,23 +4571,24 @@ async function vistaRotulos(el, p, vigente, entrada) {
   const t = rtuEstado(entrada), c0 = trjCat(t.sku), vista = entrada ? "rotentrada" : "rotulos";
   const CAMPOS = [
     { id: "rtV", k: "vence", l: "FECHA DE VENCIMIENTO", tipo: 'type="date"', user: true },
-    entrada ? { id: "rtN", k: "n", l: "RÓTULOS", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
+    // Cajas por estiba: automática (de la hoja Sku) pero a la vista, porque es la que más se cambia
+    { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, vis: true, reinicia: ["total"] },
+    entrada ? { id: "rtN", k: "n", l: "COPIAS", tipo: 'type="number" min="1" max="200" inputmode="numeric" placeholder="OBLIGATORIO"', user: true }
       : { id: "rtN", k: "copias", l: "COPIAS", tipo: 'type="number" min="1" max="50" inputmode="numeric" placeholder="OBLIGATORIO"', user: true },
-    { id: "rtC", k: "cpe", l: "CAJAS POR ESTIBA", tipo: 'type="number" min="0" inputmode="numeric"', auto: true, reinicia: ["total"] },
     { id: "rtT", k: "total", l: "TOTAL CAJAS (POR ESTIBA)", tipo: 'type="number" min="0" inputmode="numeric"', auto: true },
     { id: "rtP", k: "fp", l: "FECHA DE ENVASADO", tipo: 'type="date"', auto: true },
     { id: "rtR", k: "fr", l: "FECHA DE RECIBO", tipo: 'type="date"', auto: true },
     { id: "rtL", k: "fl", l: "FECHA LÍMITE DE DESPACHO", tipo: 'type="date"', auto: true }
   ];
-  // Visibles: producto, vencimiento y copias (o número de rótulos). Lo automático va en «CAMBIAR DATOS AUTOMÁTICOS»
-  const USUARIO = CAMPOS.filter(f => f.user), AUTOS = CAMPOS.filter(f => !f.user);
+  // Visibles: producto, vencimiento, cajas por estiba y copias (en T1 una copia = una estiba). Lo demás va en «CAMBIAR DATOS AUTOMÁTICOS»
+  const USUARIO = CAMPOS.filter(f => f.user || f.vis), AUTOS = CAMPOS.filter(f => !f.user && !f.vis);
   el.innerHTML = (entrada
-    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento y cuántos rótulos (uno por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con la fecha y la hora de impresión arriba a la derecha de la hoja. En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
-    : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas y las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
+    ? cab("RÓTULOS PARA T1", "Para el producto que entra a bodega: escoge el producto, la fecha de vencimiento, revisa las cajas por estiba y pon las copias (una por estiba). Al tocar IMPRIMIR Y REGISTRAR queda la entrada en «Entradas de producto» (Historial) y salen tantos rótulos como estibas (todos con ESTIBA # 1), con la fecha y la hora de impresión arriba a la derecha de la hoja. En la ventana de impresión no cambies las copias. Para solo reimprimir un rótulo usa «Rótulos bodega».")
+    : cab("RÓTULOS BODEGA", "Para imprimir o reimprimir rótulos (no registra entradas ni lleva nombre): escoge el producto, la fecha de vencimiento y las copias (obligatorio). Las cajas por estiba salen de la hoja Sku y se pueden cambiar ahí mismo; las fechas se calculan solas (envasado = vencimiento menos la vida útil, recibo = hoy); si quieres cambiar alguna, toca CAMBIAR DATOS AUTOMÁTICOS. IMPRIMIR saca este rótulo ya; GUARDAR lo deja en tu lista para generar al final un solo PDF con todos (hoja carta vertical).")) +
     `<div class="trj-wrap trj-v"><div class="card trj-form">
       <div class="trj-f trj-in">${campoAuto("rtPr", "NOMBRE O SKU", c0 ? `${c0.sku} · ${c0.prod}` : "")}</div>
       <div class="trj-aviso" id="rtAv"></div>
-      <div class="trj-g"><div class="trj-fila rt-fila ${entrada ? "rt-ent" : ""}">${USUARIO.map(trjCampo).join("")}</div></div>
+      <div class="trj-g">${trjCampo(CAMPOS[0])}<div class="trj-fila rt-fila">${USUARIO.slice(1).map(trjCampo).join("")}</div></div>
       <button type="button" class="trj-mas-b" id="rtMasB" aria-expanded="false" aria-controls="rtMas"></button>
       <div class="trj-mas hidden" id="rtMas"><div class="trj-g">${AUTOS.map(trjCampo).join("")}</div>
         <div class="small muted">DIMENSIONES DEL LOTE: ANCHO 1 · ALTO 1 · LARGO 1</div></div>
@@ -4637,7 +4644,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
       if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
       if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }
       const n = numN();
-      if (!n) { toast("Escribe cuántos rótulos (estibas) son.", "warn"); $("#rtN", el).focus(); return; }
+      if (!n) { toast("Escribe cuántas copias (una por estiba).", "warn"); $("#rtN", el).focus(); return; }
       const cp = trjNum(a.cpe);
       // cpeSku: las cajas por estiba de la hoja Sku (si el rótulo trae otras, la entrada sale con estibado distinto)
       const datos = { sku: a.c.sku, prod: trjMay(a.c.prod), pres: a.c.pres || "", vence: t.vence, env: a.fp, lim: a.fl, cpe: cp, cpeSku: trjEnt(a.c.cantEst), est: n, tot: cp !== null ? Math.round(cp * n) : null };

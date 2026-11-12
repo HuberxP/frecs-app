@@ -3444,7 +3444,7 @@ async function onConcClick(e) {
     const c = abrirModal(`<h3>Abrir conciliación</h3><p class="muted small">¿De qué turno es la conciliación? Normalmente se hace en el turno 3.</p>
       <div class="num-pick" id="caN">${[1, 2, 3].map(n => `<button type="button" data-n="${n}" class="${n === num ? "on" : ""}"><b>${n}</b><span>${h(horC(n))}</span></button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="caP"><span>Precargar los <b>pocos</b> (columna Minimo): solo SKU y nombre, los valores quedan en «—» para contarlos</span></label>
-      <label class="check"><input type="checkbox" id="caE"><span>Incluir lo contado en la <b>entrega del turno <span id="caA">${ant(num)}</span></b> (con esos conteos; lo de los pocos o copiado sigue en «—»)</span></label>
+      <label class="check"><input type="checkbox" id="caE"><span>Incluir los productos de la <b>entrega del turno <span id="caA">${ant(num)}</span></b>: solo SKU y nombre, los valores quedan en «—» para llenarlos</span></label>
       ${(k.anteriores || []).length ? `<details class="cp-ant"><summary>📋 Copiar los productos de una conciliación anterior</summary><p class="muted small">Solo los productos, con los valores en blanco para contarlos.</p>${listaCopiar("caC", k.anteriores, true)}</details>` : ""}
       <h2 style="margin-top:14px">📌 Pre-conciliación (${pend.length})</h2>
       ${pend.length ? pend.map(x => `<label class="check"><input type="checkbox" data-pre="${h(x.id)}"><span>${skuTxt(x.sku, x.producto)}<br><span class="sub">Turno ${h(x.turno || "?")} · ${h(x.usuario)}${x.motivo ? " · " + h(x.motivo) : ""}</span></span></label>`).join("") : `<p class="muted small">No hay productos anotados.</p>`}
@@ -3455,7 +3455,7 @@ async function onConcClick(e) {
       try {
         const r = await api("webConcAbrir", { numero: num, pocos: $("#caP", c).checked, entrega: $("#caE", c).checked, pre: $$("input[data-pre]:checked", c).map(x => x.dataset.pre), copiar: cpElegida(c, "caC") });
         ocupado(btn, false); cerrarModal(true); S.conc = r.estado; ls.setJ("conc", S.conc);
-        toast(`Conciliación del turno ${r.resultado.numero} abierta con ${r.resultado.productos} productos${r.resultado.conteoDe ? ` (conteos de ${r.resultado.conteoDe})` : ""}`, "ok", 6000); pintarConc();
+        toast(`Conciliación del turno ${r.resultado.numero} abierta con ${r.resultado.productos} productos${r.resultado.conteoDe ? ` (con los de ${r.resultado.conteoDe}, por contar)` : ""}`, "ok", 6000); pintarConc();
       } catch (er) { ocupado(btn, false); toast(er.message, "bad", 7000); }
     };
     return;
@@ -4124,7 +4124,9 @@ function modalTareaHecha(x) {
 // sale un solo PDF (o impresión) con todas las hojas.
 // =====================================================================
 // mm: tarjeta roja = carta horizontal con margen pequeño · marcación y rótulos = carta vertical con más margen
-const TRJ_PAG = { H: { w: 267, h: 203, o: "landscape" }, V: { w: 190, h: 254, o: "portrait" } };
+// (la tarjeta roja va un poco más pequeña que la hoja para que las marcas queden lejos del borde y no las tape el margen de la impresora)
+const TRJ_PAG = { H: { w: 259, h: 196, o: "landscape" }, V: { w: 190, h: 254, o: "portrait" } };
+const TRJ_MK_X = 8, TRJ_MK_Y = 5;   // mm de las marcas al borde de la hoja
 const trjHoy = () => { try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" }); } catch (e) { return new Date().toISOString().slice(0, 10); } };
 const trjMenos = (iso, dias) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); if (!m || dias === null || dias === undefined || !isFinite(dias)) return ""; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); d.setUTCDate(d.getUTCDate() - Math.round(dias)); return d.toISOString().slice(0, 10); };
 const trjDmy = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
@@ -4193,9 +4195,9 @@ function trjAjustar(raiz) {
 // Cada hoja es la hoja carta completa: la tarjeta centrada, «𝐹𝓇𝑒𝒸𝓈! ツ» arriba a la izquierda y «HuberHxH» (letra Ink Free)
 // abajo a la derecha, fuera de la tarjeta. Se imprime sin margen para que el navegador no ponga su enlace ni la fecha.
 const TRJ_MK = {
-  f: { t: "𝐹𝓇𝑒𝒸𝓈! ツ", fam: 'Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif', peso: 700, mm: 4.2, color: "#111111" },
-  a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.6, color: "#4a4a4a" },
-  s: { t: "", fam: '"Frecs Marcacion", Arial, sans-serif', peso: 400, mm: 2.8, color: "#222222" } };
+  f: { t: "𝐹𝓇𝑒𝒸𝓈! ツ", fam: 'Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif', peso: 700, mm: 3.6, color: "#555555" },
+  a: { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', peso: 400, mm: 3.4, color: "#555555" },
+  s: { t: "", fam: '"Frecs Marcacion", Arial, sans-serif', peso: 400, mm: 2.8, color: "#555555" } };
 // Sello de los rótulos: solo la fecha y la hora de impresión
 const rtuSello = () => { const d = new Date(); let hh = "", fe = trjDmy(trjHoy()); try { hh = d.toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).replace(/\s+/g, " "); } catch (e) { hh = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; }
   return `${fe} ${hh}`; };
@@ -4256,8 +4258,8 @@ async function trjPdf(htmls, orient, nombre, sello) {
       }
       if (k) pdf.addPage("letter", orient);
       pdf.addImage(hechas[clave], "JPEG", (hoja.w - w) / 2, (hoja.h - hh) / 2, w, hh);
-      pdf.addImage(mf.url, "PNG", 4.5, 0.6, mf.w, mf.h); pdf.addImage(ma.url, "PNG", hoja.w - 4.5 - ma.w, hoja.h - 0.6 - ma.h, ma.w, ma.h);
-      if (ms) pdf.addImage(ms.url, "PNG", hoja.w - 4.5 - ms.w, 1.2, ms.w, ms.h);
+      pdf.addImage(mf.url, "PNG", TRJ_MK_X, TRJ_MK_Y - 0.4, mf.w, mf.h); pdf.addImage(ma.url, "PNG", hoja.w - TRJ_MK_X - ma.w, hoja.h - TRJ_MK_Y + 0.4 - ma.h, ma.w, ma.h);
+      if (ms) pdf.addImage(ms.url, "PNG", hoja.w - TRJ_MK_X - ms.w, TRJ_MK_Y, ms.w, ms.h);
     }
     pdf.save(nombre);
   } finally { caja.remove(); }
@@ -4358,8 +4360,9 @@ function trjCalcular(t) {
   // Cajas = pallets × cajas por estiba (+ las sueltas en el bolsillo); al cambiar los pallets cambian las cajas y las unidades
   const sueM = t.modo === "bolsillo" ? sue : 0;
   if (t.man.cajas) a.cajas = t.cajas;
-  else a.cajas = cpe ? String((pal || 0) * cpe + sueM) : (sueM ? String(sueM) : "");
-  a.ayuda.cajas = !cpe ? "" : `${fm(pal || 0)} ${pal === 1 ? "PALLET" : "PALLETS"} × ${fm(cpe)} CAJAS${sueM ? ` + ${fm(sueM)} SUELTAS` : ""}`;
+  // Sin pallets ni sueltas (el cuadro en blanco): las cajas y las unidades salen en blanco, no en 0
+  else a.cajas = pal === null && !sueM ? "" : cpe ? String((pal || 0) * cpe + sueM) : (sueM ? String(sueM) : "");
+  a.ayuda.cajas = !cpe || (pal === null && !sueM) ? "" : `${fm(pal || 0)} ${pal === 1 ? "PALLET" : "PALLETS"} × ${fm(cpe)} CAJAS${sueM ? ` + ${fm(sueM)} SUELTAS` : ""}`;
   // Las cajas sueltas son una estiba incompleta: en la tarjeta cuentan como un pallet más (5 pallets + sueltas = 6)
   a.palTot = (pal || 0) + (sueM > 0 ? 1 : 0);
   if (sueM > 0) a.ayuda.cajas += ` · EN LA TARJETA ${fm(a.palTot)} PALLETS`;
@@ -4475,7 +4478,7 @@ VISTAS.tarjetas = async (el, p, vigente) => {
   $("#trjNue", el).onclick = () => { S.trj = null; const n = trjEstado(); n.tipo = t.tipo; n.modo = t.modo; ir("tarjetas"); };
   // Imprimir ya esta tarjeta (con sus copias)
   $("#trjImp", el).onclick = () => {
-    if (!a.c) { toast("Escoge el producto.", "warn"); $("#trjP", el).focus(); return; }
+    if (!a.c) toast("Tarjeta en blanco (sin producto)", "", 3000);
     const pg = trjHtml(trjDatos(t, a));
     trjImprimir(Array.from({ length: Math.max(1, Math.min(50, trjEnt(t.copias) || 1)) }, () => pg), "landscape");
   };
@@ -4561,8 +4564,12 @@ function rtuCalcular(t) {
   return a;
 }
 // Los rótulos salen con Verificador y Rotador en blanco; quién y cuándo se imprimió va en el sello de arriba a la derecha
-const rtuDatos = (t, a, val, entrada) => ({ prod: a.c ? trjMay(a.c.prod) : "", sku: a.c ? a.c.sku : "", etq: "ESTIBA #", val: val || 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1,
-  fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: "", rotad: "" });
+// Sin producto sale el rótulo en blanco (para llenarlo a mano): solo lo que el usuario haya escrito
+const rtuDatos = (t, a, val, entrada) => a.c
+  ? { prod: trjMay(a.c.prod), sku: a.c.sku, etq: "ESTIBA #", val: val || 1, cpe: a.cpe, est: 1, total: a.total, ancho: 1, alto: 1, largo: 1,
+      fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: a.fr, fLim: a.fl, fVen: t.vence, verif: "", rotad: "" }
+  : { prod: "", sku: "", etq: "ESTIBA #", val: "", cpe: a.cpe, est: "", total: a.total, ancho: "", alto: "", largo: "",
+      fEnv: a.fp, lblRec: "FECHA DE RECIBO", fRec: t.man.fr ? a.fr : "", fLim: a.fl, fVen: t.vence, verif: "", rotad: "" };
 VISTAS.rotulos = (el, p, vigente) => vistaRotulos(el, p, vigente, false);
 VISTAS.rotentrada = (el, p, vigente) => vistaRotulos(el, p, vigente, true);
 async function vistaRotulos(el, p, vigente, entrada) {
@@ -4618,6 +4625,8 @@ async function vistaRotulos(el, p, vigente, entrada) {
   alLimpiar($("#rtPr", el), () => { t.sku = ""; pintar(); });
   trjEnlazar(el, CAMPOS, t, pintar);
   $("#rtNue", el).onclick = () => { S[entrada ? "rte" : "rtu"] = null; ir(vista); };
+  // Sin producto: se imprime el rótulo en blanco (las copias que diga, o 1)
+  const enBlanco = () => { const n = Math.max(1, Math.min(50, trjEnt(entrada ? t.n : t.copias) || 1)); toast(`Rótulo en blanco${n > 1 ? ` × ${n}` : ""}${entrada ? " (no se registra entrada)" : ""}`, "", 3000); const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: n }, () => pg), "portrait", rtuSello()); };
   const listo = () => {
     if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return false; }
     if (!entrada && !copias()) { toast("Escribe cuántas copias.", "warn"); $("#rtN", el).focus(); return false; }
@@ -4626,7 +4635,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
   };
   if (!entrada) {
     // Imprimir ya este rótulo (con sus copias)
-    $("#rtImp", el).onclick = () => { if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait", rtuSello()); };
+    $("#rtImp", el).onclick = () => { if (!a.c) return enBlanco(); if (!listo()) return; const pg = marcaHtml(rtuDatos(t, a)); trjImprimir(Array.from({ length: copias() }, () => pg), "portrait", rtuSello()); };
     // Guardar en la lista del usuario (si después se escoge otro producto, el formulario empieza de nuevo)
     $("#rtOk", el).onclick = async () => {
       if (!listo()) return;
@@ -4641,7 +4650,7 @@ async function vistaRotulos(el, p, vigente, entrada) {
     // Imprimir y registrar: un rótulo por estiba (N copias iguales; «ESTIBA #» siempre 1). Si hace poco se registró una igual, se pregunta.
     const imprimir = n => trjImprimir(Array.from({ length: n }, () => marcaHtml(rtuDatos(t, a, 1, true))), "portrait", rtuSello());
     $("#rtImp", el).onclick = async () => {
-      if (!a.c) { toast("Escoge el producto.", "warn"); $("#rtPr", el).focus(); return; }
+      if (!a.c) return enBlanco();
       if (!t.vence) { toast("Escribe la fecha de vencimiento.", "warn"); return; }
       const n = numN();
       if (!n) { toast("Escribe cuántas copias (una por estiba).", "warn"); $("#rtN", el).focus(); return; }

@@ -314,7 +314,7 @@
   }
   const MM = 96 / 25.4;   // px por mm
   // Marca «HuberHxH» abajo a la derecha de todo lo que se imprime o se comparte (letra Ink Free; donde no está, Patrick Hand)
-  const HXH = { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', color: "#4a4a4a" };
+  const HXH = { t: "HuberHxH", fam: '"Ink Free", "Patrick Hand", cursive', color: "#555555" };
   async function fuenteHxH() { try { await document.fonts.load('400 20px "Patrick Hand"'); await document.fonts.load('400 20px "Ink Free"'); } catch (e) {} }
   // La marca en un lienzo de alto «px»
   function lienzoHxH(px) {
@@ -393,13 +393,13 @@
             const foto = document.createElement("canvas"), mg = Math.round(margen * MM * escala);
             foto.width = hoja.width + 2 * mg; foto.height = Math.round((pag.h * MM) * escala);
             const fx = foto.getContext("2d"); fx.fillStyle = "#fff"; fx.fillRect(0, 0, foto.width, foto.height); fx.drawImage(hoja, mg, mg);
-            const mk = lienzoHxH(3.6 * MM * escala); fx.drawImage(mk, foto.width - mg - mk.width, foto.height - mk.height - Math.round(2 * MM * escala));
+            const mk = lienzoHxH(3.6 * MM * escala); fx.drawImage(mk, foto.width - mg - mk.width, foto.height - mk.height - Math.round(4.5 * MM * escala));
             fotos.push(foto.toDataURL("image/jpeg", 0.92));
             return;
           }
           if (k + n) pdf.addPage();
           pdf.addImage(hoja.toDataURL("image/jpeg", calidad), "JPEG", margen, margen, pag.w - 2 * margen, h / MM);
-          pdf.addImage(hxhUrl, "PNG", pag.w - margen - hxhW, pag.h - 2 - hxhH, hxhW, hxhH);
+          pdf.addImage(hxhUrl, "PNG", pag.w - margen - hxhW, pag.h - 4.5 - hxhH, hxhW, hxhH);
         });
       }
       if (modo === "img") return fotos;

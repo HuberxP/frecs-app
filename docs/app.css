@@ -1733,10 +1733,10 @@
   .trj-hoja.pag-v { width: 215.9mm; height: 278.9mm; }
   .trj-hoja > .trj, .trj-hoja > .mrc { position: relative; flex: none; }
   .trj-mk { position: absolute; line-height: 1; white-space: nowrap; }
-  .trj-mk-f { left: 5mm; top: 1.4mm; font: 700 4.2mm/1 Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif; color: #111; }
+  .trj-mk-f { left: 8mm; top: 5mm; font: 700 3.6mm/1 Arial, "Segoe UI Symbol", "Cambria Math", "Noto Sans Math", "Noto Sans Symbols", sans-serif; color: #555; }
   /* HuberHxH en Ink Free (viene con Windows); donde no está, Patrick Hand, que se parece */
-  .trj-mk-s { right: 5mm; top: 1.8mm; font: 400 2.8mm/1 "Frecs Marcacion", Arial, sans-serif; color: #222; }
-  .trj-mk-a { right: 5mm; bottom: 1.6mm; font: 400 3.6mm/1 "Ink Free", "Patrick Hand", cursive; color: #4a4a4a; }
+  .trj-mk-s { right: 8mm; top: 5.4mm; font: 400 2.8mm/1 "Frecs Marcacion", Arial, sans-serif; color: #555; }
+  .trj-mk-a { right: 8mm; bottom: 5mm; font: 400 3.4mm/1 "Ink Free", "Patrick Hand", cursive; color: #555; }
   @media print {
     body.trj-imprimiendo > *:not(#trjPrint) { display: none !important; }
     body.trj-imprimiendo { margin: 0 !important; padding: 0 !important; background: #fff !important; }

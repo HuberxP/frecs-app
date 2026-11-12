@@ -4140,7 +4140,8 @@ function entPrecargarConcCore_(secciones, usuario) {
     const nuevas = [];
     entConcPorTraer_(c, entLeerTurno_(turno.id).secciones, secciones).forEach(x => {
       agregados[x.s]++;
-      const cant = JSON.stringify([{ n: x.n, un: "Cajas", m: "" }]);
+      // Bodega llega en estibas (la conciliación guarda cajas): estibas completas y, si sobran, las cajas sueltas
+      const cant = JSON.stringify(x.s === "BODEGA" ? entBodegaCant_(x.n, x.sku) : [{ n: x.n, un: "Cajas", m: "" }]);
       if (x.fila) tEscribir_(ENT_T.items, x.fila, 5, [cant, ahora_(), usuario, origen]);   // estaba sin contar
       else nuevas.push([turno.id, x.s, x.sku, x.producto, cant, ahora_(), usuario, origen]);
     });
@@ -4149,6 +4150,15 @@ function entPrecargarConcCore_(secciones, usuario) {
   });
 }
 
+// Cajas de Bodega (de la conciliación) → estibas completas + cajas sueltas, con las cajas por estiba del producto
+function entBodegaCant_(cajas, sku) {
+  const n = Number(cajas) || 0, cpe = cpeDeSku_(sku);
+  if (!(cpe > 1)) return [{ n: n, un: "Cajas", m: "" }];
+  const est = Math.floor(n / cpe), sueltas = n - est * cpe, r = [];
+  if (est > 0 || !sueltas) r.push({ n: est, un: "Estibas", m: "" });
+  if (sueltas > 0) r.push({ n: sueltas, un: "Cajas", m: "" });
+  return r;
+}
 // Total en cajas de una lista de cantidades (estibas × cajas por estiba)
 function entACajas_(arr, cpe) {
   return (arr || []).reduce((a, x) => a + (x.un === "Estibas" ? x.n * (cpe || 1) : (x.un === "Unidades" ? 0 : x.n)), 0);
@@ -4285,7 +4295,7 @@ function entPrecargarCore_(secciones, usuario, opts) {
     skus.forEach(x => {
       const lotes = inv.filter(i => i.s === x.s);
       if (secciones.includes("BODEGA")) {
-        if (conc && conc[x.s] && conc[x.s].bodega !== "") agregar("BODEGA", x.s, x.p, [{ n: conc[x.s].bodega, un: "Cajas", m: "" }], origenConc);
+        if (conc && conc[x.s] && conc[x.s].bodega !== "") agregar("BODEGA", x.s, x.p, entBodegaCant_(conc[x.s].bodega, x.s), origenConc);
         else {
           let porMod = {};
           lotes.filter(esZonaBodega_).forEach(i => { porMod[i.m] = porMod[i.m] || { c: 0, cpe: i.cpe }; porMod[i.m].c += i.c; });
@@ -4689,7 +4699,8 @@ function concAbrirCore_(opts, usuario) {
     // Los conteos de la entrega solo van en lo que vino de la entrega o de la pre-conciliación: lo que se
     // carga de los pocos o de otra conciliación entra solo con SKU y nombre (los valores en «—», por contar)
     const filas = Object.keys(skus).map(s => {
-      const c = opts.entrega !== false && !/^(Pocos|Copiado)/.test(skus[s].origen) ? (ent.mapa[s] || {}) : {};
+      // Todo entra solo con SKU y nombre: los valores quedan en «—» para llenarlos (también lo de la entrega anterior)
+      const c = {};
       return [id, s, skus[s].producto, c.bodega === undefined ? "" : c.bodega, c.ka === undefined ? "" : c.ka, c.pk === undefined ? "" : c.pk, "", false, ahora_(), usuario, skus[s].origen + (c.bodega !== undefined ? " · conteo T" + ant : "")];
     });
     tAgregar_(CONC_T.items, filas);
@@ -6442,7 +6453,7 @@ function cabeceraPDF_(titulo, fecha, colorTitulo) {
 
 const CSS_CABECERA_PDF = `.hdr{width:100%;border-collapse:collapse;border:none;border-bottom:2px solid #222;margin-bottom:10px}
   .hdr td{border:none !important;padding:4px 0;background:#fff !important}
-  .hdr-brand{font-size:16px;font-weight:bold;color:#111;text-align:left;width:25%}
+  .hdr-brand{font-size:16px;font-weight:bold;color:#555;text-align:left;width:25%}
   .hdr-title{font-size:12.5px;font-weight:bold;text-align:center}
   .hdr-date{font-size:9px;color:#666;text-align:right;width:25%}`;
 

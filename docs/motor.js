@@ -4468,12 +4468,17 @@ const CSS_FOTO_TPC = `table.hdr td.hdr-date{color:transparent}.tpc-f{border:2px 
   .tpc-f .fe{font-size:20px;font-weight:bold;color:#003399}.tpc-f .ho{font-size:16px;font-weight:bold}
   table.t.tpc td,table.t.tpc th{font-size:14px;padding:6px 7px;line-height:1.25}table.t.tpc b.tt{font-size:15px;font-weight:800}table.t.tpc .md{color:#444}
   table.t.tpc td.pn{font-weight:800}
+  h3.tpc-d{font-size:15px;color:#003399;margin:16px 0 6px}table.t.tpc-b th{background:#e9f7ee;color:#0f5132}
   table.t.tpc tr:nth-child(even) td{background:#f3f6fb}`;
 function construirPDFEntregaTpc(turnoId) {
   prepararTurnos_();
   const t = turnoId ? turnoPorId_(turnoId) : turnoAbierto_(true);
   if (!t) throw new Error(turnoId ? "Turno no encontrado." : "No hay turno abierto.");
-  const it = (entLeerTurno_(t.id).secciones.TPC || []).slice().sort((a, b) => String(a.producto).localeCompare(String(b.producto)));
+  const sec = entLeerTurno_(t.id).secciones;
+  const it = (sec.TPC || []).slice().sort((a, b) => String(a.producto).localeCompare(String(b.producto)));
+  // Lo que hay en Bodega (sin TPC) de esos mismos productos, según lo que se escribió en la entrega (no el WMS)
+  const bod = {};
+  (sec.BODEGA || []).forEach(x => { if (x.cant && x.cant.length) bod[x.sku] = (bod[x.sku] || []).concat(x.cant); });
   // La fecha es la del turno, no la del reloj: el turno 1 que se abre a las 10 p. m. ya lleva la fecha de la
   // mañana siguiente (fechaTurno_), y así sale la foto aunque se saque antes de medianoche.
   // (solo yyyy, MM, dd, HH y mm: lo que entiende también la versión web)
@@ -4493,7 +4498,10 @@ function construirPDFEntregaTpc(turnoId) {
     : `<tr><td colspan="3" class="vacio">Sin productos en TPC.</td></tr>`;
   const cuerpo = `<div class="tpc-f"><div class="fe">${dia.charAt(0).toUpperCase() + dia.slice(1)} ${fecha}</div><div class="ho">${cuando}</div>
       <div>Turno ${escHtml_(String(t.numero))} (${escHtml_(HORARIO_TURNOS[t.numero] || "")}) · ${escHtml_(t.abiertoPor || "")} · ${it.length} producto${it.length === 1 ? "" : "s"}</div></div>
-    <table class="t tpc"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">Cantidad</th></tr></thead><tbody>${filas}</tbody></table>`;
+    <table class="t tpc"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">Cantidad</th></tr></thead><tbody>${filas}</tbody></table>
+    ${it.length ? `<h3 class="tpc-d">Disponible en bodega para hacer TPC</h3>
+    <table class="t tpc tpc-b"><thead><tr><th style="width:14%">SKU</th><th class="izq">Producto</th><th class="izq" style="width:34%">En bodega (sin TPC)</th></tr></thead><tbody>${it.map(x =>
+      `<tr><td>${escHtml_(x.sku)}</td><td class="izq pn">${escHtml_(x.producto)}</td><td class="izq">${bod[x.sku] ? cantidadesPdf_(bod[x.sku], "BODEGA") : `<b class="tt">0</b>`}</td></tr>`).join("")}</tbody></table>` : ""}`;
   const html = pdfDoc_("TPC · TAPACÓDIGOS", cuerpo, { css: CSS_FOTO_TPC });
   return { blob: htmlAPdf_(html, `TPC_${fT}_T${t.numero}_${hh}${mi}.pdf`), caption: `🏷️ *TPC* · ${fecha} · ${turnoTexto_(t)}` };
 }
